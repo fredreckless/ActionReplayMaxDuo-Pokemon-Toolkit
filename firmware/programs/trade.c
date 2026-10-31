@@ -18,6 +18,8 @@
  *     as master 0xEEBB / 0xEECC);
  *   - the trade scene (0x1144): 0xABCD when ready (as master, 0xDCBA once both are), and every
  *     "ready" barrier (0x2FFE) answered;
+ *   - back in the room (0x1111) after the trade screen: we walk back to the door and leave (23),
+ *     or follow the player out, so the game warps out and closes the link cleanly;
  *   - 0x5FFF answered, as always.
  * The PC loads: party count, our pick, trainer name and ID, 6 x 100-byte party, 220-byte mail. */
 typedef unsigned int u32;
@@ -61,6 +63,7 @@ typedef struct {
 #define CMD_LEN   8
 
 #define LT_ROOM  0x1133   /* the attendant's link, kept open into the Trade Center */
+#define LT_BACK  0x1111   /* back in the room after the trade screen (cable_club.c sub_8083664) */
 #define LT_TRADE 0x1122
 #define LT_SCENE 0x1144
 
@@ -78,7 +81,7 @@ static u32 now(void)
 }
 
 /* ------------------------------------------------------------------ what the PC loads */
-#define BLOB_MAX (16 + 600 + 220)
+#define BLOB_MAX (16 + 600 + 220 + 28)
 static u32 blob_words[BLOB_MAX / 4], put_at, blob_ready;
 #define BLOB ((u8 *)blob_words)
 #define PARTY_COUNT BLOB[0]
@@ -87,10 +90,12 @@ static u32 blob_words[BLOB_MAX / 4], put_at, blob_ready;
 #define OUR_TID     (BLOB + 12)         /* 4 bytes */
 #define PARTY       (BLOB + 16)         /* 6 x 100 */
 #define MAIL        (BLOB + 616)        /* 220 */
+#define LABEL       ((const char *)BLOB + 836)   /* 28: a line for the screen, e.g. "Offering JIRACHI" */
 
 /* ------------------------------------------------------------------ progress, for the PC */
 enum { ST_WAITING, ST_HANDSHAKE, ST_CONNECTED, ST_ROOM, ST_WALKING, ST_SEATED, ST_PARTIES, ST_MENU,
-       ST_CHOSEN, ST_AGREED, ST_SCENE, ST_SAVING, ST_TRADED, ST_LEAVING, ST_DECLINED, ST_DONE };
+       ST_CHOSEN, ST_AGREED, ST_SCENE, ST_SAVING, ST_TRADED, ST_LEAVING, ST_DECLINED, ST_RETURNING,
+       ST_BACK, ST_WALKING_OUT, ST_EXITING, ST_DONE };
 static u32 state, is_master, transfers, bad_checksums, game_lp_type, game_lp_lang, stop_requested;
 static u32 role_known, si_low_run, sessions, hs_run, max_gap;
 static u8 game_player[60];
@@ -100,7 +105,8 @@ static u32 traded, declined, partner_pick, have_partner_pick, room_keys_seen, wa
 static u32 requests_answered, blocks_from_game, barriers, scene_ready_seen, said_ready;
 static u32 menu_timer, sent_choice, sent_yes, master_sent_dddd, game_choice, game_choice_seen;
 static u32 game_said, game_said_seen;     /* the game's last menu message (as master we decide) */
-static u32 game_blocks_total, req_sent, req_timer, leave_agreed;   /* as master: the block requests we make */
+static u32 game_blocks_total, req_sent, req_timer, leave_agreed;
+static u32 game_exiting, sent_exit, close_pending, close_at;       /* back in the room: the game's player left (23); we have */   /* as master: the block requests we make */
 static u8 game_party[600];                /* the game's party, from its blocks */
 
 /* ------------------------------------------------------------------ the link layer */
@@ -169,6 +175,29 @@ static u16 room_key(void)                 /* our key for this frame in the Trade
     return 17;
 }
 
+static u16 exit_key(void)                 /* back in the room after the trade screen: leave it */
+{
+    /* overworld.c: a player who sends 23 has terminated the link (status 0x83); any other player
+     * then runs the TerminateLink script and sends 23 too; once everyone has, both games warp out
+     * and close the link. We stand up, walk back to the door (player 1: down, down, left, down;
+     * player 0: down, down, right, down), press down on it (the exit prompt), then 23. If the
+     * player leaves first, we follow at once. */
+    static const u8 out1[4] = { 18, 18, 20, 18 }, out0[4] = { 18, 18, 21, 18 };
+    u32 f = walk_frame++;
+    if (sent_exit) return 17;
+    if (game_exiting) { sent_exit = 1; state = ST_EXITING; return 23; }
+    if (f < 60) return 17;
+    f -= 60;
+    if (f < 4 * 20) {
+        if (f % 20) return 17;
+        state = ST_WALKING_OUT;
+        return is_master ? out0[f / 20] : out1[f / 20];
+    }
+    if (f == 4 * 20 + 10) return 18;
+    if (f == 4 * 20 + 40) { sent_exit = 1; state = ST_EXITING; return 23; }
+    return 17;
+}
+
 static void next_command(void)
 {
     for (u32 i = 0; i < CMD_LEN; i++) current[i] = 0;
@@ -198,6 +227,9 @@ static void next_command(void)
         current[0] = 0xCAFE;
         current[1] = room_key();
         if (state < ST_WALKING) state = ST_WALKING;
+    } else if (game_lp_type == LT_BACK && room_keys_seen) {
+        current[0] = 0xCAFE;
+        current[1] = exit_key();
     }
 }
 
@@ -226,6 +258,7 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         if (game_lp_type == LT_ROOM && state < ST_ROOM) state = ST_ROOM;
         if (game_lp_type == LT_TRADE) state = traded ? ST_LEAVING : ST_PARTIES;
         if (game_lp_type == LT_SCENE) state = ST_SCENE;
+        if (game_lp_type == LT_BACK) { state = ST_BACK; room_keys_seen = walk_frame = game_exiting = sent_exit = 0; }
         return;
     }
     if (size != 20) game_blocks_total++;
@@ -273,6 +306,7 @@ static void process_command(void)
         break;
     case 0xCAFE:
         room_keys_seen = 1;
+        if (game_lp_type == LT_BACK && frame[1][game] == 23) game_exiting = 1;
         break;
     case 0x2FFE:
         queue(0x2FFE, 0, 0);                                     /* "ready": we are */
@@ -280,7 +314,8 @@ static void process_command(void)
         break;
     case 0x5FFF:
         queue(0x5FFF, 0, 0);
-        if (leave_agreed) state = ST_DONE;
+        if (state == ST_BACK || state == ST_WALKING_OUT || state == ST_EXITING) close_pending = 1;
+        else if (leave_agreed && state < ST_RETURNING) state = ST_RETURNING;   /* the room comes next */
         if (state == ST_SAVING && !traded) {                     /* the trade is saved: swap our copy too */
             state = ST_TRADED; traded = 1;
             memcpy(PARTY + 100 * OUR_PICK, game_party + 100 * partner_pick, 100);
@@ -359,6 +394,7 @@ static void new_session(void)             /* the link is up again: forget the la
 static u32 master_session_type(void)      /* as master, which link this is */
 {
     static const u16 order[4] = { LT_ROOM, LT_TRADE, LT_SCENE, LT_TRADE };
+    if (state == ST_RETURNING) return LT_BACK;
     return order[(sessions - 1) & 3];
 }
 
@@ -425,6 +461,32 @@ static void on_transfer(void)
     SIOMLT_SEND = loaded;
 }
 
+/* ------------------------------------------------------------------ the DUO's screen */
+/* A log line costs the GBA over a frame (the firmware redraws, then waits for the next frame), and
+ * a link session can't spare one: the game would read stale words. So each line waits for a moment
+ * with no link session - before the first, between sessions while the game reopens the link, or
+ * once done - and then shows where things have got to. */
+static const char *const SAY[] = {
+    "Trade: waiting for game", "Trade: handshaking", "Trade: linked", "Cable Club: link players",
+    "Walking to the table", "Seated at the table", "Trade screen: parties", "At the trade menu",
+    "Offered the event Pokemon", "Both said yes: trading", "Trade scene", "The game is saving",
+    "Traded and saved", "Leaving the trade screen", "No trade this time", "Back to the Trade Center",
+    "Back in the room", "Walking out to the door", "Leaving the room", "Done: the link is closed",
+};
+static u32 shown = 0xFF, label_shown;
+
+static void screen(api_t *api, int linked)
+{
+    if (shown == state || (linked && state != ST_DONE)) return;
+    if (!label_shown) {
+        label_shown = 1;
+        api->log("Playing: trade partner");
+        if (LABEL[0]) api->log(LABEL);
+    }
+    shown = state;
+    if (state < sizeof SAY / sizeof SAY[0]) api->log(SAY[state]);
+}
+
 /* ------------------------------------------------------------------ the PC */
 static u8 pkt[8];
 static int pc_service(api_t *api)
@@ -445,7 +507,7 @@ static int pc_service(api_t *api)
         return 0;
     }
     switch (arg & 0xFF) {
-    case 0: v = state | is_master << 4 | (sessions & 7) << 5 | (transfers & 0xFFFFFF) << 8; break;
+    case 0: v = state | is_master << 5 | (sessions & 3) << 6 | (transfers & 0xFFFFFF) << 8; break;
     case 1: v = bad_checksums | barriers << 16; break;
     case 2: v = game_lp_type | game_lp_lang << 16; break;
     case 3: v = partner_pick | have_partner_pick << 8 | traded << 9 | declined << 10 | blocks_from_game << 12
@@ -517,6 +579,13 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))
             pc_service(api);
+        /* the end: done once our own 0x5FFF has gone out and the game has had time to close */
+        if (close_pending && !qcount && !tx_on && state != ST_DONE) {
+            if (!close_at) close_at = now() | 1;
+            else if (now() - close_at > 10 * LINES_PER_FRAME) state = ST_DONE;
+        }
+        if (blob_ready && !in_flight && !(REG_IF & IF_SERIAL))
+            screen(api, state >= ST_CONNECTED && hs_run != 0xFFFF);
     }
     SIOCNT = saved_siocnt & ~(CNT_START | CNT_IRQ);
     RCNT = saved_rcnt;

@@ -82,6 +82,13 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   Only the Mystery Mew was a trade; nearly every other released event wrote the save directly.
   **Decided (31 October): the trade route for all** (labelled as the nearest where it isn't the
   original). No multiboot save writer.
+- **Session 29 (31 October, late):** **the trade works on hardware** (WISHMKR Jirachi into English
+  Ruby, twice). Fixed since: leaving the room (Ruby reopens the link as 0x1111 and the DUO must
+  walk out; the game froze), and short Mystery Events (Ruby only runs blocks over 256 bytes, so
+  Devin's 212-byte card stored nothing: every event now goes as the full 2,004-byte buffer).
+  Received Pokémon now go to `received\` beside the tools. The trade and e-Reader programs write
+  short lines on the DUO's screen, only between link sessions. **To check on hardware:** the Devin
+  card again (then Mossdeep), and a trade through to leaving the room.
 - **Session 28 (31 October, evening):** the Drash Berry e-Card and both MysticTickets worked; the
   trade reached the Trade Center but the DUO stood at the door. **Fixed:** the Cable Club's link
   type is 0x1133, not 0x1111. **Unexplained:** the Devin trainer card (USA) left Mossdeep's door

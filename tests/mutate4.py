@@ -65,6 +65,7 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
     "e-Reader: takes its role from one look at SI (lab session 27)": ("    is_master = (SIOCNT >> CNT_ID_SHIFT & 3) == 0;            /* our player number, from the GBA */\n    role_known = 1;", "    is_master = !(SIOCNT & CNT_SI);", "while SI flickers"),
     "e-Reader: never notices the game starting over": ("    if (hs_run >= 3) {", "    if (hs_run >= 300000) {", "two events in one session"),
     "e-Reader: the event's last chunk is cut short": ("        u32 lo = at < tx_len ? tx_src[at] : 0, hi = at + 1 < tx_len ? tx_src[at + 1] : 0;", "        u32 lo = at + 14 < tx_len ? tx_src[at] : 0, hi = at + 1 < tx_len ? tx_src[at + 1] : 0;", "e-Reader: Ruby as master"),
+    "ereader: screen lines shown while the game is linked": ("if (!in_flight && !(REG_IF & IF_SERIAL) && (state == ST_WAITING || state == ST_CLOSED))", "if (!in_flight && !(REG_IF & IF_SERIAL))", "Ruby as master (purple plug)"),
 }
 
 PC_MUTANTS = {
@@ -105,6 +106,7 @@ PC_MUTANTS = {
     "Hoenn species not reordered to the National Dex": ("        n = PK3_HOENN_TO_NATIONAL[internal - 277]", "        n = internal - 25", "Pokemon files"),
     "PKHeX's decrypted .pk3 form never recognised": ('    if sum(struct.unpack("<24H", as_is)) & 0xFFFF == stored:', "    if False:", "Pokemon files"),
     ".ect trainer pointer four bytes late": ('    out += bytes([MEV_ADDTRAINER]) + struct.pack("<I", start)', '    out += bytes([MEV_ADDTRAINER]) + struct.pack("<I", start + 4)', "e-Reader trainer files"),
+    "short events sent unpadded (Ruby runs an empty buffer)": ('    sent = data.ljust(MEV_MAX, b"\\0")', "    sent = data", "e-Card trainer on the link"),
     "party stats left empty in a traded Pokemon": ("    return box + pk3_party_fields(f)", "    return box + bytes(20)", "party form"),
     "known game table ignored": ("    known = KNOWN_SAVE_GAMES.get(info[\"code\"][:3])\n    if forced:", "    known = None\n    if forced:", "known games"),
 }
@@ -217,6 +219,10 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
     "trade: the save's ready barriers never answered": ('queue(0x2FFE, 0, 0);                                     /* "ready": we are */', ";", "trade, the game as master"),
     "trade: as slave, says no instead of yes": ("send_msg(0xBBBB, 0);", "send_msg(0xBBCC, 0);", "trade, the game as master"),
     "trade: as master, asks for the next block at once": ("++req_timer > (req_sent ? 12 : 40)", "++req_timer > 0", "trade, the DUO as master"),
+    "trade: stops after the trade screen (the game freezes back in the room)": ("else if (leave_agreed && state < ST_RETURNING) state = ST_RETURNING;", "else if (leave_agreed) state = ST_DONE;", "trade, the game as master"),
+    "trade: never follows the player out of the room": ("if (game_exiting) { sent_exit = 1;", "if (0) { sent_exit = 1;", "back in the room, the player leaves first"),
+    "trade: as master, opens the room again with the Cable Club's link type": ("if (state == ST_RETURNING) return LT_BACK;", "if (state == ST_RETURNING) return LT_ROOM;", "trade, the DUO as master"),
+    "trade: screen lines shown in the middle of a link session": ("if (shown == state || (linked && state != ST_DONE)) return;", "if (shown == state) return;", "trade, the game as master"),
     "trade: as master, never says the trade can go ahead": ("send_msg(0xCCDD, 0); state = ST_AGREED;", "send_msg(0xDDEE, 0); state = ST_AGREED;", "trade, the DUO as master"),
 }
 

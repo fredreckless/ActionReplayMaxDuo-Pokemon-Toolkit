@@ -101,6 +101,10 @@ class LinkLayer:
             self.send(0x8888, *[chunk[j] | chunk[j + 1] << 8 for j in range(0, 14, 2)])
 
 
+BLOCK_BUFFER_SIZE = 0x100                             # link.c
+SHARED_CLEARED = 0x7D4                                # mystery_event_menu.c: CpuFill32(0, gSharedMem, 0x7D4)
+
+
 class RubyMysteryEvent:
     """mystery_event_menu.c, as far as the link sees it."""
     def __init__(self, master=True, language=LANG_ENGLISH, press_a_after=30, pace=300, frame_blocks=25 * 228,
@@ -200,7 +204,11 @@ class RubyMysteryEvent:
                                 pending.discard(i)
                                 self.link_players[i] = parse_link_player(data)
                             elif i == (1 if self.master else 0):
-                                self.block = data
+                                # link.c: only a block bigger than BLOCK_BUFFER_SIZE (0x100) goes to
+                                # gSharedMem, which the menu then runs; a smaller one lands in
+                                # gBlockRecvBuffer, and the menu runs gSharedMem as it was - cleared
+                                # (lab session 29: Devin's 212-byte card, "loaded" and nothing stored)
+                                self.block = data if len(data) > BLOCK_BUFFER_SIZE else bytes(SHARED_CLEARED)
                     elif c == 0x5FFF:
                         closing.add(i)
             if len(self.link_players) == 2 and not pending and "checked" not in self.log:

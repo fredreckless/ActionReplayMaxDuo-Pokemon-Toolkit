@@ -20,7 +20,7 @@ repository.
 | `.me3` Mystery Events (13, all the Eon Ticket) | e-Reader to Ruby/Sapphire | Working on hardware: English Ruby received the Eon Ticket (lab session 26) |
 | `.ecb` e-Card berries (18) | e-Reader Mystery Event (`setenigmaberry`) | English: working on hardware, the PUMKIN BERRY (lab session 27); Japanese: simulator done (Stage 7) |
 | e-Card `.raw` scans (R/S trainers and promos; Emerald and FRLG trainers, Japanese) | Decode the dot codes and do what the e-Reader did | Ruby/Sapphire: all 186 cards decode and pass the model, English and Japanese (Stages 6–7); hardware next. Emerald's Trainer Hill and the FireRed/LeafGreen cards use another protocol (Stage 8). The Berry Glitch Fixing Program is refused (it writes the save) |
-| `.pk3` Pokémon (3,344) | Varies by event: see docs/PK3_EVENTS.md | Catalogued (Stage 9, step 1): only the Mystery Mew was a trade; most others wrote the save directly. **The user's decision** on those comes next |
+| `.pk3` Pokémon (3,344) | Varies by event: see docs/PK3_EVENTS.md | **By trade for all** (decided 31 October): working on hardware into English Ruby (lab session 29); Emerald and FireRed/LeafGreen next (Stage 9) |
 | `.ect` e-Reader trainers (166) | e-Reader Mystery Event (`addtrainer`) | Simulator done: each matches its card's trainer byte for byte |
 
 **Out of scope:** files meant for other games or for the GameCube (the Channel, Colosseum and
@@ -186,9 +186,10 @@ protocol, so a new GBA program.
 2. **Decided (31 October): the trade route for all.** Authentic for the Mystery Mew; for the
    rest, labelled as the nearest route that leaves the game in charge. Never-distributed
    Pokémon are offered the same way, marked as such. No multiboot save writer.
-3. **The trade distributor: working in the simulator (31 October 2026)**, both cable roles
-   (docs/TRADE.md). `duo_events.py trade --pk3 FILE`; Ruby/Sapphire first. **Next: a hardware
-   run** with English Ruby, offering a spare Pokémon; then Emerald and FireRed/LeafGreen.
+3. **The trade distributor: working on hardware with English Ruby (lab session 29)**, both cable
+   roles in the simulator (docs/TRADE.md). `duo_events.py trade --pk3 FILE`. Leaving the room
+   fixed afterwards in the simulator.
+4. **Next: Emerald and FireRed/LeafGreen** (their own Cable Club and trade code).
 
 ## Tidying done on 30 October
 

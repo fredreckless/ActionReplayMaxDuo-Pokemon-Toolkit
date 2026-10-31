@@ -49,6 +49,7 @@ python lab_runner.py                                                     # run t
 | 30 Oct, afternoon | session 26 | **Eon Ticket from Norman** | The wrapped `.me3` (342 bytes) sent with the game as master: 0 mismatches, the game closed the link and saved, and Norman gave the Eon Ticket. The e-Reader route works end to end ([details](sessions/session26/README.md)) |
 | 30 Oct, evening | session 27 | **PUMKIN BERRY from Norman** | The first Enigma Berry (`.ecb`, 1,364 bytes) received with 0 mismatches and given by Norman. The "player 0" report was a false alarm: the role is read from SI at the wrong moment ([details](sessions/session27/README.md)) |
 | 31 Oct, evening | session 28 | **Drash Berry; MysticTickets; the trade reaches the room** | e-Card berries work; US and Japanese Wonder Cards on European LeafGreen, and the Japanese one on Japanese Emerald. The trade stalled at the door (link type 0x1133, not 0x1111; fixed). The Devin trainer card left Mossdeep's door locked: not yet explained ([details](sessions/session28/README.md)) |
+| 31 Oct, late | session 29 | **The first trade: WISHMKR Jirachi into Ruby** | Traded and saved twice; leaving froze the game (the room's new link; fixed). A save backup showed Devin's trainer slot empty: Ruby only runs events over 256 bytes, so every event now goes as the full 2,004-byte buffer ([details](sessions/session29/README.md)) |
 
 Experiments deliberately **not** done:
 - two GBA packets in a row, which would hang the GBA;

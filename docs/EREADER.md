@@ -106,7 +106,12 @@ receive a Mystery Event, as read from pret/pokeruby (`src/link.c`, `src/mystery_
    - Every link player must carry the same link type (0x5501), or the exchange counts as failed.
    - The two players' **languages must match**.
 5. Waits for one more block from the other side: **the Mystery Event script itself**, received
-   into the shared buffer (`gSharedMem`, 0x7D4 bytes).
+   into the shared buffer (`gSharedMem`, 0x7D4 bytes). **Only a block over 256 bytes goes
+   there** (`link.c`: smaller blocks land in `gBlockRecvBuffer`), so a short script is never run:
+   the menu runs the cleared buffer, says the event loaded and saves, with nothing stored. Found
+   on hardware in lab session 29: Devin's trainer card (212 bytes) left Mossdeep's door locked,
+   and the save backup showed the e-Reader trainer slot empty. **The DUO now always sends the
+   whole 2,004-byte buffer**, the script followed by zeros (a planted bug checks it).
 6. Closes the link and runs the script from the start of that buffer
    (`RunMysteryEventScript(gSharedMem)`). Then it clears the buffer.
 7. **Saves unless the status says otherwise:**

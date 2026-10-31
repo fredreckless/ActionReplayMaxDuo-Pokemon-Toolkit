@@ -159,7 +159,7 @@ python duo_events.py event --event "YOUR BERRY.ecb"     (an e-Reader Enigma Berr
 python duo_events.py event --event "YOUR CARD.raw"      (an e-Card scan, sent as the e-Reader sent it)
 python duo_events.py event --event "YOUR TRAINER.ect"   (a saved e-Reader trainer)
 python duo_events.py pk3-info FILE.pk3 ...              (describe Gen 3 Pokémon files; no DUO needed)
-python duo_events.py trade --pk3 FILE.pk3              (trade the game a Pokémon in the Cable Club)
+python duo_events.py trade --pk3 FILE.pk3              (trade the game a Pokémon: see below)
 python duo_events.py event                      (a dry run: link players only)
 ```
 
@@ -183,7 +183,27 @@ python duo_events.py event                      (a dry run: link players only)
 
 The DUO copies the game's link type and language into its own link-player details, so the game's checks agree. If the game opens the link again (for another event), the DUO starts over with it (with `--keep-going`).
 
-**Status:** English Ruby received the Eon Ticket on real hardware, and Norman gave it (lab session 26). The PUMKIN BERRY, an e-Reader Enigma Berry, followed (lab session 27). e-Card scans and Japanese games work in the simulator and with a model of Ruby's engine, checked against every Ruby/Sapphire card in Project Pokémon's gallery; hardware is next. See [docs/EREADER.md](docs/EREADER.md).
+**Status:** English Ruby received the Eon Ticket on real hardware, and Norman gave it (lab session 26). The PUMKIN BERRY, an e-Reader Enigma Berry, followed (lab session 27), then the DRASH BERRY from an e-Card scan (lab session 28). Short cards, such as the Battle-e trainers, were "loaded" but stored nothing until lab session 29 showed why: Ruby only runs an event that arrives as a block of over 256 bytes, so every event now goes as the game's full 2,004-byte buffer. See [docs/EREADER.md](docs/EREADER.md).
+
+## Trading a Pokémon: the Cable Club
+
+Every Gen 3 Pokémon file (`.pk3`) goes to the game by trade, the way two players would swap: the DUO's GBA sits at the other side of a Pokémon Center's Trade Center and offers the Pokémon; the game checks it, asks you, trades and saves by itself.
+
+```
+python duo_events.py trade --pk3 "YOUR POKEMON.pk3"
+```
+
+1. **Back up your save first.** A GBA link cable, either way round; both GBAs off.
+2. Run the command, switch on the DUO's GBA when asked, then the game when the tool says **Ready**.
+3. Go up to the 2nd floor of any Pokémon Center, choose **TRADE CENTER** with the Cable Club attendant and let the game save.
+4. In the room, sit at the table: the DUO walks to the other seat. Choose a Pokémon you can spare, then YES.
+5. After the trade, choose CANCEL. Back in the room, the DUO walks to the door and leaves; the game follows it out.
+
+A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received` folder beside the tools, named with the date, the Pokémon and the event it was traded for.
+
+**Status:** English Ruby received the WISHMKR Jirachi twice (lab session 29). Emerald and FireRed/LeafGreen are next. See [docs/TRADE.md](docs/TRADE.md).
+
+**On the DUO's own screen** you'll see short lines about what it's playing and how far it has got ("Playing: trade partner", "Offering JIRACHI", "Traded and saved"…). They appear between the link's stages, never during one, because drawing a line costs the GBA over a frame, which a link can't spare.
 
 ## If something goes wrong
 

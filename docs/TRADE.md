@@ -1,7 +1,8 @@
 # The Cable Club trade, as the DUO plays it (Stage 9, step 3)
 
-**Status (31 October 2026): working in the simulator, both cable roles. First hardware run
-(session 28): the room was reached, but the DUO stood at the door (the link type; fixed).**
+**Status (1 November 2026): works on hardware.** English Ruby received the WISHMKR Jirachi twice
+(lab session 29), saved, and the DUO kept what it was given. Leaving the room froze the game;
+fixed in the simulator (below), to check on hardware.
 `python duo_events.py trade --pk3 FILE` runs `firmware/programs/trade.c` against the game. The model
 of the game's side is `tests/trade_game_model.py`; four tests and nine planted bugs cover it.
 
@@ -109,7 +110,8 @@ fail.
   sends lp_field_2 = 0x8000.
 - **The tool:** checks the `.pk3`, builds the party form (game-encrypted box data plus the party
   fields; see below), names the partner after the Pokémon's own trainer, follows each stage, and
-  keeps what the game gave as `received/<date> <species>.pk3` beside the event file.
+  keeps what the game gave as `received\<date> <species> (for <event species>).pk3` in a
+  `received` folder beside the tools (never inside the event collection; lab session 29).
 - **Party fields.** Ruby keeps the level, HP and stats exactly as sent, so the tool works them out
   as `pokemon.c` does (base stats and growth rate from pokeemerald's `species_info.h`, the
   experience tables, IVs, EVs, nature). Against the gallery's 48 released party files that carry
@@ -118,6 +120,33 @@ fail.
 - **The model** plays Ruby through all four links, in either role, and refuses what Ruby would:
   wrong link types, a party with gaps, a Pokémon failing its checksum or with no level or HP, a
   partner that never sits down or never answers a barrier.
+
+## Back to the room, and out (lab session 29)
+
+On hardware the first trade worked, but leaving froze the game. After the trade screen closes,
+Ruby goes back to the Trade Center over **a new link, type 0x1111** (`cable_club.c`
+`sub_8083664`, opened by the field callback `task_mpl_807DD60`): link players again, then the
+room's lockstep. If no partner answers within 300 frames, it's a link error. Everyone stands
+(status 0x80) where they sat.
+
+To leave, a player presses DOWN on the door row facing out (a south-arrow warp): "Will the link
+be terminated?" YES sends key **23** (status 0x83). Any other player who sees a 0x83 runs the
+same TerminateLink script and sends 23 too; once everyone has, both games warp back to the
+Pokémon Center (`gUnknown_081A4508`) and close the link.
+
+The DUO now walks back to the door (player 1: down, down, left, down; player 0: down, down,
+right, down), presses DOWN there and sends 23; if the player leaves first, it follows at once.
+It reports "done" only after its own 0x5FFF has gone out.
+
+## On the DUO's screen
+
+The program writes short lines to the DUO's own screen: what it is playing ("Playing: trade
+partner", "Offering JIRACHI"), then where it has got to. A line costs the GBA over a frame (the
+firmware redraws, then waits for the next frame), which a link session can't spare, so each line
+waits for a gap between sessions and shows the latest stage: "Seated at the table", "Both said
+yes: trading", "Traded and saved", "Back to the Trade Center", "Done: the link is closed". The
+simulator now stalls the GBA for ~1.3 frames on every log line, so a line shown mid-session fails
+the tests.
 
 ## Still to check on hardware
 

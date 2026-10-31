@@ -22,6 +22,7 @@ from link_game_model import (LinkLayer, LinkError, handshake_count, link_player_
                              MASTER_HANDSHAKE, SLAVE_HANDSHAKE, CMD_LENGTH, QUEUE_CAPACITY, LANG_ENGLISH)
 
 LT_ROOM, LT_TRADE, LT_SCENE = 0x1133, 0x1122, 0x1144   # cable_club.c sub_80834E4; trade.c
+LT_BACK = 0x1111                                      # the room again after the trade screen (sub_8083664)
 BLOCK_REQUEST_SIZES = (200, 200, 100, 220, 40)        # link.c sBlockRequestLookupTable
 KEY_NONE, KEY_DOWN, KEY_UP, KEY_LEFT, KEY_RIGHT, KEY_START, KEY_A = 17, 18, 19, 20, 21, 24, 25
 KEY_SEATED, KEY_EXIT, KEY_FREE, KEY_UNSEAT = 22, 23, 26, 29
@@ -40,6 +41,8 @@ SEATS = {(4, 5): 0, (7, 5): 1}                        # coordinate triggers, VAR
 SPAWN = {0: (5, 8), 1: (6, 8)}                        # player i on the door row, side by side
 DIRS = {KEY_DOWN: (0, 1), KEY_UP: (0, -1), KEY_LEFT: (-1, 0), KEY_RIGHT: (1, 0)}
 WALK_TO_SEAT = {0: [KEY_UP, KEY_UP, KEY_LEFT, KEY_UP], 1: [KEY_UP, KEY_UP, KEY_RIGHT, KEY_UP]}
+WALK_TO_DOOR = {0: [KEY_DOWN, KEY_DOWN, KEY_RIGHT, KEY_DOWN], 1: [KEY_DOWN, KEY_DOWN, KEY_LEFT, KEY_DOWN]}
+DOOR = {(5, 8), (6, 8)}                               # south-arrow warps: DOWN there asks to leave
 
 
 def pk3_checksum_ok(mon):
@@ -58,6 +61,16 @@ class Room:
         self.moving = {0: 0, 1: 0}
         self.status = {0: 0x80, 1: 0x80}
         self.seated_at = {}
+        self.facing = {0: KEY_UP, 1: KEY_UP}
+        self.asked_to_leave = set()
+
+    def back_from_trade(self):
+        """overworld.c sub_805465C: the same places, everyone standing again (status 0x80)."""
+        self.status = {0: 0x80, 1: 0x80}
+        self.prev = dict(self.pos)
+        self.moving = {0: 0, 1: 0}
+        self.facing = {0: KEY_DOWN, 1: KEY_DOWN}
+        self.on_seat_already = set(w for w in (0, 1) if self.pos[w] in SEATS)
 
     def blocked(self, who, x, y):
         if ROOM[y][x] == "#":
@@ -69,7 +82,15 @@ class Room:
         """One frame's keys for both players (sub_8055218 -> sub_8054FF8, sub_8055BFC)."""
         for who in (0, 1):
             k = keys[who]
-            if self.status[who] == 0x80 and not self.moving[who] and self.pos[who] in SEATS:
+            if self.status[who] == 0x80 and 0x83 in self.status.values():
+                self.status[who] = 0x81               # someone left: TerminateLink runs (sub_805585C)
+            if self.status[who] == 0x80 and not self.moving[who] and k == KEY_DOWN and \
+                    self.pos[who] in DOOR and self.facing[who] == KEY_DOWN:
+                self.status[who] = 0x81               # "Will the link be terminated?" (sub_8055824)
+                self.asked_to_leave.add(who)
+                k = KEY_NONE
+            if self.status[who] == 0x80 and not self.moving[who] and self.pos[who] in SEATS \
+                    and who not in getattr(self, "on_seat_already", ()):
                 self.status[who] = 0x81               # the seat's coordinate script runs
                 self.seated_at[who] = self.pos[who]
             if k == KEY_SEATED:
@@ -85,6 +106,8 @@ class Room:
                 if not self.moving[who]:
                     self.prev[who] = self.pos[who]
             elif self.status[who] == 0x80 and k in DIRS:
+                self.facing[who] = k
+                getattr(self, "on_seat_already", set()).discard(who)
                 dx, dy = DIRS[k]
                 x, y = self.pos[who][0] + dx, self.pos[who][1] + dy
                 if not self.blocked(who, x, y):
@@ -94,7 +117,7 @@ class Room:
 
 class RubyTrade:
     def __init__(self, master=True, language=LANG_ENGLISH, party=None, pick=0, accept=True, version=2,
-                 pace=300, frame_blocks=25 * 228, lp_field_2=0x8000):
+                 pace=300, frame_blocks=25 * 228, lp_field_2=0x8000, leaves_first=False):
         """party: the game's party, 100-byte Pokemon in the game's form (1-6); pick: which it
         trades; accept: whether the player says yes. lp_field_2: this game's own link-player
         field (0x8000 when it has the National Dex; trade.c turns the partner's National Dex on
@@ -105,12 +128,15 @@ class RubyTrade:
         self.pick, self.accept = pick, accept
         self.pace, self.frame_blocks = pace, frame_blocks
         self.lp_field_2 = lp_field_2
+        self.leaves_first = leaves_first              # the player walks out first, not the partner
+        self.room = None
         self.my_id = 0 if master else 1
         self.other = 1 - self.my_id
         self.log = []
         self.link_players = {}
         self.result = dict(partner_party=None, partner_pick=None, received=None, saved=False,
-                           national_dex_enabled=False, partner_seat=None, gave=None)
+                           national_dex_enabled=False, partner_seat=None, gave=None, left_room=False,
+                           partner_left_by_door=False)
         self.frame = 0
 
     # ------------------------------------------------------------ the link, as link.c runs it
@@ -156,7 +182,8 @@ class RubyTrade:
             words = yield from self._xfer(s.link.loaded, cycle_end=s.link.send_idx == CMD_LENGTH)
             s.link.on_transfer(words)
             if s.link.bad_checksums:
-                raise LinkError(f"a command's checksum didn't match (link type {link_type:#06x})")
+                raise LinkError(f"a command's checksum didn't match (link type {link_type:#06x}; {s.stage}; "
+                                f"close sent {s.sent_close}, closes seen {sorted(s.closing)})")
             rxq += s.link.received
             s.link.received = []
             if len(rxq) > QUEUE_CAPACITY:
@@ -184,10 +211,12 @@ class RubyTrade:
         yield ("until_ready",)
         yield from self._session(LT_ROOM, self._room)
         yield from self._session(LT_TRADE, self._trade_screen)
-        if self.result["partner_pick"] is None:
-            return self.result                        # cancelled in the menu
-        yield from self._session(LT_SCENE, self._scene)
-        yield from self._session(LT_TRADE, self._leave)
+        if self.result["partner_pick"] is not None:
+            yield from self._session(LT_SCENE, self._scene)
+            yield from self._session(LT_TRADE, self._leave)
+        # then back to the Trade Center (CB2_ReturnToFieldLink, sub_8083664): a new link, 0x1111;
+        # if no partner answers within 300 frames, a link error (the freeze of lab session 29)
+        yield from self._session(LT_BACK, self._back)
         return self.result
 
     def _room(self, s):
@@ -207,7 +236,7 @@ class RubyTrade:
         s.stage = "room: warping in"
         for _ in range(90):                           # the warp and the room's map load
             yield
-        room = Room()
+        room = self.room = Room()
         mine = list(WALK_TO_SEAT[self.my_id])
         key_plan, wait = [], 0
         s.stage = "room: walking"
@@ -378,6 +407,51 @@ class RubyTrade:
         self.result["saved"] = True
         s.stage = "trade scene: closing"
         s.close()
+
+    def _back(self, s):
+        s.stage = "back in the room: link players"
+        waited = 0
+        while not s.players_checked:
+            waited += 1
+            if waited > 300:
+                raise LinkError("back in the room, no link players within 300 frames: link error")
+            yield
+        room = self.room
+        room.back_from_trade()
+        mine = list(WALK_TO_DOOR[self.my_id]) if self.leaves_first else []
+        left_at = {}
+        wait, told, exit_at = 0, False, None            # (the player gets up straight away)
+        s.stage = "back in the room"
+        for frame in range(4000):
+            key = KEY_NONE
+            if room.status[self.my_id] == 0x81 and exit_at is None:
+                exit_at = frame + 40                  # the message box, then 23 (sub_805559C)
+            if exit_at is not None and frame == exit_at:
+                key = KEY_EXIT
+            elif exit_at is None and self.leaves_first:
+                if wait:
+                    wait -= 1
+                elif mine:
+                    key, wait = mine.pop(0), STEP_FRAMES + 2
+                elif room.status[self.my_id] == 0x80 and not told:
+                    key, told = KEY_DOWN, True        # on the door: down, then YES
+            s.link.send(0xCAFE, key)
+            keys = s.keys_this_frame()
+            if keys is not None:
+                room.apply(keys)
+                for w in (0, 1):
+                    if room.status[w] == 0x83:
+                        left_at.setdefault(w, frame)
+            if all(v == 0x83 for v in room.status.values()):
+                self.result["partner_left_after"] = left_at[self.other] - left_at.get(self.my_id, left_at[self.other])
+                self.result["left_room"] = True
+                self.result["partner_left_by_door"] = room.pos[self.other] in DOOR
+                self.log.append(("left the room", frame))
+                s.stage = "leaving: closing the link"
+                s.close()
+                return
+            yield
+        raise LinkError(f"nobody left the room (partner at {room.pos[self.other]}, status {room.status[self.other]:#x})")
 
     def _cancel(self, s):
         """The player chooses CANCEL; the partner must too (0xEEAA), then 0xEEBB and the link closes."""

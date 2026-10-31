@@ -239,7 +239,8 @@ static void on_transfer(void)            /* after every transfer, as the game's 
         return;
     }
     if (send_idx == 0) {                                         /* the checksum slot */
-        if (checksum_ready && (w[0] != checksum || w[1] != checksum) && !hs_run) {   /* (not the game starting over) */
+        /* (not the game starting over, nor its last words once it has closed the link) */
+        if (checksum_ready && (w[0] != checksum || w[1] != checksum) && !hs_run && state != ST_CLOSED) {
             bad_checksums++;
             mm_by_state[state & 7]++;
             if (mm_n < MM_N) {
@@ -311,6 +312,27 @@ static int pc_service(api_t *api)
     return 0;
 }
 
+/* ------------------------------------------------------------------ the DUO's screen */
+/* A log line costs the GBA over a frame (the firmware redraws and waits for the next frame), which
+ * a link session can't spare. So lines go out only with no session under way: before the game
+ * links, and once it has closed the link and our own close has gone out. */
+static void screen(api_t *api)
+{
+    static u32 intro, said_ready, said_closed, close_at;
+    if (!intro) { intro = 1; api->log("Playing: Card e-Reader+"); }
+    if (event_ready && !said_ready && state == ST_WAITING) {
+        said_ready = 1;
+        api->log("Mystery Event loaded");
+        api->log("Waiting for the game");
+    }
+    if (state != ST_CLOSED) { close_at = 0; said_closed = 0; return; }
+    if (said_closed || queue_full || tx_on) return;
+    if (!close_at) { close_at = now() | 1; return; }
+    if (now() - close_at < 20 * LINES_PER_FRAME) return;
+    said_closed = 1;
+    api->log(events_sent ? "Event sent: the game saves" : "The game closed the link");
+}
+
 /* ------------------------------------------------------------------ entry */
 __attribute__((section(".text.start")))
 u32 start(api_t *api)
@@ -358,6 +380,8 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))               /* the link first: never let a transfer wait */
             pc_service(api);
+        if (!in_flight && !(REG_IF & IF_SERIAL) && (state == ST_WAITING || state == ST_CLOSED))
+            screen(api);
     }
     SIOCNT = saved_siocnt & ~(CNT_START | CNT_IRQ);
     RCNT = saved_rcnt;

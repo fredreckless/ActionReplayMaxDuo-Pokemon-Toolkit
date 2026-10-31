@@ -56,6 +56,7 @@ F_LOG_LINE = 0x080066E0
 DISPATCHER = 0x08007444
 GAME_MAPS = (0x0101, 0x0007, 0x0001)
 FRAME_S = 0.002                      # emulated seconds per idle frame (scaled)
+LOG_STALL_LINES = 300                # a screen log line: drawing, then up to a frame's wait (~1.3 frames)
 
 FLASH_IDS = {"sanyo": (0x62, 0x13), "macronix": (0xC2, 0x09), "flash512": (0xBF, 0xD4)}
 BOOT_CHECK = 0x080073F4              # Datel: if a hello is waiting, answer it and return 1
@@ -131,6 +132,7 @@ class Hw:
         self.violations = []
         self.bad = []
         self.log = []
+        self.log_stalls = []
         self.map_writes = []
         self.save_reads = 0
         self.save_writes = 0
@@ -596,6 +598,14 @@ class Hw:
             self.ret()
         elif addr == F_LOG_LINE:
             self.log.append(self.cstr(mu.reg_read(UC_ARM_REG_R0)))
+            # On hardware a log line redraws the screen and then waits for the next frame
+            # (0x08006604 -> 0x08000708): the GBA looks away from the link for over a frame. With a
+            # multi-player game attached, let the game run on meanwhile, so a program that logs in
+            # the middle of a link session misses transfers here as it would there.
+            if getattr(self, "mp_op", None) is not None or hasattr(self, "mp_frame_blocks"):
+                self.log_stalls.append(self.blocks)
+                for _ in range(LOG_STALL_LINES * self.lg_bpl):
+                    self.mp_on_block(mu, 0, 0, None)
             self.ret()
         elif addr == F_USB_RECV8:
             pkt = self.h2d.get()
@@ -870,7 +880,7 @@ class Hw:
             return
         except Exception as e:                     # the game's own error
             self.mp_op, self.mp_error, self.mp_done = None, e, True
-            self.lg_error, self.lg_done = e, True
+            self.lg_error, self.lg_done, self.lg_error_at = e, True, self.blocks
             return
         op = self.mp_op
         if op[0] == "delay":

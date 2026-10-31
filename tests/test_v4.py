@@ -55,6 +55,11 @@ def device(save_type="sanyo", save=None, game=None, faults=None, fw=FW):
     return hw, duo
 
 
+def sent_as(script):
+    """What Ruby's shared buffer holds after the DUO sends `script`: the whole 2,004-byte buffer."""
+    return script.ljust(W.MEV_MAX, b"\0")
+
+
 def quiet(fn, *a, **k):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -1531,7 +1536,7 @@ def _():
     hw, report = ereader_run(game, TEST_ECB)
     expected = W.prepare_event(TEST_ECB, "x (ENG).ecb")[0]
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
-    assert hw.lg_result == expected, (len(hw.lg_result or b""), hw.text[-400:])
+    assert hw.lg_result == sent_as(expected), (len(hw.lg_result or b""), hw.text[-400:])
     status, saved, store = ME.run(hw.lg_result, "English", "Ruby")
     assert (status, saved) == (ME.SUCCESS, True) and store["berry_valid"] and store["berry_available"], store["trace"]
     assert report["bad_checksums"] == 0, report
@@ -1606,7 +1611,7 @@ def _():
     game = LG.RubyMysteryEvent(master=True, language=LG.LANG_JAPANESE)
     hw, report = ereader_run(game, path=paths[0])
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
-    assert hw.lg_result == script, (len(hw.lg_result or b""), hw.text[-400:])
+    assert hw.lg_result == sent_as(script), (len(hw.lg_result or b""), hw.text[-400:])
     status, saved, store = ME.run(hw.lg_result, "Japanese", "Ruby")
     assert (status, saved) == (ME.SUCCESS, True) and store["trainer_valid"], store["trace"]
     assert store["ram_script"][4:8] == bytes([0x33, 25, 4, 1]), store["ram_script"][:8].hex()
@@ -1727,14 +1732,15 @@ import trade_game_model as TG
 TRADE_EVENT = None
 
 
-def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280), pick=1, seconds=240):
+def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280), pick=1, seconds=240, leaves_first=False):
     """The DUO's trade program against a simulated Ruby in the Trade Center (docs/TRADE.md)."""
     event = event or test_pk3(species=409, pid=0x0BADCAFE, otid=0x00004E44)
     party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
-    game = TG.RubyTrade(master=master, party=party, pick=pick, accept=accept)
+    game = TG.RubyTrade(master=master, party=party, pick=pick, accept=accept, leaves_first=leaves_first)
     hw, duo = run42()
     hw.attach_mp_game(game.run(), game_master=game.master)
     path = event_file(event, "385 - JIRACHI - TEST.pk3")
+    W.RECEIVED_DIR = os.path.join(tempfile.mkdtemp(), "received")      # (never the repo's own folder)
     r = quiet(W.trade_session, duo, types.SimpleNamespace(pk3=path, seconds=seconds), poll_s=0.2,
               stop_when=lambda: hw.lg_done)
     hw.text = r[1]
@@ -1744,7 +1750,7 @@ def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280),
 
 
 def kept_files(path):
-    folder = os.path.join(os.path.dirname(path), "received")
+    folder = W.RECEIVED_DIR
     return [open(os.path.join(folder, f), "rb").read() for f in sorted(os.listdir(folder))] if os.path.isdir(folder) else []
 
 
@@ -1759,8 +1765,23 @@ def _():
     assert report["traded"] and report["bad_checksums"] == 0 and report["barriers"] == 3, report
     assert kept_files(path) == [res["gave"]], "the .pk3 kept isn't what the game gave"
     assert W.parse_pk3(res["gave"])[0]["name"] == "MEW"
-    for line in ("the DUO is player 1", "walking to the table", "swapping parties", "traded and saved", "You gave: #151 MEW", "Kept on this PC"):
+    for line in ("the DUO is player 1", "walking to the table", "swapping parties", "traded and saved", "You gave: #151 MEW", "Kept on this PC",
+                 "back in the room", "walking back to the door", "leaving the room", "done"):
         assert line in hw.text, (line, hw.text[-1500:])
+    # the DUO's own screen: what it plays and where it has got to, shown only between link sessions
+    for line in ("Playing: trade partner", "Offering JIRACHI", "Seated at the table", "Traded and saved", "Done: the link is closed"):
+        assert line in hw.log, (line, hw.log)
+    # back in the room (lab session 29: the game froze here), the DUO walks to the door and leaves
+    assert res["left_room"] and res["partner_left_by_door"], (res, game.log)
+    assert "no trade this time" not in hw.text and "(for JIRACHI)" in os.listdir(W.RECEIVED_DIR)[0]
+
+
+@test("trade: back in the room, the player leaves first - the DUO follows at once and both games warp out")
+def _():
+    hw, game, report, event, path = trade_run(master=True, leaves_first=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    assert report["traded"] and game.result["left_room"] and not game.result["partner_left_by_door"], game.result
+    assert 0 <= game.result["partner_left_after"] <= 5, game.result     # it followed at once
 
 
 @test("trade, the DUO as master: it asks for the blocks itself (spaced so the game has filled each), and the game still receives the event Pokemon and saves")
@@ -1781,6 +1802,7 @@ def _():
         assert hw.lg_error is None and hw.lg_done, (master, repr(hw.lg_error), game.log, hw.text[-800:])
         assert "declined" in game.log and game.result["received"] is None and not game.result["saved"]
         assert not report["traded"] and kept_files(path) == [] and "without a trade" in hw.text, hw.text[-400:]
+        assert game.result["left_room"], game.log                        # and out of the room cleanly
 
 
 @test("party form: level, HP and stats worked out as the games do (base stats, growth rate, IVs, EVs, nature; Shedinja's 1 HP); a party file's own stats are kept; a damaged Pokemon isn't sent")
@@ -1820,13 +1842,14 @@ def _():
     game = LG.RubyMysteryEvent(master=True)
     hw, report = ereader_run(game, TEST_ME3)
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
-    assert hw.lg_result == TEST_EVENT, (len(hw.lg_result or b""), hw.text[-400:])
+    assert hw.lg_result == sent_as(TEST_EVENT), (len(hw.lg_result or b""), hw.text[-400:])
     status, saved, store = ME.run(hw.lg_result, "English", "Ruby")    # what Ruby then does with it
     assert (status, saved) == (ME.LOAD_OK, True) and store["ram_script"] == TEST_ME3[:1004] \
         and store["gift"][:8] == TEST_ME3[1004:], (status, store["trace"])
     duo_lp = game.link_players[1]
     assert duo_lp["link_type"] == 0x5501 and duo_lp["language"] == LG.LANG_ENGLISH, duo_lp
     assert report["bad_checksums"] == 0 and report["game_language"] == 2, report
+    assert "Playing: Card e-Reader+" in hw.log and "Event sent: the game saves" in hw.log, hw.log   # the DUO's screen
     for line in ("Mystery Event loaded", "link up (the DUO is player 1)", "got the game's link player: link type 0x5501, English",
                  "sent the Mystery Event", "the game closed the link"):
         assert line in hw.text, (line, hw.text)
@@ -1838,7 +1861,7 @@ def _():
     hw, report = ereader_run(game, TEST_ME3, si_flicker=3)
     assert hw.mp_si_reads > 100, hw.mp_si_reads
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
-    assert hw.lg_result == TEST_EVENT and report["bad_checksums"] == 0, report
+    assert hw.lg_result == sent_as(TEST_EVENT) and report["bad_checksums"] == 0, report
     assert "the DUO is player 1" in hw.text and "swap the cable" not in hw.text, hw.text
 
 
@@ -1851,7 +1874,7 @@ def _():
     # of these; the planted start race does, every cycle)
     hw, report = ereader_run(game, small, race_window=12)
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
-    assert hw.lg_result == W.prepare_event(small, "x (ENG).me3")[0]
+    assert hw.lg_result == sent_as(W.prepare_event(small, "x (ENG).me3")[0])
     assert game.link_players[0]["language"] == LG.LANG_JAPANESE and "the DUO is player 0" in hw.text, hw.text
     # paced like Ruby's own master: a transfer and the one nine later are a whole frame apart
     # (one handshake transfer, or one 9-transfer command cycle, per frame; a few lines of jitter
@@ -1889,7 +1912,7 @@ def _():
     r = quiet(W.ereader_session, duo, types.SimpleNamespace(ereader=90, mystery_event=event_file(TEST_ME3), keep_going=True),
               poll_s=0.2, stop_when=lambda: hw.lg_done)
     hw.stop(); clean(hw)
-    assert hw.lg_error is None and hw.lg_result == (TEST_EVENT, TEST_EVENT), (repr(hw.lg_error), r[1][-600:])
+    assert hw.lg_error is None and hw.lg_result == (sent_as(TEST_EVENT), sent_as(TEST_EVENT)), (repr(hw.lg_error), r[1][-600:])
     assert "opened the link again" in r[1] and "Mystery Events sent: 2" in r[1], r[1]
     assert r[0]["bad_checksums"] == 0, r[1]
 
@@ -1898,7 +1921,7 @@ def _():
 def _():
     game = LG.RubyMysteryEvent(master=True)
     hw, report = ereader_run(game, TEST_ME3, stop_on_game=False)
-    assert hw.lg_error is None and hw.lg_done and hw.lg_result == TEST_EVENT, (repr(hw.lg_error), hw.text[-500:])
+    assert hw.lg_error is None and hw.lg_done and hw.lg_result == sent_as(TEST_EVENT), (repr(hw.lg_error), hw.text[-500:])
     assert "Finished: the game has received the event" in hw.text and "your Dad (Norman) in Petalburg City Gym" in hw.text, hw.text
 
 
