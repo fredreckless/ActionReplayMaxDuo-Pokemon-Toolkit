@@ -20,7 +20,7 @@ The MAX DUO was only ever able to back up DS saves, and Datel's drivers stopped 
 - An **Action Replay MAX DUO** (the silver GBA/DS model, USB ID `05FD:DAAE`) and its USB cable.
 - A **Game Boy Advance** and your game.
 - A **Windows 10 or 11 PC** with [Python 3.10 or newer](https://www.python.org/downloads/). Tick "Add Python to PATH" when you install it.
-- **Datel's official 1.06 firmware update file for the MAX DUO.** It isn't included here, because it is Datel's copyrighted software. The build step checks you have the right file, which has CRC-32 `1767E827`.
+- **Datel's official 1.06 firmware update file for the MAX DUO**, from [Datel's Code Junkies support page](http://us.codejunkies.com/support/article.aspx?article_id=245) (the download unzips to `us_update_v1_06.bin`). It isn't included here, because it is Datel's copyrighted software. The build step checks you have the right file, which has CRC-32 `1767E827`.
 
 ### 1. Download this project and install its helpers
 

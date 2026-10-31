@@ -1,6 +1,6 @@
 # Firmware build scripts
 
-These scripts take **Datel's official MAX DUO 1.06 update** (CRC-32 `1767E827`), which you supply, and apply this project's changes to it. The result is never committed: `.gitignore` excludes `build/`.
+These scripts take **Datel's official MAX DUO 1.06 update** (CRC-32 `1767E827`), which you supply ([Datel's download page](http://us.codejunkies.com/support/article.aspx?article_id=245)), and apply this project's changes to it. The result is never committed: `.gitignore` excludes `build/`.
 
 ```
 python build_firmware.py PATH_TO_DATEL_1.06_UPDATE          # -> build/duo_1.06_reckless_v4.1.bin (CRC A5303402)
