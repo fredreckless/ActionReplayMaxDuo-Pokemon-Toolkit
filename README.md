@@ -22,6 +22,8 @@ The MAX DUO was only ever able to back up DS saves, and Datel's drivers stopped 
 - A **Windows 10 or 11 PC** with [Python 3.10 or newer](https://www.python.org/downloads/). Tick "Add Python to PATH" when you install it.
 - **Datel's official 1.06 firmware update file for the MAX DUO**, from [Datel's Code Junkies support page](http://us.codejunkies.com/support/article.aspx?article_id=245) (the download unzips to `us_update_v1_06.bin`). It isn't included here, because it is Datel's copyrighted software. The build step checks you have the right file, which has CRC-32 `1767E827`.
 
+- **For events:** the event files themselves, which aren't included either. [Project Pokémon's EventsGallery](https://github.com/projectpokemon/EventsGallery) has every Gen 3 distribution (Wonder Cards, e-Cards, `.me3`, `.pk3` and more); download it as a zip from its green **Code** button and unzip it beside the tools.
+
 ### 1. Download this project and install its helpers
 
 Download the project with **Code → Download ZIP** on GitHub and unzip it. Then open a command prompt in that folder and run:
@@ -117,7 +119,7 @@ The tool reads the game's language and version from its first broadcast and choo
 **You will need:**
 - Two GBAs: the DUO's, and one for the game.
 - A cross-wired Game Boy / Game Boy Color link cable. A Nintendo MGB-010 has been used. GBA link cables aren't cross-wired, so they won't work here.
-- Your own `.wc3` file for your game and language. None is included. Project Pokémon's file names start with the game ("E - " Emerald, "FL - " FireRed/LeafGreen); the tool warns if that doesn't match the game it finds.
+- Your own `.wc3` file for your game and language, e.g. from [Project Pokémon's EventsGallery](https://github.com/projectpokemon/EventsGallery). None is included. Project Pokémon's file names start with the game ("E - " Emerald, "FL - " FireRed/LeafGreen); the tool warns if that doesn't match the game it finds.
 - **Mystery Gift unlocked in the game.** In FireRed, LeafGreen and Emerald, enter **LINK TOGETHER WITH ALL** at the questionnaire in a Poké Mart, then save and restart: MYSTERY GIFT appears on the title menu.
 
 **Receiving a card:**
@@ -163,7 +165,7 @@ python duo_events.py event                      (a dry run: link players only)
 
 **You will need:**
 - a **GBA** link cable. Game Boy and Game Boy Color cables lack the SD line this mode needs. Unofficial cables often have two identical ends.
-- your own event file for your game and language, as Project Pokémon has them:
+- your own event file for your game and language, as [Project Pokémon's EventsGallery](https://github.com/projectpokemon/EventsGallery) has them:
   - an **e-Card scan** (`.raw`): the tool reads the dot code (checking its error correction), unpacks the card and sends the card's own Mystery Event, exactly as the e-Reader did. For a card of several strips, give any one of them; the others are found beside it. Berries, Battle-e trainers and promos all work;
   - a saved event (`.me3`) or a saved Enigma Berry (`.ecb`): these are what the game *stores*, not what the e-Reader sent, so the tool wraps each in the script that makes the game store exactly that;
   - or a Mystery Event script.
