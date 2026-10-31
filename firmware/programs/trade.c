@@ -6,7 +6,9 @@
  * The link engine (transfers, roles, master pacing, the PC) is ereader.c's, unchanged. On top:
  *   - every link session copies the game's link type and language into our link player, with
  *     lp_field_2 = 0 (0x8000 there would turn the game's National Dex on);
- *   - the Trade Center (0x1111): once the game sends room keys (0xCAFE), we send one a frame too,
+ *   - the Cable Club (0x1133, cable_club.c sub_80834E4): link players, then each player's trainer
+ *     card (0xCCCC 2, 100 bytes; ours is blank), and the same link carries on into the Trade
+ *     Center: once the game sends room keys (0xCAFE), we send one a frame too,
  *     walking to our seat - player 1: up, up, right, up; player 0: up, up, left, up - then key 22
  *     ("seated");
  *   - the trade screen (0x1122): we answer block requests (0xCCCC) with our party, two Pokemon a
@@ -58,7 +60,7 @@ typedef struct {
 #define SLAVE_HS  0xB9A0
 #define CMD_LEN   8
 
-#define LT_ROOM  0x1111
+#define LT_ROOM  0x1133   /* the attendant's link, kept open into the Trade Center */
 #define LT_TRADE 0x1122
 #define LT_SCENE 0x1144
 
@@ -115,7 +117,7 @@ static u32 player_pending;
 
 static const u8 *tx_src;                  /* our outgoing block */
 static u32 tx_len, tx_off, tx_on, tx_header, tx_kind;
-static u8 our_player[60], msg[20], blank[40];
+static u8 our_player[60], msg[20], blank[100];
 
 static void build_our_player(void)
 {
@@ -297,6 +299,11 @@ static void each_cycle(void)              /* once a command cycle (a frame): the
             queue(0xCCCC, seq[req_sent], 0);
             req_sent++; req_timer = 0;
         }
+        return;
+    }
+    /* as master in the Cable Club, we ask for the trainer cards (cable_club.c sub_8083288) */
+    if (is_master && game_lp_type == LT_ROOM && state == ST_ROOM && req_sent == 0 && !room_keys_seen) {
+        if (++req_timer > 40) { queue(0xCCCC, 2, 0); req_sent = 1; req_timer = 0; }
         return;
     }
     if (game_lp_type == LT_TRADE && game_blocks_total >= 5 && state >= ST_PARTIES && state <= ST_DECLINED) {

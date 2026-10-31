@@ -1686,6 +1686,25 @@ def _():
     assert "#385 JIRACHI" in text and "fateful encounter" in text and "PKHeX's (decrypted)" in text, text
 
 
+@test("A file given to the wrong command is turned away before USB, with the command that sends it")
+def _():
+    old = W.UsbTransport
+    W.UsbTransport = None                                               # it must not even try
+    try:
+        for argv, want in ((["gift", "--card", "RS - Item Eon Ticket (ENG) (UK).me3"], "event --event"),
+                           (["event", "--event", "FL - Item MysticTicket (ENG) (US).wc3"], "gift --card"),
+                           (["gift", "--card", "x.pk3"], "trade --pk3"),
+                           (["trade", "--pk3", "08-A001 RS - Cool Trainer Devin (USA).raw"], "event --event")):
+            try:
+                quiet(W.main, argv); raise AssertionError(f"accepted {argv}")
+            except SystemExit as e:
+                assert want in str(e.code) and argv[2] in str(e.code), e.code
+    finally:
+        W.UsbTransport = old
+    assert W.wrong_route("event", "x.me3") is None and W.wrong_route("gift", "x.wc3") is None
+    assert W.wrong_route("event", "script.bin") is None                  # bare scripts are fine
+
+
 @test("e-Reader trainer files (.ect): wrapped so Ruby stores exactly the trainer, the tool points to Mossdeep; damaged and empty records refused; Japanese ones get the Japanese mask")
 def _():
     script, text, problems = W.prepare_event(TEST_TRAINER, "08-A001 RS - Test (USA).ect")

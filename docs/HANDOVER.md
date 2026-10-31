@@ -82,6 +82,11 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   Only the Mystery Mew was a trade; nearly every other released event wrote the save directly.
   **Decided (31 October): the trade route for all** (labelled as the nearest where it isn't the
   original). No multiboot save writer.
+- **Session 28 (31 October, evening):** the Drash Berry e-Card and both MysticTickets worked; the
+  trade reached the Trade Center but the DUO stood at the door. **Fixed:** the Cable Club's link
+  type is 0x1133, not 0x1111. **Unexplained:** the Devin trainer card (USA) left Mossdeep's door
+  locked although the card's record is intact; next, a read-only save backup to look at the
+  stored trainer. `gift` now turns away a `.me3` (and every command a file meant for another).
 - **The trade distributor works in the simulator (31 October):** `trade --pk3 FILE`, program
   `trade.c`, model `tests/trade_game_model.py`, docs/TRADE.md. **Next: a hardware run** with English
   Ruby on the GBA cable as fitted: back up the save, go to a Pokémon Center's Cable Club (2nd floor),
@@ -178,10 +183,9 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 - **More games on hardware:** English/European Emerald, FireRed, other languages. Use
   `gift --sweep-serial` if a game never finds the distributor.
 - **Japanese Emerald's Mystery Event (ふしぎな できごと):**
-  - The menu appears only when unlocked at the Petalburg Poké Mart questionnaire (the phrase
-    「ふしぎ できごと わくわく ドキドキ」 is unverified), and only when no adapter answers.
-  - The Japanese language masks for `checkcompat` aren't known, so Japanese `.me3` files are
-    refused for now.
+  - **Unlocked on hardware (session 28):** the phrase ふしぎ できごと ワクワク ドキドキ at a Poké
+    Mart questionnaire; both ふしぎなおくりもの and ふしぎなできごと then appear.
+  - Japanese `checkcompat` uses language mask 1 (Stage 7).
   - Its もらいもの entry is something else: the Trainer Hill e-Reader (`ereader_screen.c`), a
     different protocol.
 - **Unexplained:** straight after a successful run, a program upload sometimes stalled (sessions

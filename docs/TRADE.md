@@ -1,6 +1,7 @@
 # The Cable Club trade, as the DUO plays it (Stage 9, step 3)
 
-**Status (31 October 2026): working in the simulator, both cable roles; hardware next.**
+**Status (31 October 2026): working in the simulator, both cable roles. First hardware run
+(session 28): the room was reached, but the DUO stood at the door (the link type; fixed).**
 `python duo_events.py trade --pk3 FILE` runs `firmware/programs/trade.c` against the game. The model
 of the game's side is `tests/trade_game_model.py`; four tests and nine planted bugs cover it.
 
@@ -33,8 +34,12 @@ New commands the trade needs (link.c `ProcessRecvCmds`, `BuildSendCmd`):
 
 ## 1. The room: walking to the table
 
-- The player talks to the Cable Club attendant and chooses TRADE CENTER: link type **0x1111**,
-  link players exchanged, then both games warp into the Trade Center (`MAP_TRADE_CENTER`, warp 0).
+- The player talks to the Cable Club attendant and chooses TRADE CENTER: link type **0x1133**
+  (`cable_club.c` `sub_80834E4`; the first build assumed 0x1111, which is only the link test
+  screen's, and on hardware the DUO stood still at the door), link players exchanged, then each
+  player's **trainer card** (the master asks with `0xCCCC 2`, 100 bytes each; the DUO's is blank,
+  which is why its card shows 00:00 and $0). **The same link stays open** while both games warp
+  into the Trade Center (`MAP_TRADE_CENTER`, warp 0).
 - Each player appears on the door row: player *i* at (5 + *i*, 8). The room (layout
   `TradeCenter`, 12 x 9) is open floor from y = 3 to 7, with the table at (5,5)-(6,5). The seats
   are coordinate triggers beside it: **(4,5)** for player 0 and **(7,5)** for player 1.

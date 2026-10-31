@@ -3,7 +3,8 @@
 link.c, data/scripts/cable_club.inc, the Trade Center's map and layout). Like link_game_model.py, it
 is a generator driven by hwsim's multi-player link model, and it plays one player through:
 
-  1. the Trade Center room (link type 0x1111): link players, the warp in, then lockstep - one
+  1. the Cable Club (link type 0x1133): link players, the trainer cards (0xCCCC 2), then the same
+     link carries on through the warp into the Trade Center: lockstep - one
      0xCAFE key a frame from each player - walking to its seat and waiting (key 22) until both
      are seated; then the link closes;
   2. the trade screen (0x1122): link players, the parties (0xCCCC 1 x3, the mail 0xCCCC 3, the
@@ -20,7 +21,7 @@ import struct
 from link_game_model import (LinkLayer, LinkError, handshake_count, link_player_block, parse_link_player,
                              MASTER_HANDSHAKE, SLAVE_HANDSHAKE, CMD_LENGTH, QUEUE_CAPACITY, LANG_ENGLISH)
 
-LT_ROOM, LT_TRADE, LT_SCENE = 0x1111, 0x1122, 0x1144
+LT_ROOM, LT_TRADE, LT_SCENE = 0x1133, 0x1122, 0x1144   # cable_club.c sub_80834E4; trade.c
 BLOCK_REQUEST_SIZES = (200, 200, 100, 220, 40)        # link.c sBlockRequestLookupTable
 KEY_NONE, KEY_DOWN, KEY_UP, KEY_LEFT, KEY_RIGHT, KEY_START, KEY_A = 17, 18, 19, 20, 21, 24, 25
 KEY_SEATED, KEY_EXIT, KEY_FREE, KEY_UNSEAT = 22, 23, 26, 29
@@ -193,6 +194,16 @@ class RubyTrade:
         s.stage = "room: waiting for link players"
         while not s.players_checked:
             yield
+        # the trainer cards (sub_8083288 / sub_80831F8): the master asks, everyone sends 100 bytes
+        s.stage = "room: trainer cards"
+        s.send_buffer = bytes(100)
+        if self.master:
+            s.link.send(0xCCCC, 2)
+        while len(s.blocks_in) < 2:
+            yield
+        if len(s.blocks_in[self.other]) != BLOCK_REQUEST_SIZES[2]:
+            raise LinkError(f"the partner's trainer card was {len(s.blocks_in[self.other])} bytes")
+        s.blocks_in = {}
         s.stage = "room: warping in"
         for _ in range(90):                           # the warp and the room's map load
             yield
