@@ -82,6 +82,11 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   Only the Mystery Mew was a trade; nearly every other released event wrote the save directly.
   **Decided (31 October): the trade route for all** (labelled as the nearest where it isn't the
   original). No multiboot save writer.
+- **1 November, afternoon:** the Mystery Gift program writes lines on the DUO's screen too, but
+  **only where the wireless link can't be affected** (the user's priority): at start, when the
+  card is loaded if the game hasn't sent a word yet, and after the PC has stopped the program.
+  The simulator now stalls the GBA on log lines for the wireless game as well, and a test checks
+  no line falls while the game is on the link. Normal build only; the lab build is unchanged.
 - **Session 30 (1 November):** on hardware, the Devin e-Card now works (Ruby stored exactly the
   card's trainer; save backups compared), a trade ran cleanly through to leaving the room, and a
   Trainer Hill e-Card went into Japanese Emerald (link type 0x5503, closed after its check; the

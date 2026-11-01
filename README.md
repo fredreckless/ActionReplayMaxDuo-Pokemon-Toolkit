@@ -205,7 +205,7 @@ A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received
 
 **Status:** English Ruby received the WISHMKR Jirachi on real hardware, start to finish, leaving the room included (lab sessions 29–30). Emerald and FireRed/LeafGreen use the same Cable Club and work in the simulator; they turn down a Mew or Deoxys without its event mark, and Emerald turns down Pokémon outside the Hoenn Pokédex until it has the National Pokédex. The tool names the game it finds and warns before a trade the game will refuse. See [docs/TRADE.md](docs/TRADE.md).
 
-**On the DUO's own screen** you'll see short lines about what it's playing and how far it has got ("Playing: trade partner", "Offering JIRACHI", "Traded and saved"…). They appear between the link's stages, never during one, because drawing a line costs the GBA over a frame, which a link can't spare.
+**On the DUO's own screen** you'll see short lines about what it's playing and how far it has got ("Playing: trade partner", "Offering JIRACHI", "Traded and saved"…). They appear between the link's stages, never during one, because drawing a line costs the GBA over a frame, which a link can't spare. Mystery Gift is stricter still, as the wireless link must never wait: its lines ("Playing: Wireless Adapter", "Wonder Card loaded", "Waiting for the game", "Card sent: the game saves") appear only before the game has said a word, and after the tool has stopped the program.
 
 ## If something goes wrong
 

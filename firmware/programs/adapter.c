@@ -1246,8 +1246,27 @@ failed:
 
 static u32 last_word_at;
 
+#if !defined(LAB) && !defined(PROBE)
+/* ------------------------------------------------------------------ the DUO's screen */
+/* A log line costs the GBA over a frame (the firmware redraws, then waits for the next frame), and
+ * the wireless link must never wait: a missed word can make the game think there's no adapter, or
+ * drop the gift. So lines go out only before the game has sent a single word (while the tool says
+ * to keep it switched off), and once the PC has stopped us (the link is over by then). */
+static u32 game_seen, say_loaded;
+static void screen_before_game(api_t *api)
+{
+    if (game_seen || !say_loaded) return;
+    say_loaded = 0;
+    api->log(GIFT_IS_NEWS ? "Wonder News loaded" : "Wonder Card loaded");
+    api->log("Waiting for the game");
+}
+#endif
+
 static void link_word(api_t *api, u32 in)
 {
+#if !defined(LAB) && !defined(PROBE)
+    game_seen = 1;
+#endif
     last_word = in;
     last_word_at = now();
     switch (phase) {
@@ -1417,6 +1436,9 @@ static int pc_service(api_t *api)
         gift_ready = GIFT_IS_NEWS ? put_at * 4 >= 4 + CARD_SIZE && CARD_SIZE >= 16 && CARD_SIZE <= 0x1BC
                                   : put_at * 4 >= 4 + CARD_SIZE + 1000 && CARD_SIZE >= 16 && CARD_SIZE <= 0x14C;
         build_host();                                          /* offer a card or news accordingly */
+#if !defined(LAB) && !defined(PROBE)
+        say_loaded = gift_ready;                               /* (shown after this reply, if still safe) */
+#endif
         break;
     case 28: v = mg_resp | GIFT_IS_NEWS << 8 | gift_ready << 9; break;   /* news: did it already have it? */
     case 22: v = link_state | mg_step << 4 | mg_errors << 8 | (n_child_cmds & 0xFFFF) << 16; break;
@@ -1459,11 +1481,18 @@ u32 start(api_t *api)
     calibrate();
     last_vcount = VCOUNT & 0xFF;
 #endif
+#if !defined(LAB) && !defined(PROBE)
+    api->log("Playing: Wireless Adapter");                     /* before the game is switched on */
+#endif
     arm_idle();
     while (!stop_requested) {
         if (!(SIOCNT & CNT_START))
             link_word(api, SIODATA32);
         pc_service(api);
+#if !defined(LAB) && !defined(PROBE)
+        if (SIOCNT & CNT_START)                                /* (no word waiting to be handled) */
+            screen_before_game(api);
+#endif
         /* Every word of a command is handshaken, so a long silence mid-command means the
          * game gave up on it (and will reset us or start again): wait for a new command. */
         if (phase != PH_COMMAND && phase != PH_ID && now() - last_word_at > WATCHDOG_LINES) {
@@ -1474,5 +1503,10 @@ u32 start(api_t *api)
     }
     SIOCNT = saved_siocnt & ~CNT_START;
     RCNT = saved_rcnt;
+#if !defined(LAB) && !defined(PROBE)
+    /* stopped by the PC, which waits until the game has hung up: the link is over */
+    if (mg_step >= 6)
+        api->log(GIFT_IS_NEWS ? "News sent: the game saves" : "Card sent: the game saves");
+#endif
     return status_word();
 }

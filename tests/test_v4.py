@@ -2147,6 +2147,12 @@ def _():
     assert any(n.startswith("link players exchanged") for n in names), names
     assert any(n.startswith("the game is ready to close the link") for n in names), names
     assert "Wonder Card loaded" in hw.text and game.retries == 0, (hw.text[:400], game.retries)
+    # the DUO's screen: only where the wireless link can't be waiting (the simulator stalls the GBA
+    # for over a frame on every line, so a line mid-link would cost retries or the gift)
+    assert "Playing: Wireless Adapter" in hw.log and "Card sent: the game saves" in hw.log, hw.log
+    assert hw.log.index("Card sent: the game saves") > hw.log.index("Playing: Wireless Adapter")
+    talking = [s for s in hw.log_stalls if hw.lg_first_at <= s < hw.lg_done_at]
+    assert not talking, (talking, hw.lg_first_at, hw.lg_done_at, hw.log)   # never while the game was on the link
 
 
 @test("distributor: packets lost on the way (every 7th) are sent again until the game shows it got them; the card still arrives intact")

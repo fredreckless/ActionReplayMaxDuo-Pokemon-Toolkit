@@ -331,11 +331,15 @@ class Hw:
             self.lg_op = self.lg.send(value)
         except StopIteration as e:
             self.lg_op, self.lg_result, self.lg_done = None, e.value, True
+            self.lg_done_at = self.blocks
             return
         except Exception as e:                     # the game's own error (LinkError etc.)
             self.lg_op, self.lg_error, self.lg_done = None, e, True
+            self.lg_done_at = self.blocks
             return
         op = self.lg_op
+        if op[0] not in ("delay", "now", "until_ready") and getattr(self, "lg_first_at", None) is None:
+            self.lg_first_at = self.blocks          # the game's first move on the link
         if op[0] == "wait_si":
             self.duo_low_seen = False
         if op[0] in ("wait_si", "wait_xfer", "delay"):
@@ -606,6 +610,10 @@ class Hw:
                 self.log_stalls.append(self.blocks)
                 for _ in range(LOG_STALL_LINES * self.lg_bpl):
                     self.mp_on_block(mu, 0, 0, None)
+            elif hasattr(self, "lg"):                     # the wireless adapter's game, likewise
+                self.log_stalls.append(self.blocks)
+                for _ in range(LOG_STALL_LINES * self.lg_bpl):
+                    self.lg_on_block(mu, 0, 0, None)
             self.ret()
         elif addr == F_USB_RECV8:
             pkt = self.h2d.get()

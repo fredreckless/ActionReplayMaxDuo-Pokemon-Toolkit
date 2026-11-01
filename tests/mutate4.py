@@ -51,6 +51,7 @@ PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a c
     "adapter flicks while still armed (lab session 15: never seen)": ("        SIOCNT = CNT_32BIT;                                   /* disarmed for a moment: SO really low */", "        SIOCNT = CNT_32BIT | CNT_START;", "first-bit behaviour"),
     "adapter's flick never narrows after a lost word": ("            judge_flick(0);                                   /* narrower; the game will retry */", "            ;", "tunes its own width"),
     "adapter has no watchdog mid-command": ("        if (phase != PH_COMMAND && phase != PH_ID && now() - last_word_at > WATCHDOG_LINES) {", "        if (0) {", "wireless adapter: the game gives up"),
+    "adapter: a screen line shown after the game has started talking": ("    if (game_seen || !say_loaded) return;", "    if (!say_loaded) return;", "distributor: link players exchanged"),
 }
 
 EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link cable
