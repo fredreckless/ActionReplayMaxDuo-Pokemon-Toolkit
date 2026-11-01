@@ -185,7 +185,7 @@ python duo_events.py event                      (a dry run: link players only)
 
 The DUO copies the game's link type and language into its own link-player details, so the game's checks agree. If the game opens the link again (for another event), the DUO starts over with it (with `--keep-going`).
 
-**Status:** English Ruby received the Eon Ticket on real hardware, and Norman gave it (lab session 26). The PUMKIN BERRY, an e-Reader Enigma Berry, followed (lab session 27), then the DRASH BERRY from an e-Card scan (lab session 28). Short cards, such as the Battle-e trainers, were "loaded" but stored nothing until lab session 29 showed why: Ruby only runs an event that arrives as a block of over 256 bytes, so every event now goes as the game's full 2,004-byte buffer. See [docs/EREADER.md](docs/EREADER.md).
+**Status:** English Ruby received the Eon Ticket on real hardware, and Norman gave it (lab session 26). The PUMKIN BERRY, an e-Reader Enigma Berry, followed (lab session 27), then the DRASH BERRY from an e-Card scan (lab session 28). Short cards, such as the Battle-e trainers, were "loaded" but stored nothing until lab session 29 showed why: Ruby only runs an event that arrives as a block of over 256 bytes, so every event now goes as the game's full 2,004-byte buffer. Since then, Cool Trainer Devin arrived in Mossdeep (lab session 30), and a Trainer Hill e-Card went into Japanese Emerald. See [docs/EREADER.md](docs/EREADER.md).
 
 ## Trading a Pokémon: the Cable Club
 
@@ -203,7 +203,7 @@ python duo_events.py trade --pk3 "YOUR POKEMON.pk3"
 
 A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received` folder beside the tools, named with the date, the Pokémon and the event it was traded for.
 
-**Status:** English Ruby received the WISHMKR Jirachi twice (lab session 29). Emerald and FireRed/LeafGreen use the same Cable Club and work in the simulator; they turn down a Mew or Deoxys without its event mark, and Emerald turns down Pokémon outside the Hoenn Pokédex until it has the National Pokédex. The tool names the game it finds and warns before a trade the game will refuse. See [docs/TRADE.md](docs/TRADE.md).
+**Status:** English Ruby received the WISHMKR Jirachi on real hardware, start to finish, leaving the room included (lab sessions 29–30). Emerald and FireRed/LeafGreen use the same Cable Club and work in the simulator; they turn down a Mew or Deoxys without its event mark, and Emerald turns down Pokémon outside the Hoenn Pokédex until it has the National Pokédex. The tool names the game it finds and warns before a trade the game will refuse. See [docs/TRADE.md](docs/TRADE.md).
 
 **On the DUO's own screen** you'll see short lines about what it's playing and how far it has got ("Playing: trade partner", "Offering JIRACHI", "Traded and saved"…). They appear between the link's stages, never during one, because drawing a line costs the GBA over a frame, which a link can't spare.
 

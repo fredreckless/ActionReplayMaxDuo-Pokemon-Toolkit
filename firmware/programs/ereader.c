@@ -349,8 +349,9 @@ u32 start(api_t *api)
     api->log("Playing: Card e-Reader+");          /* before any link: the game is still off */
     while (!stop_requested) {
         u32 t = now();
-        if (state >= ST_CONNECTED && t - last_iter > max_gap)
-            max_gap = t - last_iter;                 /* our longest look away from the link */
+        /* our longest look away from the link (not once the game has closed it: the screen line then) */
+        if (state >= ST_CONNECTED && state != ST_CLOSED && t - last_iter > max_gap)
+            max_gap = t - last_iter;
         last_iter = t;
         if (!role_known) {
             si_low_run = SIOCNT & CNT_SI ? 0 : si_low_run < SI_LOW_NEEDED ? si_low_run + 1 : si_low_run;

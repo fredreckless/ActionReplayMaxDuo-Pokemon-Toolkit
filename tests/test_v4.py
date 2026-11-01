@@ -1948,6 +1948,7 @@ def _():
     assert duo_lp["link_type"] == 0x5501 and duo_lp["language"] == LG.LANG_ENGLISH, duo_lp
     assert report["bad_checksums"] == 0 and report["game_language"] == 2, report
     assert "Playing: Card e-Reader+" in hw.log, hw.log                     # the DUO's screen (between sessions only)
+    assert report["max_gap_lines"] < 20, report                            # (the line after the close isn't counted)
     for line in ("Mystery Event loaded", "link up (the DUO is player 1)", "got the game's link player: link type 0x5501, English",
                  "sent the Mystery Event", "the game closed the link"):
         assert line in hw.text, (line, hw.text)

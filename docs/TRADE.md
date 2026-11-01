@@ -1,8 +1,8 @@
 # The Cable Club trade, as the DUO plays it (Stage 9, step 3)
 
-**Status (1 November 2026): works on hardware.** English Ruby received the WISHMKR Jirachi twice
-(lab session 29), saved, and the DUO kept what it was given. Leaving the room froze the game;
-fixed in the simulator (below), to check on hardware.
+**Status (1 November 2026): works on hardware, start to finish.** English Ruby received the
+WISHMKR Jirachi (lab sessions 29 and 30), saved, and the DUO kept what it was given; since session
+30 the DUO also walks out of the room cleanly afterwards.
 `python duo_events.py trade --pk3 FILE` runs `firmware/programs/trade.c` against the game. The model
 of the game's side is `tests/trade_game_model.py`; four tests and nine planted bugs cover it.
 
