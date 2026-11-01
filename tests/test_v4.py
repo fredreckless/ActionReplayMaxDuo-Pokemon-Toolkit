@@ -1775,6 +1775,33 @@ def _():
         assert line in hw.text, (line, hw.text[-1500:])
 
 
+@test("Pokemon files: the tool says how each event was originally given out - the Mystery Mew by trade, the Aura Mew by a multiboot program, unreleased ones never - and that a trade is the nearest route when it isn't the original")
+def _():
+    def route(ot, folder):
+        d = os.path.join(tempfile.mkdtemp(), *folder)
+        os.makedirs(d)
+        path = os.path.join(d, "x.pk3")
+        open(path, "wb").write(test_pk3(ot=ot))
+        f = W.parse_pk3(open(path, "rb").read())[0]
+        return W.pk3_route(path, f), W.describe_route(path, f)
+    r, text = route("MYSTRY", ("Released", "Gen 3", "ENG", "Toys R Us"))
+    assert r[1] == "trade" and "This trade is the original route" in text, text
+    r, text = route("Aura", ("Released", "Gen 3", "ENG", "Aura Mew"))
+    assert r[1] == "multiboot" and "multiboot program" in text and "nearest route" in text, text
+    r, text = route("MYSTRY", ("Unreleased", "Gen 3", "ENG", "MYSTRY Mew"))
+    assert r[1] == "never" and "Never distributed" in text, text
+    r, text = route("PCNYd", ("somewhere else",))                      # moved out of the gallery: the name still tells
+    assert r[1] == "machine" and "event machine" in text, text
+    r, text = route("ROCKS", ("x",))
+    assert r[1] == "unknown" and "isn't known" in text, text
+    r, text = route("NOBODY", ("x",))
+    assert r is None and "not in this tool's catalogue" in text, text
+    # and the trade and pk3-info both say it
+    path = event_file(test_pk3(ot="WISHMKR"), "385 - JIRACHI - TEST.pk3")
+    _, out = quiet(W.pk3_info, [path])
+    assert "Colosseum bonus disc" in out and "nearest route" in out, out
+
+
 @test("e-Reader trainer files (.ect): wrapped so Ruby stores exactly the trainer, the tool points to Mossdeep; damaged and empty records refused; Japanese ones get the Japanese mask")
 def _():
     script, text, problems = W.prepare_event(TEST_TRAINER, "08-A001 RS - Test (USA).ect")
@@ -1798,15 +1825,17 @@ TRADE_EVENT = None
 
 
 def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280), pick=1, seconds=240, leaves_first=False,
-              game_kind="ruby", national_dex=True):
+              game_kind="ruby", national_dex=True, events=None, picks=None):
     """The DUO's trade program against a simulated Ruby in the Trade Center (docs/TRADE.md)."""
     event = event or test_pk3(species=409, pid=0x0BADCAFE, otid=0x00004E44)
     party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
     game = TG.RubyTrade(master=master, party=party, pick=pick, accept=accept, leaves_first=leaves_first,
-                        game=game_kind, national_dex=national_dex)
+                        game=game_kind, national_dex=national_dex, trades=len(events) if events else 1, picks=picks)
     hw, duo = run42()
     hw.attach_mp_game(game.run(), game_master=game.master)
     path = event_file(event, "385 - JIRACHI - TEST.pk3")
+    if events:
+        path = [event_file(e, f"{k} - TEST.pk3") for k, e in enumerate(events)]
     W.RECEIVED_DIR = os.path.join(tempfile.mkdtemp(), "received")      # (never the repo's own folder)
     r = quiet(W.trade_session, duo, types.SimpleNamespace(pk3=path, seconds=seconds), poll_s=0.2,
               stop_when=lambda: hw.lg_done)
@@ -1835,6 +1864,10 @@ def _():
     for line in ("the DUO is player 1", "walking to the table", "swapping parties", "traded and saved", "You gave: #151 MEW", "Kept on this PC",
                  "back in the room", "walking back to the door", "leaving the room", "done"):
         assert line in hw.text, (line, hw.text[-1500:])
+    # its trainer card and link player: the event's own trainer (TESTER, ID 19524, male), not blank
+    card = res["partner_card"]
+    assert card[0x30:0x38] == gen3("TESTER").ljust(8, b"\xff")[:8] and card[0x0E:0x10] == (0x4E44).to_bytes(2, "little"), card.hex()
+    assert card[0] == 0 and card[0x38] == 2 and game.link_players[1]["name"][:7] == gen3("TESTER"), game.link_players[1]
     # the DUO's own screen: what it plays and where it has got to, shown only between link sessions
     for line in ("Playing: trade partner", "Offering JIRACHI", "Seated at the table", "Traded and saved", "Done: the link is closed"):
         assert line in hw.log, (line, hw.log)
@@ -1872,6 +1905,32 @@ def _():
     bulbasaur = W.parse_pk3(test_pk3(species=1))[0]
     assert "until it has the National Pokedex" in W.trade_refusal(3, 0x10, bulbasaur)
     assert W.trade_refusal(3, 0x11, bulbasaur) is None and W.trade_refusal(4, 0x10, bulbasaur) is None
+
+
+@test("trade: three Pokemon in one sitting - after each trade the DUO offers the next, the player gives a different Pokemon each time, every one is kept, and the DUO leaves the room after the last")
+def _():
+    events = [test_pk3(species=sp, pid=0x0BAD0000 + sp, otid=0x00004E44) for sp in (409, 410, 25)]
+    hw, game, report, event, paths = trade_run(master=True, events=events, picks=[0, 1, 2], seconds=400)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1200:])
+    res = game.result
+    assert res["received_all"] == [W.pk3_party_form(e) for e in events], "the game didn't receive them in order"
+    assert res["partner_picks"] == [0, 1, 2] and res["left_room"], res["partner_picks"]
+    assert report["trades"] == 3 and report["bad_checksums"] == 0, report
+    kept = sorted(os.listdir(W.RECEIVED_DIR))
+    assert [open(os.path.join(W.RECEIVED_DIR, k), "rb").read() for k in kept] != [] and len(kept) == 3, kept
+    assert sorted(open(os.path.join(W.RECEIVED_DIR, k), "rb").read() for k in kept) == sorted(res["gave_all"])
+    for line in ("3 Pokemon, one trade each", "traded and saved (1 of 3)", "traded and saved (3 of 3)",
+                 "the game has 3 of the 3 event Pokemon", "(for JIRACHI)", "(for DEOXYS)", "(for PIKACHU)"):
+        assert line in hw.text or any(line in k for k in kept), (line, hw.text[-1500:], kept)
+    assert "Offering 3 Pokemon" in hw.log, hw.log
+
+
+@test("trade: two Pokemon in one sitting with the DUO as master - it asks for the parties again before the second trade")
+def _():
+    events = [test_pk3(species=sp, pid=0x0BAD0000 + sp, otid=0x00004E44) for sp in (409, 410)]
+    hw, game, report, event, paths = trade_run(master=False, events=events, picks=[2, 0], seconds=400)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1200:])
+    assert game.result["received_all"] == [W.pk3_party_form(e) for e in events] and report["trades"] == 2, report
 
 
 @test("trade: back in the room, the player leaves first - the DUO follows at once and both games warp out")

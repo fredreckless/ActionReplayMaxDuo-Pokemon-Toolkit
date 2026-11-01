@@ -143,7 +143,7 @@ class Room:
 class RubyTrade:
     def __init__(self, master=True, language=LANG_ENGLISH, party=None, pick=0, accept=True, version=2,
                  pace=300, frame_blocks=25 * 228, lp_field_2=0x8000, leaves_first=False, game="ruby",
-                 national_dex=True):
+                 national_dex=True, trades=1, picks=None):
         """party: the game's party, 100-byte Pokemon in the game's form (1-6); pick: which it
         trades; accept: whether the player says yes. lp_field_2: this game's own link-player
         field (0x8000 when it has the National Dex; trade.c turns the partner's National Dex on
@@ -157,6 +157,9 @@ class RubyTrade:
         self.party = [bytes(p) for p in (party or [])]
         assert 1 <= len(self.party) <= 6
         self.pick, self.accept = pick, accept
+        # trades: how many trades the player makes in one sitting (after each, the trade screen
+        # comes back and the player chooses again); picks: the player's choice each time
+        self.trades, self.picks = trades, list(picks or [pick] * trades)
         self.pace, self.frame_blocks = pace, frame_blocks
         self.lp_field_2 = lp_field_2
         self.leaves_first = leaves_first              # the player walks out first, not the partner
@@ -167,7 +170,8 @@ class RubyTrade:
         self.link_players = {}
         self.result = dict(partner_party=None, partner_pick=None, received=None, saved=False,
                            national_dex_enabled=False, partner_seat=None, gave=None, left_room=False,
-                           partner_left_by_door=False, refused=None)
+                           partner_left_by_door=False, refused=None, received_all=[], gave_all=[],
+                           partner_picks=[])
         self.frame = 0
 
     # ------------------------------------------------------------ the link, as link.c runs it
@@ -241,10 +245,15 @@ class RubyTrade:
     def run(self):
         yield ("until_ready",)
         yield from self._session(LT_ROOM, self._room)
-        yield from self._session(LT_TRADE, self._trade_screen)
-        if self.result["partner_pick"] is not None:
+        for k in range(self.trades):
+            self.pick = self.picks[k]
+            self.result["partner_pick"] = None
+            yield from self._session(LT_TRADE, self._trade_screen)
+            if self.result["partner_pick"] is None:
+                break                                 # cancelled or declined: the link has closed
             yield from self._session(LT_SCENE, self._scene)
-            yield from self._session(LT_TRADE, self._leave)
+            if k == self.trades - 1:
+                yield from self._session(LT_TRADE, self._leave)
         # then back to the Trade Center (CB2_ReturnToFieldLink, sub_8083664): a new link, 0x1111;
         # if no partner answers within 300 frames, a link error (the freeze of lab session 29)
         yield from self._session(LT_BACK, self._back)
@@ -263,6 +272,7 @@ class RubyTrade:
             yield
         if len(s.blocks_in[self.other]) != BLOCK_REQUEST_SIZES[2]:
             raise LinkError(f"the partner's trainer card was {len(s.blocks_in[self.other])} bytes")
+        self.result["partner_card"] = s.blocks_in[self.other]          # (struct TrainerCard)
         s.blocks_in = {}
         s.stage = "room: warping in"
         for _ in range(90):                           # the warp and the room's map load
@@ -417,6 +427,10 @@ class RubyTrade:
         partner = self.result["partner_party"][self.result["partner_pick"]]
         self.result["gave"] = self.party[self.pick]
         self.result["received"] = partner
+        self.result["gave_all"].append(self.party[self.pick])
+        self.result["received_all"].append(partner)
+        self.result["partner_picks"].append(self.result["partner_pick"])
+        self.party[self.pick] = partner               # the game's party now holds what it received
         if any(lp["field_2"] == 0x8000 for i, lp in self.link_players.items() if i != self.my_id):
             self.result["national_dex_enabled"] = True
         s.send_message(0xABCD)

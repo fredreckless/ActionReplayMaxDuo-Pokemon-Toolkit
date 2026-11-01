@@ -27,6 +27,13 @@ released reached the games by a route that **wrote the save directly** - a multi
 machine that "injected" it, or GameCube software over the GameCube-GBA cable. About 150 files
 were never distributed at all.
 
+## In the tool (1 November)
+
+`trade --pk3` and `pk3-info` say, for each file, which event it belongs to and how that event was
+given out, from this catalogue (`PK3_EVENTS` in `duo_events.py`): by the gallery folder, or the
+trainer name if the file has been moved. Every one of the 3,344 files is recognised, in the
+proportions above.
+
 ## Decided (31 October): the trade route for all
 
 The user chose **a trade for every event**: authentic for the Mystery Mew, and for the rest the

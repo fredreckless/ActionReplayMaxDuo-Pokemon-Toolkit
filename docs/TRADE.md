@@ -138,6 +138,34 @@ The DUO now walks back to the door (player 1: down, down, left, down; player 0: 
 right, down), presses DOWN there and sends 23; if the player leaves first, it follows at once.
 It reports "done" only after its own 0x5FFF has gone out.
 
+## Several Pokémon in one sitting (1 November 2026)
+
+`trade --pk3` takes up to six files: they make up the DUO's party, and it offers them one at a
+time. After each trade the games go back to the trade screen (link type 0x1122, as before), and
+instead of choosing CANCEL the DUO offers the next event Pokémon; the player chooses another of
+theirs. After the last, the DUO chooses CANCEL and both walk out. Each received Pokémon takes its
+event Pokémon's slot in the DUO's copy of its party, so the tool reads them all back at the end and
+keeps each as a `.pk3`. As master, the DUO now picks each link's type from the trade's state (the
+scene after an agreed trade, the trade screen otherwise, the room after leaving), not from a
+fixed order. If the player says NO to one, the sitting ends there.
+
+## The DUO's trainer card and link player (1 November 2026)
+
+The trainer card the DUO sends at the attendant (`0xCCCC 2`, 100 bytes) was blank, so it showed
+00:00 and $0. It now carries the event trainer's gender (0x00), trainer ID (0x0E) and name (0x30),
+in `struct TrainerCard`'s layout (pokeruby `trainer_card.h`; pokeemerald and pokefirered add the
+version at 0x38), with no stars, play time, money or Pokédex. The link player carries the same
+gender (Ruby keeps it at byte 0x10; Emerald and FireRed/LeafGreen at 0x13), so the DUO's
+character in the room matches the event trainer.
+
+## How each event was given out
+
+At the start the tool prints, for each file, how its event originally reached the games
+(`PK3_EVENTS` in `duo_events.py`, from docs/PK3_EVENTS.md): by its gallery folder, or failing that
+its trainer name. A trade is the original route only for the Mystery Mew; for the rest the tool
+says what the original was and that a trade is the nearest route that leaves the game in charge.
+All 3,344 gallery files are recognised, in the catalogue's proportions.
+
 ## On the DUO's screen
 
 The program writes short lines to the DUO's own screen: what it is playing ("Playing: trade

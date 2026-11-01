@@ -85,7 +85,9 @@ static u32 now(void)
 static u32 blob_words[BLOB_MAX / 4], put_at, blob_ready;
 #define BLOB ((u8 *)blob_words)
 #define PARTY_COUNT BLOB[0]
-#define OUR_PICK    BLOB[1]
+#define OUR_GENDER  BLOB[2]             /* the event trainer's: 0 male, 1 female */
+#define FIRST_PICK  BLOB[1]
+#define OUR_PICK    cur_pick            /* the event Pokemon on offer now; after each trade, the next */
 #define OUR_NAME    (BLOB + 4)          /* 8 bytes, game charset */
 #define OUR_TID     (BLOB + 12)         /* 4 bytes */
 #define PARTY       (BLOB + 16)         /* 6 x 100 */
@@ -101,7 +103,8 @@ static u32 role_known, si_low_run, sessions, hs_run, max_gap;
 static u8 game_player[60];
 
 /* the trade's own story */
-static u32 traded, declined, partner_pick, have_partner_pick, room_keys_seen, walk_frame;
+static u32 traded, declined, partner_pick, have_partner_pick, room_keys_seen, walk_frame;   /* traded: how many */
+static u32 cur_pick;
 static u32 requests_answered, blocks_from_game, barriers, scene_ready_seen, said_ready;
 static u32 menu_timer, sent_choice, sent_yes, master_sent_dddd, game_choice, game_choice_seen;
 static u32 game_said, game_said_seen;     /* the game's last menu message (as master we decide) */
@@ -142,7 +145,12 @@ static void build_our_player(void)
      * regional Pokemon, and FireRed/LeafGreen would refuse a Ruby/Sapphire/Emerald partner
      * altogether. A distribution's partner has everything. (Ruby keeps its gender here.) */
     u32 version = game_player[16];
-    if (version >= 3 && version <= 5) lp[0x10] = 0x11;
+    if (version >= 3 && version <= 5) {
+        lp[0x10] = 0x11;
+        lp[0x13] = OUR_GENDER;                                   /* (Emerald/FRLG keep the gender here) */
+    } else {
+        lp[0x10] = OUR_GENDER;                                   /* Ruby/Sapphire: the gender */
+    }
 }
 
 static void queue(u16 w0, u16 w1, u16 w2)
@@ -239,6 +247,19 @@ static void next_command(void)
     }
 }
 
+static u8 card[100];
+static void build_card(void)              /* the trainer card the game shows for us */
+{
+    /* struct TrainerCard (pokeruby trainer_card.h; pokeemerald's adds the version at 0x38): the
+     * event trainer's gender, ID and name, as a distribution's partner would show; no stars, no
+     * play time, no money, no Pokedex */
+    zero(card, sizeof card);
+    card[0x00] = OUR_GENDER;
+    card[0x0E] = OUR_TID[0]; card[0x0F] = OUR_TID[1];
+    memcpy(card + 0x30, OUR_NAME, 8);
+    card[0x38] = game_player[16];                                /* the game's own version */
+}
+
 static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
 {
     if (n == 1) {
@@ -247,6 +268,9 @@ static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
         requests_answered++;
     } else if (n == 3) {
         send_block(MAIL, 220, 3);
+    } else if (n == 2) {
+        build_card();
+        send_block(card, 100, 4);
     } else {
         send_block(blank, n == 4 ? 40 : n == 2 ? 100 : 200, 4);
     }
@@ -262,7 +286,10 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         send_block(our_player, 60, 0);
         player_pending = 0;
         if (game_lp_type == LT_ROOM && state < ST_ROOM) state = ST_ROOM;
-        if (game_lp_type == LT_TRADE) state = traded ? ST_LEAVING : ST_PARTIES;
+        if (game_lp_type == LT_TRADE) {                          /* the trade screen: another, or out */
+            state = (cur_pick >= PARTY_COUNT || declined) ? ST_LEAVING : ST_PARTIES;
+            if (state == ST_PARTIES) have_partner_pick = 0;
+        }
         if (game_lp_type == LT_SCENE) state = ST_SCENE;
         if (game_lp_type == LT_BACK) { state = ST_BACK; room_keys_seen = walk_frame = game_exiting = sent_exit = 0; }
         return;
@@ -322,9 +349,10 @@ static void process_command(void)
         queue(0x5FFF, 0, 0);
         if (state == ST_BACK || state == ST_WALKING_OUT || state == ST_EXITING) close_pending = 1;
         else if (leave_agreed && state < ST_RETURNING) state = ST_RETURNING;   /* the room comes next */
-        if (state == ST_SAVING && !traded) {                     /* the trade is saved: swap our copy too */
-            state = ST_TRADED; traded = 1;
+        if (state == ST_SAVING) {                                /* the trade is saved: swap our copy too */
+            state = ST_TRADED; traded++;
             memcpy(PARTY + 100 * OUR_PICK, game_party + 100 * partner_pick, 100);
+            cur_pick++;                                          /* next time, the next event Pokemon */
         }
         break;
     }
@@ -350,7 +378,7 @@ static void each_cycle(void)              /* once a command cycle (a frame): the
     if (game_lp_type == LT_TRADE && game_blocks_total >= 5 && state >= ST_PARTIES && state <= ST_DECLINED) {
         if (state == ST_PARTIES) { state = ST_MENU; menu_timer = 0; }
         menu_timer++;
-        int leaving = traded || declined;
+        int leaving = cur_pick >= PARTY_COUNT || declined;
         if (!is_master) {
             if (!sent_choice && menu_timer > 60) {
                 send_msg(leaving ? 0xEEAA : 0xAABB, OUR_PICK);
@@ -399,9 +427,12 @@ static void new_session(void)             /* the link is up again: forget the la
 
 static u32 master_session_type(void)      /* as master, which link this is */
 {
-    static const u16 order[4] = { LT_ROOM, LT_TRADE, LT_SCENE, LT_TRADE };
+    /* the room, then the trade screen; after an agreed trade the scene, then the screen again
+     * (for another trade, or to leave); after leaving it, the room again */
     if (state == ST_RETURNING) return LT_BACK;
-    return order[(sessions - 1) & 3];
+    if (state == ST_AGREED) return LT_SCENE;
+    if (sessions == 1) return LT_ROOM;
+    return LT_TRADE;
 }
 
 static void on_transfer(void)
@@ -516,8 +547,9 @@ static int pc_service(api_t *api)
     case 0: v = state | is_master << 5 | (sessions & 3) << 6 | (transfers & 0xFFFFFF) << 8; break;
     case 1: v = bad_checksums | barriers << 16; break;
     case 2: v = game_lp_type | game_lp_lang << 16; break;
-    case 3: v = partner_pick | have_partner_pick << 8 | traded << 9 | declined << 10 | blocks_from_game << 12
-                | requests_answered << 16; break;
+    case 3: v = partner_pick | have_partner_pick << 8 | (traded != 0) << 9 | declined << 10 | blocks_from_game << 12
+                | (traded & 0xF) << 24
+                | (requests_answered & 0xFF) << 16; break;
     case 4: {                                                    /* the game's party, a word at a time */
         u32 at = 4 * idx;
         v = at + 3 < sizeof game_party ? game_party[at] | game_party[at + 1] << 8 | game_party[at + 2] << 16
@@ -534,7 +566,8 @@ static int pc_service(api_t *api)
     case 8: v = max_gap; break;
     case 20: put_at = 0; blob_ready = 0; v = sizeof blob_words; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
-             blob_ready = put_at * 4 >= 16 + 600 + 220 && PARTY_COUNT >= 1 && PARTY_COUNT <= 6 && OUR_PICK < PARTY_COUNT;
+             blob_ready = put_at * 4 >= 16 + 600 + 220 && PARTY_COUNT >= 1 && PARTY_COUNT <= 6 && FIRST_PICK < PARTY_COUNT;
+             cur_pick = FIRST_PICK;
              break;
     default: v = 0xFFFFFFFF; break;
     }

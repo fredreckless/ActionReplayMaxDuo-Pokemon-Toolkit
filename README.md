@@ -193,15 +193,20 @@ Every Gen 3 Pokémon file (`.pk3`) goes to the game by trade, the way two player
 
 ```
 python duo_events.py trade --pk3 "YOUR POKEMON.pk3"
+python duo_events.py trade --pk3 "FIRST.pk3" "SECOND.pk3" "THIRD.pk3"     (up to six, one sitting)
 ```
 
 1. **Back up your save first.** A GBA link cable, either way round; both GBAs off.
 2. Run the command, switch on the DUO's GBA when asked, then the game when the tool says **Ready**.
 3. Go up to the 2nd floor of any Pokémon Center, choose **TRADE CENTER** with the Cable Club attendant and let the game save.
 4. In the room, sit at the table: the DUO walks to the other seat. Choose a Pokémon you can spare, then YES.
-5. After the trade, choose CANCEL. Back in the room, the DUO walks to the door and leaves; the game follows it out.
+5. With several files, the trade screen comes back after each trade with the next Pokémon on offer: choose another of yours each time. After the last (or whenever you've had enough), choose CANCEL. Back in the room, the DUO walks to the door and leaves; the game follows it out.
 
 A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received` folder beside the tools, named with the date, the Pokémon and the event it was traded for.
+
+**How each event was really given out.** For each file the tool says how its event originally reached the games, from the project's catalogue of the gallery (docs/PK3_EVENTS.md): the Mystery Mew by trade (so the trade *is* the original route), the Aura Mew and others by a multiboot program, the PCNY and Japanese events by event machines, the Wishmaker Jirachi by a GameCube disc (all of which wrote the save directly, which this project doesn't do: a trade is the nearest route that leaves the game in charge), and the unreleased ones marked as never distributed. `pk3-info` says the same.
+
+**The DUO's trainer card** shows the event's own trainer (name, ID and gender, e.g. WISHMKR), as a distribution's partner would.
 
 **Status:** English Ruby received the WISHMKR Jirachi on real hardware, start to finish, leaving the room included (lab sessions 29–30). Emerald and FireRed/LeafGreen use the same Cable Club and work in the simulator; they turn down a Mew or Deoxys without its event mark, and Emerald turns down Pokémon outside the Hoenn Pokédex until it has the National Pokédex. The tool names the game it finds and warns before a trade the game will refuse. See [docs/TRADE.md](docs/TRADE.md).
 

@@ -112,6 +112,7 @@ PC_MUTANTS = {
     "Trainer Hill records read in pokeemerald's English layout": ("HILL_RECORD = 0x270", "HILL_RECORD = 0x274", "Trainer Hill e-Cards"),
     "Trainer Hill set's checksum left out": ('    return (bytes([len(records), 0, 0, 0]) + struct.pack("<I", sum(body) & 0xFFFFFFFF)', '    return (bytes([len(records), 0, 0, 0]) + struct.pack("<I", 0)', "Trainer Hill e-Cards"),
     "Trainer Tower floors read in pokefirered's English layout": ("TOWER_RECORD = 0x3D4", "TOWER_RECORD = 0x3E0", "Trainer Tower e-Cards"),
+    "every Pokemon's original route called a trade": ('    if route == "trade":\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', '    if True:\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', "how each event was originally given out"),
     "party stats left empty in a traded Pokemon": ("    return box + pk3_party_fields(f)", "    return box + bytes(20)", "party form"),
     "known game table ignored": ("    known = KNOWN_SAVE_GAMES.get(info[\"code\"][:3])\n    if forced:", "    known = None\n    if forced:", "known games"),
 }
@@ -227,8 +228,11 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
     "trade: stops after the trade screen (the game freezes back in the room)": ("else if (leave_agreed && state < ST_RETURNING) state = ST_RETURNING;", "else if (leave_agreed) state = ST_DONE;", "trade, the game as master"),
     "trade: never follows the player out of the room": ("if (game_exiting) { sent_exit = 1;", "if (0) { sent_exit = 1;", "back in the room, the player leaves first"),
     "trade: as master, opens the room again with the Cable Club's link type": ("if (state == ST_RETURNING) return LT_BACK;", "if (state == ST_RETURNING) return LT_ROOM;", "trade, the DUO as master"),
+    "trade: offers the same slot again after a trade": ("            cur_pick++;                                          /* next time, the next event Pokemon */", "            ;", "three Pokemon in one sitting"),
+    "trade: the trainer card without the trainer's name": ("    memcpy(card + 0x30, OUR_NAME, 8);", "    (void)card;", "trade, the game as master"),
+    "trade: as master, opens a second trade screen where the scene should be": ("    if (state == ST_AGREED) return LT_SCENE;", "    if (state == ST_AGREED) return LT_TRADE;", "trade, the DUO as master"),
     "trade: screen lines shown in the middle of a link session": ("if (shown == state || (linked && state != ST_DONE)) return;", "if (shown == state) return;", "trade, the game as master"),
-    "trade: no progress flags for Emerald and FireRed/LeafGreen": ("if (version >= 3 && version <= 5) lp[0x10] = 0x11;", "(void)version;", "trade into FireRed"),
+    "trade: no progress flags for Emerald and FireRed/LeafGreen": ("        lp[0x10] = 0x11;", "        lp[0x10] = 0;", "trade into FireRed"),
     "trade: as master, never says the trade can go ahead": ("send_msg(0xCCDD, 0); state = ST_AGREED;", "send_msg(0xDDEE, 0); state = ST_AGREED;", "trade, the DUO as master"),
 }
 

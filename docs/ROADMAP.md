@@ -20,7 +20,7 @@ repository.
 | `.me3` Mystery Events (13, all the Eon Ticket) | e-Reader to Ruby/Sapphire | Working on hardware: English Ruby received the Eon Ticket (lab session 26) |
 | `.ecb` e-Card berries (18) | e-Reader Mystery Event (`setenigmaberry`) | English: working on hardware, the PUMKIN BERRY (lab session 27); Japanese: simulator done (Stage 7) |
 | e-Card `.raw` scans (R/S trainers and promos; Emerald and FRLG trainers, Japanese) | Decode the dot codes and do what the e-Reader did | Ruby/Sapphire: all cards decode and pass the model; the DRASH BERRY on hardware (lab session 28); short cards fixed after lab session 29. Japanese Emerald's 66 Trainer Hill cards and Japanese FireRed/LeafGreen's 37 Trainer Tower cards: simulator done (Stage 8). The Berry Glitch Fixing Program is refused (it writes the save) |
-| `.pk3` Pokémon (3,344) | Varies by event: see docs/PK3_EVENTS.md | **By trade for all** (decided 31 October): working on hardware into English Ruby (lab session 29); Emerald and FireRed/LeafGreen in the simulator (Stage 9) |
+| `.pk3` Pokémon (3,344) | Varies by event: see docs/PK3_EVENTS.md | **By trade for all** (decided 31 October), each labelled with its original route: working on hardware into English Ruby (lab sessions 29–30); Emerald and FireRed/LeafGreen in the simulator; up to six per sitting (Stage 9) |
 | `.ect` e-Reader trainers (166) | e-Reader Mystery Event (`addtrainer`) | Simulator done: each matches its card's trainer byte for byte |
 
 **Out of scope:** files meant for other games or for the GameCube (the Channel, Colosseum and
