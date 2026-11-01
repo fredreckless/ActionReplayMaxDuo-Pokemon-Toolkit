@@ -85,8 +85,8 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 - **Overnight 31 October–1 November:** trades into **Emerald and FireRed/LeafGreen** (same
   protocol; the DUO now sends the progress flags they check; the tool names the game and warns
   before a refusal: Mew/Deoxys without the fateful mark, Emerald's Hoenn-only rule) and **Japanese
-  Emerald's Trainer Hill e-Cards** (`event --event` with up to four cards; docs/EREADER.md), both
-  in the simulator. **The PC was asleep, so its `duo_events.py` and this file are older than
+  Emerald's Trainer Hill e-Cards** and **Japanese FireRed/LeafGreen's Trainer Tower e-Cards**
+  (`event --event` with up to four cards; docs/EREADER.md), all in the simulator. **The PC was asleep, so its `duo_events.py` and this file are older than
   `main`: copy them across (SHA-1 check) before testing.**
 - **Session 29 (31 October, late):** **the trade works on hardware** (WISHMKR Jirachi into English
   Ruby, twice). Fixed since: leaving the room (Ruby reopens the link as 0x1111 and the DUO must

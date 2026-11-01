@@ -72,7 +72,7 @@ static u32 now(void)                     /* scanlines since start */
 }
 
 /* ------------------------------------------------------------------ what the PC loads */
-#define EVENT_MAX 3840                   /* Ruby's buffer is 2,004 bytes; Japanese Emerald's Trainer Hill set 3,808 */
+#define EVENT_MAX 4096                   /* Ruby's buffer is 2,004 bytes; Emerald's Trainer Hill set 3,792; FRLG's Trainer Tower, 4 floors 3,928 */
 static u32 event_words[(4 + EVENT_MAX + 3) / 4], put_at, event_ready;
 #define EVENT_SIZE (event_words[0] & 0xFFFF)
 #define EVENT ((const u8 *)event_words + 4)

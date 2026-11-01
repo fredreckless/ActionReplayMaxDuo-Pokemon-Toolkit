@@ -19,8 +19,8 @@ repository.
 | Wonder News | The same route | Simulator only; the gallery has no Gen 3 news files yet (Stage 2) |
 | `.me3` Mystery Events (13, all the Eon Ticket) | e-Reader to Ruby/Sapphire | Working on hardware: English Ruby received the Eon Ticket (lab session 26) |
 | `.ecb` e-Card berries (18) | e-Reader Mystery Event (`setenigmaberry`) | English: working on hardware, the PUMKIN BERRY (lab session 27); Japanese: simulator done (Stage 7) |
-| e-Card `.raw` scans (R/S trainers and promos; Emerald and FRLG trainers, Japanese) | Decode the dot codes and do what the e-Reader did | Ruby/Sapphire: all 186 cards decode and pass the model, English and Japanese (Stages 6–7); hardware next. Emerald's Trainer Hill and the FireRed/LeafGreen cards use another protocol (Stage 8). The Berry Glitch Fixing Program is refused (it writes the save) |
-| `.pk3` Pokémon (3,344) | Varies by event: see docs/PK3_EVENTS.md | **By trade for all** (decided 31 October): working on hardware into English Ruby (lab session 29); Emerald and FireRed/LeafGreen next (Stage 9) |
+| e-Card `.raw` scans (R/S trainers and promos; Emerald and FRLG trainers, Japanese) | Decode the dot codes and do what the e-Reader did | Ruby/Sapphire: all cards decode and pass the model; the DRASH BERRY on hardware (lab session 28); short cards fixed after lab session 29. Japanese Emerald's 66 Trainer Hill cards and Japanese FireRed/LeafGreen's 37 Trainer Tower cards: simulator done (Stage 8). The Berry Glitch Fixing Program is refused (it writes the save) |
+| `.pk3` Pokémon (3,344) | Varies by event: see docs/PK3_EVENTS.md | **By trade for all** (decided 31 October): working on hardware into English Ruby (lab session 29); Emerald and FireRed/LeafGreen in the simulator (Stage 9) |
 | `.ect` e-Reader trainers (166) | e-Reader Mystery Event (`addtrainer`) | Simulator done: each matches its card's trainer byte for byte |
 
 **Out of scope:** files meant for other games or for the GameCube (the Channel, Colosseum and
@@ -178,7 +178,8 @@ hand. **Waiting:** the user's cable stays fitted for the e-Reader route for now.
    screen gives a partner 10 frames, and one that answers in time is treated as an e-Reader
    already running Emerald's program, so the Mystery Event link carries the Trainer Hill set.
    All 66 cards decode (docs/EREADER.md). Hardware next, with the user's Japanese Emerald.
-2. FireRed/LeafGreen's e-Cards (Trainer Tower, link type 0x5502): to read.
+2. **FireRed/LeafGreen's Trainer Tower e-Cards: simulator done** (link type 0x5502, the same
+   screen; one floor per card; all 37 decode). Japanese cartridges only.
 
 ## Stage 9: Pokémon (`.pk3`; step 1 done, 31 October 2026)
 

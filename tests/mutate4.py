@@ -110,6 +110,7 @@ PC_MUTANTS = {
     "Mew and Deoxys accepted by Emerald without the fateful mark": ('    if version in (3, 4, 5) and f["dex"] in (151, 386) and not f["fateful"]:', "    if False:", "Emerald refuses a Mew"),
     "Trainer Hill records read in pokeemerald's English layout": ("HILL_RECORD = 0x270", "HILL_RECORD = 0x274", "Trainer Hill e-Cards"),
     "Trainer Hill set's checksum left out": ('    return (bytes([len(records), 0, 0, 0]) + struct.pack("<I", sum(body) & 0xFFFFFFFF)', '    return (bytes([len(records), 0, 0, 0]) + struct.pack("<I", 0)', "Trainer Hill e-Cards"),
+    "Trainer Tower floors read in pokefirered's English layout": ("TOWER_RECORD = 0x3D4", "TOWER_RECORD = 0x3E0", "Trainer Tower e-Cards"),
     "party stats left empty in a traded Pokemon": ("    return box + pk3_party_fields(f)", "    return box + bytes(20)", "party form"),
     "known game table ignored": ("    known = KNOWN_SAVE_GAMES.get(info[\"code\"][:3])\n    if forced:", "    known = None\n    if forced:", "known games"),
 }

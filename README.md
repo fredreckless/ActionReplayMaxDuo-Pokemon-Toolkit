@@ -169,7 +169,8 @@ python duo_events.py event                      (a dry run: link players only)
   - an **e-Card scan** (`.raw`): the tool reads the dot code (checking its error correction), unpacks the card and sends the card's own Mystery Event, exactly as the e-Reader did. For a card of several strips, give any one of them; the others are found beside it. Berries, Battle-e trainers and promos all work;
   - a saved event (`.me3`) or a saved Enigma Berry (`.ecb`): these are what the game *stores*, not what the e-Reader sent, so the tool wraps each in the script that makes the game store exactly that;
   - or a Mystery Event script;
-  - for **Japanese Emerald**, its **Trainer Hill e-Cards** (`.raw`), up to four at once: `event --event CARD1.raw CARD2.raw`. On Emerald, choose the title menu's ふしぎなおくりもの with no Wireless Adapter attached: it opens the e-Reader screen.
+  - for **Japanese Emerald**, its **Trainer Hill e-Cards** (`.raw`), up to four at once: `event --event CARD1.raw CARD2.raw`. On Emerald, choose the title menu's ふしぎなおくりもの with no Wireless Adapter attached: it opens the e-Reader screen;
+  - for **Japanese FireRed/LeafGreen**, its **Trainer Tower e-Cards**, up to four floors at once, the same way.
 
   Japanese, English and German games ([docs/EREADER.md](docs/EREADER.md)).
 - **Mystery Event unlocked.** Tell the man by the PC in **Petalburg City's Pokémon Center** "**MYSTERY EVENT IS EXCITING**" (after beating Norman), then save and restart: MYSTERY EVENT appears on the title menu (ふしぎな できごと in Japanese).

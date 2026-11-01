@@ -98,6 +98,16 @@ def hill_trainer(number=1, name=b"\x5a\x53\x5e\x52", seed=1):
     return bytes(rec) + struct.pack("<I", sum(rec))
 
 
+def tower_floor(number=1, name=b"\x5a\x53\x5e\x52", seed=1, floors=8, challenge=0, prize=4):
+    """A made-up Japanese FireRed/LeafGreen Trainer Tower floor record (0x3D4 bytes): card number,
+    series floor count, challenge type, prize, made-up trainers (the first one's name given), then
+    the byte-sum checksum."""
+    rec = bytearray(bytes(((i * 41 + seed * 5) & 0xFF) for i in range(0x3D0)))
+    rec[0:4] = bytes([number, floors, challenge, prize])
+    rec[4:10] = name.ljust(6, b"\xff")
+    return bytes(rec) + struct.pack("<I", sum(rec))
+
+
 def test_trainer(name=b"\xbb\xbc\xbd", seed=1):
     """A made-up e-Reader trainer record (0xBC bytes) with the game's word-sum checksum."""
     rec = bytearray(bytes(((i * 31 + seed * 17) & 0xFF) for i in range(0xB8)))

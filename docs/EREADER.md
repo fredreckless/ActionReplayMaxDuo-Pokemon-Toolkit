@@ -362,5 +362,24 @@ tool finds the record by its checksum and builds the set:
 valid record each, and every set built from them passes the game's checks in the model; the
 Ruby/Sapphire cards are unaffected.
 
-**Still to do:** a hardware run (the user has Japanese Emerald). FireRed/LeafGreen's e-Cards
-(Trainer Tower, link type 0x5502) are part 2.
+**Still to do:** a hardware run (the user has Japanese Emerald).
+
+## Japanese FireRed/LeafGreen's Trainer Tower e-Cards (Stage 8, part 2; simulator done, 1 November 2026)
+
+Read from pokefirered (`ereader_screen.c`, `cereader_tool.c`, `trainer_tower.c`). The e-Reader
+screen is Emerald's, line for line, with link type **0x5502**; the set it receives is the Trainer
+Tower's. pokefirered (the English game) never calls `CB2_InitEReader`: the English release dropped
+the e-Reader, so these cards are for Japanese cartridges, whose menu path isn't confirmed here.
+
+**The cards.** Each of the 37 FireRed/LeafGreen cards in the gallery (Japanese) holds one floor
+record at offset 256, `struct TrainerTowerFloor` in the Japanese layout, **0x3D4** bytes (12 fewer
+than pokefirered's English struct: three 6-byte names): id (the card number), the floor count of
+its series (8 on every card), the challenge type (0–3), the prize, three trainers, and a byte-sum
+checksum.
+
+**The set** (`struct EReaderTrainerTowerSet`): the number of floors (1–8), id 0, dummy 0, the byte
+sum of the floors, then the floors. The game clears its 8 KB receive buffer before linking, so
+only the floors present need sending: the DUO sends up to four (3,928 bytes; its buffer is now
+4,096). With fewer floors than the series' 8, the tower says how many it has. All 37 cards decode
+and pass the game's checks in the model; Emerald's cards and other games' (Colosseum, Pinball,
+the Channel) are told apart or refused.

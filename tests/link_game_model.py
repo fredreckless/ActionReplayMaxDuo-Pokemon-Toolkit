@@ -128,6 +128,33 @@ def validate_trainer_hill(data):
     return [body[k * HILL_RECORD] for k in range(n)]
 
 
+LINKTYPE_EREADER_FRLG = 0x5502
+TOWER_RECORD = 0x3D4                                  # Japanese FireRed/LeafGreen's TrainerTowerFloor
+
+
+def validate_trainer_tower(data):
+    """pokefirered cereader_tool.c ValidateTrainerTowerData (Japanese layout): 1-8 floors, each with
+    a floor count 1-8, a challenge type 0-3 and its byte-sum checksum, and the set's byte sum over the
+    floors; the save's asserts (id and dummy zero). The game clears its 0x2000-byte buffer before
+    receiving, so a short set reads as zeros beyond what came. Returns the floors' ids."""
+    data = data.ljust(0x2000, b"\0")
+    n = data[0]
+    if not 1 <= n <= 8:
+        raise LinkError(f"the Trainer Tower set has {n} floors")
+    if data[1] or data[2:4] != b"\0\0":
+        raise LinkError("the Trainer Tower set's id/dummy aren't zero")
+    body = data[8:8 + n * TOWER_RECORD]
+    for k in range(n):
+        f = body[k * TOWER_RECORD:(k + 1) * TOWER_RECORD]
+        if not 1 <= f[1] <= 8 or f[2] > 3:
+            raise LinkError(f"Trainer Tower floor {k}: floor count {f[1]}, challenge type {f[2]}")
+        if sum(f[:TOWER_RECORD - 4]) != int.from_bytes(f[TOWER_RECORD - 4:], "little"):
+            raise LinkError(f"Trainer Tower floor {k} fails its checksum")
+    if sum(body) & 0xFFFFFFFF != int.from_bytes(data[4:8], "little"):
+        raise LinkError("the Trainer Tower set's checksum doesn't match its floors")
+    return [body[k * TOWER_RECORD] for k in range(n)]
+
+
 class RubyMysteryEvent:
     """mystery_event_menu.c, as far as the link sees it."""
     def __init__(self, master=True, language=LANG_ENGLISH, press_a_after=30, pace=300, frame_blocks=25 * 228,

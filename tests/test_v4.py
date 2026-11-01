@@ -1746,6 +1746,35 @@ def _():
     assert "can't be used" not in hw.text
 
 
+@test("Japanese FireRed/LeafGreen Trainer Tower e-Cards: each card's floor record is found (Japanese layout), up to four go as one set, which the game's checks accept; Emerald and FireRed cards don't mix")
+def _():
+    cards = [card_files(EC.make_card(EC.tower_floor(number=k, seed=k, challenge=k % 4), before=256, after=2700),
+                        f"15-A00{k} FRLG - Test Trainer (JPN)")[0] for k in (1, 2, 3, 4)]
+    data, text, problems, hint = W.prepare_card(cards[:1])
+    assert not problems and "Trainer Tower" in text and "#1" in text and "Seven Island" in hint, (text, problems)
+    assert len(data) == 8 + W.TOWER_RECORD and LG.validate_trainer_tower(data) == [1]
+    assert LG.validate_trainer_tower(W.prepare_card(cards)[0]) == [1, 2, 3, 4]
+    hill = card_files(EC.make_card(EC.hill_trainer(number=9), before=256, after=2800), "19-A009 E - X (JPN)")[0]
+    try:
+        W.prepare_card([cards[0], hill]); raise AssertionError("mixed cards accepted")
+    except ValueError as e:
+        assert "different games" in str(e)
+
+
+@test("Japanese FireRed's e-Reader screen on the link cable: link type 0x5502, two Trainer Tower floors arrive and pass the game's checks; the tool points to Seven Island")
+def _():
+    cards = [card_files(EC.make_card(EC.tower_floor(number=k, seed=k), before=256, after=2700),
+                        f"15-A00{k} FRLG - Test Trainer (JPN)")[0] for k in (5, 6)]
+    game = LG.RubyMysteryEvent(master=True, language=LG.LANG_JAPANESE, link_type=LG.LINKTYPE_EREADER_FRLG,
+                               connect_within=10, press_a_after=16, check_language=False)
+    hw, report = ereader_run(game, path=cards)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
+    assert LG.validate_trainer_tower(hw.lg_result) == [5, 6], hw.text[-600:]
+    assert report["game_link_type"] == 0x5502 and report["bad_checksums"] == 0, report
+    for line in ("2 Trainer Tower e-Cards", "Trainer Tower set loaded", "Seven Island"):
+        assert line in hw.text, (line, hw.text[-1500:])
+
+
 @test("e-Reader trainer files (.ect): wrapped so Ruby stores exactly the trainer, the tool points to Mossdeep; damaged and empty records refused; Japanese ones get the Japanese mask")
 def _():
     script, text, problems = W.prepare_event(TEST_TRAINER, "08-A001 RS - Test (USA).ect")
