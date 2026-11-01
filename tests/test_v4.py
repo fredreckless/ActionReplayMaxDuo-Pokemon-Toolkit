@@ -1710,6 +1710,42 @@ def _():
     assert W.wrong_route("event", "script.bin") is None                  # bare scripts are fine
 
 
+@test("Japanese Emerald Trainer Hill e-Cards: the trainer record is found in the card's program (Japanese layout, byte-sum checked), several cards make one set, damage and other cards refused")
+def _():
+    cards = [card_files(EC.make_card(EC.hill_trainer(number=k, seed=k), before=256, after=2800),
+                        f"19-A00{k} E - Test Trainer (JPN)")[0] for k in (1, 2, 3)]
+    data, text, problems, hint = W.prepare_card(cards[0])
+    assert not problems and "Trainer Hill" in text and "#1" in text and "Japanese Emerald" in text, (text, problems)
+    assert len(data) == W.HILL_SET_SIZE and LG.validate_trainer_hill(data) == [1] and "Trainer Hill" in hint
+    data3 = W.prepare_card(cards)[0]
+    assert LG.validate_trainer_hill(data3) == [1, 2, 3]
+    try:
+        W.build_hill_set([EC.hill_trainer()] * 5); raise AssertionError("5 trainers accepted")
+    except ValueError as e:
+        assert "1 to 4" in str(e)
+    damaged = bytearray(EC.hill_trainer()); damaged[300] ^= 1                    # one byte off: no record
+    try:
+        W.prepare_card(card_files(EC.make_card(bytes(damaged), before=256, after=2800), "19-A099 E - X (JPN)")[0])
+        raise AssertionError("a damaged record accepted")
+    except ValueError as e:
+        assert "Trainer Hill" in str(e)
+
+
+@test("Japanese Emerald's e-Reader screen on the link cable: the DUO answers within its 10 frames, link type 0x5503, sends the Trainer Hill set; the game checks it and closes; the tool points to the Trainer Hill")
+def _():
+    cards = [card_files(EC.make_card(EC.hill_trainer(number=k, seed=k), before=256, after=2800),
+                        f"19-A00{k} E - Test Trainer (JPN)")[0] for k in (4, 7)]
+    game = LG.RubyMysteryEvent(master=True, language=LG.LANG_JAPANESE, link_type=LG.LINKTYPE_EREADER_EM,
+                               connect_within=10, press_a_after=16, check_language=False)
+    hw, report = ereader_run(game, path=cards)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-600:])
+    assert LG.validate_trainer_hill(hw.lg_result) == [4, 7], hw.text[-600:]
+    assert report["game_link_type"] == 0x5503 and report["bad_checksums"] == 0, report
+    for line in ("2 Trainer Hill e-Cards", "Trainer Hill set loaded", "link type 0x5503", "Trainer Hill on Route 111"):
+        assert line in hw.text, (line, hw.text[-1500:])
+    assert "can't be used" not in hw.text
+
+
 @test("e-Reader trainer files (.ect): wrapped so Ruby stores exactly the trainer, the tool points to Mossdeep; damaged and empty records refused; Japanese ones get the Japanese mask")
 def _():
     script, text, problems = W.prepare_event(TEST_TRAINER, "08-A001 RS - Test (USA).ect")
@@ -1732,11 +1768,13 @@ import trade_game_model as TG
 TRADE_EVENT = None
 
 
-def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280), pick=1, seconds=240, leaves_first=False):
+def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280), pick=1, seconds=240, leaves_first=False,
+              game_kind="ruby", national_dex=True):
     """The DUO's trade program against a simulated Ruby in the Trade Center (docs/TRADE.md)."""
     event = event or test_pk3(species=409, pid=0x0BADCAFE, otid=0x00004E44)
     party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
-    game = TG.RubyTrade(master=master, party=party, pick=pick, accept=accept, leaves_first=leaves_first)
+    game = TG.RubyTrade(master=master, party=party, pick=pick, accept=accept, leaves_first=leaves_first,
+                        game=game_kind, national_dex=national_dex)
     hw, duo = run42()
     hw.attach_mp_game(game.run(), game_master=game.master)
     path = event_file(event, "385 - JIRACHI - TEST.pk3")
@@ -1774,6 +1812,37 @@ def _():
     # back in the room (lab session 29: the game froze here), the DUO walks to the door and leaves
     assert res["left_room"] and res["partner_left_by_door"], (res, game.log)
     assert "no trade this time" not in hw.text and "(for JIRACHI)" in os.listdir(W.RECEIVED_DIR)[0]
+
+
+@test("trade into Emerald without the National Pokedex: the DUO's link player says it has one, so the player may offer a non-Hoenn Pokemon; the tool names the game; Jirachi (in the Hoenn Pokedex) is received")
+def _():
+    hw, game, report, event, path = trade_run(master=True, game_kind="emerald", national_dex=False,
+                                              game_species=(25, 1), pick=1)       # offers Bulbasaur
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    assert report["traded"] and game.result["received"] == W.pk3_party_form(event) and game.result["left_room"], game.result
+    assert "English Emerald, no National Pokedex" in hw.text and "***" not in hw.text, hw.text[-1200:]
+
+
+@test("trade into FireRed: the player offers a non-Kanto Pokemon, which FireRed only allows to a partner with the National Dex - the DUO's progress flags say it has one")
+def _():
+    hw, game, report, event, path = trade_run(master=False, game_kind="firered", game_species=(25, 280), pick=1)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    assert report["traded"] and game.result["received"] == W.pk3_party_form(event), game.result
+    assert "English FireRed, National Pokedex" in hw.text and "the DUO is player 0" in hw.text, hw.text[-800:]
+
+
+@test("trade: Emerald refuses a Mew without the fateful-encounter mark - the tool warns at link-up, the game says no, and the DUO still leaves the room cleanly")
+def _():
+    mew = test_pk3(species=151, pid=0x0BADCAFE, otid=0x00004E44, fateful=False)
+    assert W.trade_refusal(3, 0x11, W.parse_pk3(mew)[0]) and not W.trade_refusal(2, 0, W.parse_pk3(mew)[0])
+    hw, game, report, event, path = trade_run(master=True, game_kind="emerald", event=mew)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    assert game.result["refused"] and not report["traded"] and game.result["left_room"], game.result
+    assert "*** Emerald only takes a Mew marked as a fateful encounter" in hw.text, hw.text[-1200:]
+    # and Emerald without the National Pokedex won't take a Pokemon from outside the Hoenn Pokedex
+    bulbasaur = W.parse_pk3(test_pk3(species=1))[0]
+    assert "until it has the National Pokedex" in W.trade_refusal(3, 0x10, bulbasaur)
+    assert W.trade_refusal(3, 0x11, bulbasaur) is None and W.trade_refusal(4, 0x10, bulbasaur) is None
 
 
 @test("trade: back in the room, the player leaves first - the DUO follows at once and both games warp out")
@@ -1849,7 +1918,7 @@ def _():
     duo_lp = game.link_players[1]
     assert duo_lp["link_type"] == 0x5501 and duo_lp["language"] == LG.LANG_ENGLISH, duo_lp
     assert report["bad_checksums"] == 0 and report["game_language"] == 2, report
-    assert "Playing: Card e-Reader+" in hw.log and "Event sent: the game saves" in hw.log, hw.log   # the DUO's screen
+    assert "Playing: Card e-Reader+" in hw.log, hw.log                     # the DUO's screen (between sessions only)
     for line in ("Mystery Event loaded", "link up (the DUO is player 1)", "got the game's link player: link type 0x5501, English",
                  "sent the Mystery Event", "the game closed the link"):
         assert line in hw.text, (line, hw.text)

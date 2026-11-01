@@ -322,3 +322,45 @@ A `.raw` is one dot-code strip as the e-Reader reads it. Read back to front:
 - Japanese Emerald's ふしぎな できごと and Trainer Hill (`ereader_screen.c`): another protocol
   (Stage 8).
 - The Japanese unlock phrase for Ruby and Sapphire.
+
+
+## Japanese Emerald's Trainer Hill e-Cards (Stage 8, part 1; simulator done, 1 November 2026)
+
+Read from pokeemerald (`ereader_screen.c`, `ereader_helpers.c`, `main_menu.c`).
+
+**Where.** With no Wireless Adapter attached, Japanese Emerald's title-menu Mystery Gift entry
+(ふしぎなおくりもの, once unlocked) opens the e-Reader screen (`CB2_InitEReader`), not Mystery Gift.
+(Its MYSTERY EVENTS entry, ふしぎなできごと, is the Ruby/Sapphire-style menu above.)
+
+**How the real e-Reader did it.** The screen opens an ordinary link, type **0x5503**, as master,
+and gives a partner **10 frames** to answer. If none does, it asks the player to choose "connect"
+on the e-Reader, then *sends the e-Reader a program of its own* (32-bit serial at a timer's pace)
+and waits; that program scans the cards. Then a fresh link: link players (no language check),
+then **one block, the Trainer Hill set**, which the game checks (`ValidateTrainerHillData`),
+closes the link, and writes to its Trainer Hill save sector itself.
+
+**What the DUO does.** It answers within the 10 frames, as an e-Reader already running Emerald's
+program would, so the game goes straight to receiving. The rest is the Mystery Event link exactly
+(`ereader.c`, unchanged apart from a 3,840-byte buffer), so the cable goes the same way round:
+the game on the master end.
+
+**The cards.** Each of the 66 Emerald cards in Project Pokémon's gallery (64 trainers and two
+promos, Japanese) holds an e-Reader program (Z80) with **one trainer record** at offset 256: card
+number, three zero bytes, the trainer (Japanese layout: a 6-byte name, so the record is **0x270**
+bytes, 4 fewer than pokeemerald's English struct), the floor map, and a byte-sum checksum. The
+tool finds the record by its checksum and builds the set:
+
+| Offset | Field |
+|---|---|
+| 0 | number of trainers (1–4: Japanese Trainer Hill has two floors of two) |
+| 1 | id (0; asserted) |
+| 2 | dummy (0; asserted) |
+| 4 | byte sum of the trainers |
+| 8 | 6 trainer records of 0x270 bytes (the unused ones zero), then 40 zero bytes: 3,792 bytes in all |
+
+`event --event` takes up to four Emerald cards at once, as one set. All 66 cards decode to one
+valid record each, and every set built from them passes the game's checks in the model; the
+Ruby/Sapphire cards are unaffected.
+
+**Still to do:** a hardware run (the user has Japanese Emerald). FireRed/LeafGreen's e-Cards
+(Trainer Tower, link type 0x5502) are part 2.

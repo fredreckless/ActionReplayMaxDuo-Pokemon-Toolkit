@@ -168,7 +168,8 @@ python duo_events.py event                      (a dry run: link players only)
 - your own event file for your game and language, as [Project Pokémon's EventsGallery](https://github.com/projectpokemon/EventsGallery) has them:
   - an **e-Card scan** (`.raw`): the tool reads the dot code (checking its error correction), unpacks the card and sends the card's own Mystery Event, exactly as the e-Reader did. For a card of several strips, give any one of them; the others are found beside it. Berries, Battle-e trainers and promos all work;
   - a saved event (`.me3`) or a saved Enigma Berry (`.ecb`): these are what the game *stores*, not what the e-Reader sent, so the tool wraps each in the script that makes the game store exactly that;
-  - or a Mystery Event script.
+  - or a Mystery Event script;
+  - for **Japanese Emerald**, its **Trainer Hill e-Cards** (`.raw`), up to four at once: `event --event CARD1.raw CARD2.raw`. On Emerald, choose the title menu's ふしぎなおくりもの with no Wireless Adapter attached: it opens the e-Reader screen.
 
   Japanese, English and German games ([docs/EREADER.md](docs/EREADER.md)).
 - **Mystery Event unlocked.** Tell the man by the PC in **Petalburg City's Pokémon Center** "**MYSTERY EVENT IS EXCITING**" (after beating Norman), then save and restart: MYSTERY EVENT appears on the title menu (ふしぎな できごと in Japanese).
@@ -201,7 +202,7 @@ python duo_events.py trade --pk3 "YOUR POKEMON.pk3"
 
 A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received` folder beside the tools, named with the date, the Pokémon and the event it was traded for.
 
-**Status:** English Ruby received the WISHMKR Jirachi twice (lab session 29). Emerald and FireRed/LeafGreen are next. See [docs/TRADE.md](docs/TRADE.md).
+**Status:** English Ruby received the WISHMKR Jirachi twice (lab session 29). Emerald and FireRed/LeafGreen use the same Cable Club and work in the simulator; they turn down a Mew or Deoxys without its event mark, and Emerald turns down Pokémon outside the Hoenn Pokédex until it has the National Pokédex. The tool names the game it finds and warns before a trade the game will refuse. See [docs/TRADE.md](docs/TRADE.md).
 
 **On the DUO's own screen** you'll see short lines about what it's playing and how far it has got ("Playing: trade partner", "Offering JIRACHI", "Traded and saved"…). They appear between the link's stages, never during one, because drawing a line costs the GBA over a frame, which a link can't spare.
 

@@ -45,6 +45,31 @@ WALK_TO_DOOR = {0: [KEY_DOWN, KEY_DOWN, KEY_RIGHT, KEY_DOWN], 1: [KEY_DOWN, KEY_
 DOOR = {(5, 8), (6, 8)}                               # south-arrow warps: DOWN there asks to leave
 
 
+GAME_VERSIONS = {"sapphire": 1, "ruby": 2, "emerald": 3, "firered": 4, "leafgreen": 5}
+PK3_ORDERS = "GAEM GAME GEAM GEMA GMAE GMEA AGEM AGME AEGM AEMG AMGE AMEG EGAM EGMA EAGM EAMG EMGA EMAG MGAE MGEA MAGE MAEG MEGA MEAG".split()
+SPECIES_MEW, SPECIES_DEOXYS = 151, 410               # internal species numbers
+KANTO_SPECIES_END = 151
+# The Hoenn Pokedex's Pokemon from before Gen 3 (by species number, the same as the National Dex for
+# these); every Gen 3 native (internal 277-411) is in it too. pokeemerald include/constants/pokedex.h.
+HOENN_OLD_SPECIES = frozenset([25, 26, 27, 28, 37, 38, 39, 40, 41, 42, 43, 44, 45, 54, 55, 63, 64, 65, 66, 67, 68, 72, 73, 74, 75, 76, 81, 82, 84, 85, 88, 89, 100, 101, 109, 110, 111, 112, 116, 117, 118, 119, 120, 121, 127, 129, 130, 169, 170, 171, 172, 174, 177, 178, 182, 183, 184, 202, 203, 214, 218, 219, 222, 227, 230, 231, 232])
+
+
+def mon_fields(mon):
+    """(species, is_egg, modern fateful encounter) of a party Pokemon in the game's form."""
+    pid, otid = struct.unpack_from("<II", mon, 0)
+    words = [w ^ pid ^ otid for w in struct.unpack_from("<12I", mon, 0x20)]
+    plain = struct.pack("<12I", *words)
+    order = PK3_ORDERS[pid % 24]
+    g = plain[12 * order.index("G"):][:12]
+    m = plain[12 * order.index("M"):][:12]
+    ivs, ribbons = struct.unpack_from("<II", m, 4)
+    return struct.unpack_from("<H", g, 0)[0], bool(ivs >> 30 & 1), bool(ribbons >> 31)
+
+
+def in_hoenn_dex(species):
+    return 277 <= species <= 411 or species in HOENN_OLD_SPECIES
+
+
 def pk3_checksum_ok(mon):
     """A party Pokemon in the game's form: decrypt, sum (pokemon.c), as the game's checks do."""
     pid, otid = struct.unpack_from("<II", mon, 0)
@@ -117,12 +142,18 @@ class Room:
 
 class RubyTrade:
     def __init__(self, master=True, language=LANG_ENGLISH, party=None, pick=0, accept=True, version=2,
-                 pace=300, frame_blocks=25 * 228, lp_field_2=0x8000, leaves_first=False):
+                 pace=300, frame_blocks=25 * 228, lp_field_2=0x8000, leaves_first=False, game="ruby",
+                 national_dex=True):
         """party: the game's party, 100-byte Pokemon in the game's form (1-6); pick: which it
         trades; accept: whether the player says yes. lp_field_2: this game's own link-player
         field (0x8000 when it has the National Dex; trade.c turns the partner's National Dex on
         if it sees 0x8000 - the DUO must never send it)."""
         self.master, self.language, self.version = master, language, version
+        # game: which game's rules (pokeruby / pokeemerald / pokefirered trade.c); national_dex: has it
+        self.game = game
+        self.version = GAME_VERSIONS[game] if game != "ruby" or version == 2 else version
+        self.national_dex = national_dex
+        self.modern = game in ("emerald", "firered", "leafgreen")   # progress flags, Mew/Deoxys rule
         self.party = [bytes(p) for p in (party or [])]
         assert 1 <= len(self.party) <= 6
         self.pick, self.accept = pick, accept
@@ -136,7 +167,7 @@ class RubyTrade:
         self.link_players = {}
         self.result = dict(partner_party=None, partner_pick=None, received=None, saved=False,
                            national_dex_enabled=False, partner_seat=None, gave=None, left_room=False,
-                           partner_left_by_door=False)
+                           partner_left_by_door=False, refused=None)
         self.frame = 0
 
     # ------------------------------------------------------------ the link, as link.c runs it
@@ -329,6 +360,8 @@ class RubyTrade:
             s.send_message(0xDDDD, mine)
             for _ in range(121):                      # "Trade X for Y?" then YES/NO
                 yield
+            if not self._mons_valid(mons[partner], s):
+                self.accept = False
             yes = None
             while yes is None:
                 for m in s.take_messages():
@@ -354,6 +387,8 @@ class RubyTrade:
                 raise LinkError(f"the partner chose Pokemon {partner}, but has {count}")
             for _ in range(121):
                 yield
+            if not self._mons_valid(mons[partner], s):
+                self.accept = False
             s.send_message(0xBBBB if self.accept else 0xBBCC, 0)
             go = None
             while go is None:
@@ -407,6 +442,31 @@ class RubyTrade:
         self.result["saved"] = True
         s.stage = "trade scene: closing"
         s.close()
+
+    def _mons_valid(self, partner_mon, s):
+        """trade.c CanTradeSelectedMon / CheckValidityOfTradeMons, as far as the partner matters.
+        An invalid choice makes the game say so and answer NO (LINKCMD_READY_CANCEL_TRADE)."""
+        if not self.modern:
+            return True                               # Ruby/Sapphire check neither
+        partner_lp = self.link_players[self.other]
+        mine, mine_egg, _ = mon_fields(self.party[self.pick])
+        if self.game in ("firered", "leafgreen") and (partner_lp["version"] & 0xFF) not in (1, 2) \
+                and not partner_lp["progress"] & 0x0F and (mine_egg or mine > KANTO_SPECIES_END):
+            self.result["refused"] = "the partner has no National Dex, so the player can't offer this"
+            raise LinkError(self.result["refused"])
+        if self.game == "emerald" and (partner_lp["version"] & 0xFF) not in (1, 2) \
+                and not partner_lp["progress"] & 0x0F and (mine_egg or not in_hoenn_dex(mine)):
+            self.result["refused"] = "the partner has no National Dex, so the player can't offer this"
+            raise LinkError(self.result["refused"])
+        species, egg, fateful = mon_fields(partner_mon)
+        if species in (SPECIES_MEW, SPECIES_DEOXYS) and not fateful:
+            self.result["refused"] = "a Mew or Deoxys without the fateful-encounter mark"
+        elif self.game == "emerald" and not self.national_dex and (egg or not in_hoenn_dex(species)):
+            self.result["refused"] = "not in the Hoenn Pokedex, and no National Pokedex yet"
+        else:
+            return True
+        self.log.append(("partner's Pokemon can't be traded", self.result["refused"]))
+        return False
 
     def _back(self, s):
         s.stage = "back in the room: link players"
@@ -585,6 +645,8 @@ class Session:
                 block = bytearray(link_player_block(language=g.language, link_type=self.link_type,
                                                     version=g.version))
                 block[18:20] = g.lp_field_2.to_bytes(2, "little")
+                if g.modern:                          # link.c: progressFlags = National Dex | 0x10 if champion
+                    block[16 + 0x10] = (1 if g.national_dex else 0) | 0x10
                 self.link.send_block(bytes(block))
             elif c == 0xBBBB:
                 self.blocks[i] = dict(size=cmd[1][i], data=bytearray())
@@ -599,6 +661,7 @@ class Session:
                         self.pending.discard(i)
                         lp = parse_link_player(data)
                         lp["field_2"] = int.from_bytes(data[18:20], "little")
+                        lp["progress"] = data[16 + 0x10]
                         g.link_players[i] = lp
                         if not self.pending:
                             self.check_players()
@@ -623,4 +686,13 @@ class Session:
                 raise LinkError(f"player {i}'s link type is {lp['link_type']:#06x}, not {self.link_type:#06x}")
         if lps[0]["language"] != lps[1]["language"] and LANG_ENGLISH not in (lps[0]["language"], lps[1]["language"]):
             pass                                      # (the games allow mixed languages in trades)
+        g = self.game
+        partner = lps[g.other]
+        if partner["version"] & 0xFF in (1, 2):
+            partner["progress"] = 0                   # link.c: a Ruby/Sapphire partner's flags are cleared
+        if self.link_type == LT_ROOM and g.game in ("emerald", "firered", "leafgreen"):
+            # GetGameProgressForLinkTrade: a partner of the other generation must have progressed
+            other_family = (partner["version"] & 0xFF) in ((4, 5) if g.game == "emerald" else (1, 2, 3))
+            if other_family and (partner["version"] & 0xFF) in (3, 4, 5) and not partner["progress"] & 0xF0:
+                raise LinkError("the partner hasn't progressed far enough to trade with this game")
         self.players_checked = True

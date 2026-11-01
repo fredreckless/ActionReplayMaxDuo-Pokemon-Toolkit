@@ -89,6 +89,15 @@ def make_card(script, method=0, before=600, after=300):
     return [make_strip(p, n + 1, len(parts)) for n, p in enumerate(parts)]
 
 
+def hill_trainer(number=1, name=b"\x5a\x53\x5e\x52", seed=1):
+    """A made-up Japanese Emerald Trainer Hill trainer record (0x270 bytes): card number, three
+    zero bytes, a 6-byte name, then made-up trainer and floor data, then the byte-sum checksum."""
+    rec = bytearray(bytes(((i * 37 + seed * 11) & 0xFF) for i in range(0x26C)))
+    rec[0:4] = bytes([number, 0, 0, 0])
+    rec[4:10] = name.ljust(6, b"\xff")
+    return bytes(rec) + struct.pack("<I", sum(rec))
+
+
 def test_trainer(name=b"\xbb\xbc\xbd", seed=1):
     """A made-up e-Reader trainer record (0xBC bytes) with the game's word-sum checksum."""
     rec = bytearray(bytes(((i * 31 + seed * 17) & 0xFF) for i in range(0xB8)))

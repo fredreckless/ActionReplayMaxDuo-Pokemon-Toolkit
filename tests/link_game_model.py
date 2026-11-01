@@ -105,10 +105,33 @@ BLOCK_BUFFER_SIZE = 0x100                             # link.c
 SHARED_CLEARED = 0x7D4                                # mystery_event_menu.c: CpuFill32(0, gSharedMem, 0x7D4)
 
 
+LINKTYPE_EREADER_EM = 0x5503
+HILL_RECORD, HILL_TRAINERS = 0x270, 6                 # Japanese Emerald's EReaderTrainerHillTrainer, set size
+
+
+def validate_trainer_hill(data):
+    """pokeemerald ereader_helpers.c ValidateTrainerHillData, for the Japanese layout: the count,
+    each trainer's byte-sum checksum, the set's byte sum over the trainers; and TryWriteTrainerHill's
+    asserts (id and dummy zero). Returns the trainers' card numbers, or raises."""
+    n = data[0]
+    if not 1 <= n <= 8:
+        raise LinkError(f"the Trainer Hill set has {n} trainers")
+    if data[1] or data[2:4] != b"\0\0":
+        raise LinkError("the Trainer Hill set's id/dummy aren't zero (an assert in TryWriteTrainerHill)")
+    body = data[8:8 + n * HILL_RECORD]
+    for k in range(n):
+        rec = body[k * HILL_RECORD:(k + 1) * HILL_RECORD]
+        if sum(rec[:HILL_RECORD - 4]) != int.from_bytes(rec[HILL_RECORD - 4:], "little"):
+            raise LinkError(f"Trainer Hill trainer {k} fails its checksum")
+    if sum(body) & 0xFFFFFFFF != int.from_bytes(data[4:8], "little"):
+        raise LinkError("the Trainer Hill set's checksum doesn't match its trainers")
+    return [body[k * HILL_RECORD] for k in range(n)]
+
+
 class RubyMysteryEvent:
     """mystery_event_menu.c, as far as the link sees it."""
     def __init__(self, master=True, language=LANG_ENGLISH, press_a_after=30, pace=300, frame_blocks=25 * 228,
-                 menu_rules=True):
+                 menu_rules=True, link_type=LINKTYPE_MYSTERY_EVENT, connect_within=None, check_language=True):
         """pace: blocks from a transfer's end to the next within a command cycle (Ruby's timer 3,
         0.75 ms); frame_blocks: one frame. As in link.c, a master starts one handshake transfer
         per frame and one 9-transfer cycle per frame, and the game takes in one received command
@@ -118,6 +141,10 @@ class RubyMysteryEvent:
         # closes the link with an error once connected if it isn't master (lab session 25).
         # menu_rules=False keeps just the link layer, to check the DUO's own master pacing.
         self.menu_rules = menu_rules
+        # Japanese Emerald's e-Reader screen (ereader_screen.c) is the same link with type 0x5503:
+        # it gives a partner 10 frames to answer (IsChildConnected) before asking for the e-Reader's
+        # own connect mode instead, and checks no languages
+        self.link_type, self.connect_within, self.check_language = link_type, connect_within, check_language
         self.press_a_after, self.pace, self.frame_blocks = press_a_after, pace, frame_blocks
         self.link_players = {}
         self.block = None
@@ -153,6 +180,9 @@ class RubyMysteryEvent:
             prev = count
             seen_two = seen_two + 1 if count == 2 else 0
             loaded = SLAVE_HANDSHAKE
+            if self.connect_within and n == self.connect_within and count < 2:
+                raise LinkError("no partner answered within 10 frames: Emerald asks to connect from the "
+                                "e-Reader's own menu instead")
             if self.master and seen_two == self.press_a_after:
                 loaded = MASTER_HANDSHAKE                # the player pressed A
             if n > max_transfers:
@@ -162,9 +192,9 @@ class RubyMysteryEvent:
             raise LinkError("Ruby's MYSTERY EVENT menu closed the link: the game isn't the link master")
         link = LinkLayer(0 if self.master else 1)
         if self.master:
-            link.send(0x2222, LINKTYPE_MYSTERY_EVENT)
+            link.send(0x2222, self.link_type)
         pending, blocks, closing = set(), {}, set()
-        own_block = link_player_block(language=self.language)
+        own_block = link_player_block(language=self.language, link_type=self.link_type)
         sent_close = False
         rxq, last_frame = [], None
         for _ in range(max_transfers):
@@ -215,7 +245,9 @@ class RubyMysteryEvent:
                 lps = self.link_players
                 if any(lp["link_type"] != lps[0]["link_type"] for lp in lps.values()):
                     raise LinkError("the link players' link types differ")
-                if lps[0]["language"] != lps[1]["language"]:
+                if lps[0]["link_type"] != self.link_type:
+                    raise LinkError(f"the link type is {lps[0]['link_type']:#06x}, not {self.link_type:#06x}")
+                if self.check_language and lps[0]["language"] != lps[1]["language"]:
                     raise LinkError("the languages don't match (CheckLanguageMatch)")
                 self.log.append("checked")
             if self.block is not None and not sent_close:

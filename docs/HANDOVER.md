@@ -82,6 +82,12 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   Only the Mystery Mew was a trade; nearly every other released event wrote the save directly.
   **Decided (31 October): the trade route for all** (labelled as the nearest where it isn't the
   original). No multiboot save writer.
+- **Overnight 31 October–1 November:** trades into **Emerald and FireRed/LeafGreen** (same
+  protocol; the DUO now sends the progress flags they check; the tool names the game and warns
+  before a refusal: Mew/Deoxys without the fateful mark, Emerald's Hoenn-only rule) and **Japanese
+  Emerald's Trainer Hill e-Cards** (`event --event` with up to four cards; docs/EREADER.md), both
+  in the simulator. **The PC was asleep, so its `duo_events.py` and this file are older than
+  `main`: copy them across (SHA-1 check) before testing.**
 - **Session 29 (31 October, late):** **the trade works on hardware** (WISHMKR Jirachi into English
   Ruby, twice). Fixed since: leaving the room (Ruby reopens the link as 0x1111 and the DUO must
   walk out; the game froze), and short Mystery Events (Ruby only runs blocks over 256 bytes, so

@@ -172,10 +172,13 @@ hand. **Waiting:** the user's cable stays fitted for the e-Reader route for now.
   still unconfirmed.
 - **Needs** a Japanese Ruby or Sapphire for a hardware run.
 
-## Stage 8: The other e-Reader protocols (Japanese; not started)
+## Stage 8: The other e-Reader protocols (Japanese; part 1 done in the simulator, 1 November 2026)
 
-Emerald's Trainer Hill (`ereader_screen.c`) and the FireRed/LeafGreen e-Cards: a different link
-protocol, so a new GBA program.
+1. **Emerald's Trainer Hill e-Cards: simulator done.** Not a new protocol after all: the e-Reader
+   screen gives a partner 10 frames, and one that answers in time is treated as an e-Reader
+   already running Emerald's program, so the Mystery Event link carries the Trainer Hill set.
+   All 66 cards decode (docs/EREADER.md). Hardware next, with the user's Japanese Emerald.
+2. FireRed/LeafGreen's e-Cards (Trainer Tower, link type 0x5502): to read.
 
 ## Stage 9: Pokémon (`.pk3`; step 1 done, 31 October 2026)
 
@@ -189,7 +192,9 @@ protocol, so a new GBA program.
 3. **The trade distributor: working on hardware with English Ruby (lab session 29)**, both cable
    roles in the simulator (docs/TRADE.md). `duo_events.py trade --pk3 FILE`. Leaving the room
    fixed afterwards in the simulator.
-4. **Next: Emerald and FireRed/LeafGreen** (their own Cable Club and trade code).
+4. **Emerald and FireRed/LeafGreen: done in the simulator (1 November 2026).** The same protocol;
+   the DUO now sends the progress flags they check, and the tool warns before a trade they'd
+   refuse. Hardware next (the user has European LeafGreen and Japanese Emerald).
 
 ## Tidying done on 30 October
 

@@ -148,6 +148,29 @@ yes: trading", "Traded and saved", "Back to the Trade Center", "Done: the link i
 simulator now stalls the GBA for ~1.3 frames on every log line, so a line shown mid-session fails
 the tests.
 
+## Emerald and FireRed/LeafGreen (read from pokeemerald and pokefirered, 1 November 2026)
+
+The wired Cable Club trade is the same protocol in all five games: the same link types (0x1133,
+0x1122, 0x1144, 0x1111), commands, block requests, menu messages, room keys and Trade Center map.
+FireRed/LeafGreen add a fourth save barrier in a later revision; the DUO answers however many come.
+What differs is what the games check:
+
+- **Progress flags.** Emerald and FireRed/LeafGreen put flags in the link player (byte 0x10:
+  0x0F has the National Dex, 0xF0 has cleared the game) and check the partner's. Without them
+  the player could only offer the DUO regional Pokémon (FireRed/LeafGreen: Kanto; Emerald: Hoenn),
+  and FireRed/LeafGreen wouldn't trade with a Ruby/Sapphire/Emerald partner at all
+  (`GetGameProgressForLinkTrade`). The DUO copies the game's version and sends 0x11, as a
+  finished game would. (Ruby keeps its gender there and sends no flags, so nothing changes for it.)
+- **Mew and Deoxys** are only accepted with the fateful-encounter mark (bit 31 of the ribbons
+  word), which event files carry.
+- **Emerald without the National Dex** won't take an Egg or a Pokémon outside the Hoenn Pokédex.
+- Ruby and Sapphire check neither.
+
+The program now reports the game's version and flags; at link-up the tool names the game ("English
+Emerald, no National Pokedex") and warns if the game will refuse the Pokémon. The model plays
+each game's rules; tests cover Emerald (no National Dex), FireRed (the player offering a
+non-Kanto Pokémon) and a Mew without the mark.
+
 ## Still to check on hardware
 
 - The walk's timing (40 frames after the room's first key, then a step every 20 frames).

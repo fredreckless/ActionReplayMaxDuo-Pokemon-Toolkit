@@ -137,6 +137,12 @@ static void build_our_player(void)
     memcpy(lp + 8, OUR_NAME, 8);
     memcpy(lp + 0x14, game_player + 16 + 0x14, 4);           /* link type */
     memcpy(lp + 0x1A, game_player + 16 + 0x1A, 2);           /* language */
+    /* Emerald and FireRed/LeafGreen keep progress flags here (0x0F: National Dex, 0xF0: game
+     * cleared) and check the partner's: without them the player could only offer the DUO
+     * regional Pokemon, and FireRed/LeafGreen would refuse a Ruby/Sapphire/Emerald partner
+     * altogether. A distribution's partner has everything. (Ruby keeps its gender here.) */
+    u32 version = game_player[16];
+    if (version >= 3 && version <= 5) lp[0x10] = 0x11;
 }
 
 static void queue(u16 w0, u16 w1, u16 w2)
@@ -523,6 +529,8 @@ static int pc_service(api_t *api)
         v = at + 3 < 600 ? PARTY[at] | PARTY[at + 1] << 8 | PARTY[at + 2] << 16 | (u32)PARTY[at + 3] << 24 : 0;
         break;
     }
+    case 6: v = game_player[16] | game_player[17] << 8 | game_player[18] << 16 | (u32)game_player[19] << 24; break;
+    case 7: v = game_player[32] | game_player[33] << 8 | game_player[34] << 16 | (u32)game_player[35] << 24; break;
     case 8: v = max_gap; break;
     case 20: put_at = 0; blob_ready = 0; v = sizeof blob_words; break;
     case 21: v = api->crc32(blob_words, put_at * 4);

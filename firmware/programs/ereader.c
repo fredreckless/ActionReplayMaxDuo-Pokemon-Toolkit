@@ -72,7 +72,7 @@ static u32 now(void)                     /* scanlines since start */
 }
 
 /* ------------------------------------------------------------------ what the PC loads */
-#define EVENT_MAX 2004                   /* the game's shared buffer is cleared for 0x7D4 bytes */
+#define EVENT_MAX 3840                   /* Ruby's buffer is 2,004 bytes; Japanese Emerald's Trainer Hill set 3,808 */
 static u32 event_words[(4 + EVENT_MAX + 3) / 4], put_at, event_ready;
 #define EVENT_SIZE (event_words[0] & 0xFFFF)
 #define EVENT ((const u8 *)event_words + 4)
@@ -318,8 +318,7 @@ static int pc_service(api_t *api)
  * links, and once it has closed the link and our own close has gone out. */
 static void screen(api_t *api)
 {
-    static u32 intro, said_ready, said_closed, close_at;
-    if (!intro) { intro = 1; api->log("Playing: Card e-Reader+"); }
+    static u32 said_ready, said_closed, close_at;
     if (event_ready && !said_ready && state == ST_WAITING) {
         said_ready = 1;
         api->log("Mystery Event loaded");
@@ -328,7 +327,7 @@ static void screen(api_t *api)
     if (state != ST_CLOSED) { close_at = 0; said_closed = 0; return; }
     if (said_closed || queue_full || tx_on) return;
     if (!close_at) { close_at = now() | 1; return; }
-    if (now() - close_at < 20 * LINES_PER_FRAME) return;
+    if (now() - close_at < 6 * LINES_PER_FRAME) return;
     said_closed = 1;
     api->log(events_sent ? "Event sent: the game saves" : "The game closed the link");
 }
@@ -347,6 +346,7 @@ u32 start(api_t *api)
     last_vcount = VCOUNT & 0xFF;
     u32 last_done = now(), next_cycle = last_done, in_flight = 0, started_at = 0;
     u32 last_iter = now();
+    api->log("Playing: Card e-Reader+");          /* before any link: the game is still off */
     while (!stop_requested) {
         u32 t = now();
         if (state >= ST_CONNECTED && t - last_iter > max_gap)
@@ -380,7 +380,7 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))               /* the link first: never let a transfer wait */
             pc_service(api);
-        if (!in_flight && !(REG_IF & IF_SERIAL) && (state == ST_WAITING || state == ST_CLOSED))
+        if (!in_flight && !(REG_IF & IF_SERIAL) && (state == ST_WAITING || state == ST_CLOSED || state == ST_GOT_PLAYER))
             screen(api);
     }
     SIOCNT = saved_siocnt & ~(CNT_START | CNT_IRQ);
