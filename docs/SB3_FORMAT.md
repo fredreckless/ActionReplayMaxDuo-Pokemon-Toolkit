@@ -1,6 +1,7 @@
 # The `.sb3` file: one Secret Base
 
-**Status (4 November 2026): specification, version 1, for review. Nothing reads or writes it yet.**
+**Status (4 November 2026): specification, version 1. `secret_bases.py` reads, checks and writes it;
+`duo_events.py mix` sends it.**
 Background and the Record Mixing protocol are in `docs/RECORD_MIXING.md`.
 
 ## The idea
@@ -94,8 +95,8 @@ by default, and refuses with `--strict`.
 
 6. Every decoration sits on the floor of its location's room, and none overlap. The room's size
    and walls come from its map. The 24 room shapes are listed below.
-7. No decoration appears more often than a player could own it. Step 2 will work out the game's
-   limits from its decoration and shop data.
+7. No more decorations of a kind than a player's decoration bag holds (desks, chairs, plants and
+   posters 10 each; ornaments and mats 30; dolls 40; cushions 10).
 8. Each Pokémon's moves are ones its species can know at that level, and its EV number is at most
    85 (the most a real Pokémon's average can be: 510 ÷ 6).
 
@@ -105,10 +106,10 @@ nature, gender and ability.
 
 ## Sending several
 
-`duo_events.py` (step 2) will take a list, for example:
+`duo_events.py mix` takes a list, for example:
 
 ```
-python duo_events.py mix --base "WILLOW - Tree, Route 121 (ENG).sb3" "ODA - Red cave, Route 118 (ENG).sb3" ...
+python duo_events.py mix --base "WILLOW - Tree 1, Route 121 (ENG).sb3" "ODA - Red cave 1, Route 118 (ENG).sb3"
 ```
 
 - **Up to 20 files.** The first one goes in slot 0, where a real player's own base would be; the
@@ -119,15 +120,17 @@ python duo_events.py mix --base "WILLOW - Tree, Route 121 (ENG).sb3" "ODA - Red 
   - two bases with the same owner, i.e. the same gender, IDs and name (the game keeps only one).
 - **It warns at the link** when a base's owner matches the player in the game (the game would
   delete it as the player's own). The game's link player gives its name and trainer ID.
-- **What it can't see:** where the player's own base is, and how many bases they've registered. A
-  base at their own base's location, or one that finds all nineteen slots registered, is quietly
-  dropped. After the sitting the tool says how many bases it sent. Visiting the routes shows
-  which ones arrived.
+- **After the sitting** it says which bases the game kept. The game's own twenty come back in the
+  same exchange, so the tool runs the game's filing on both sets: a base at the player's own spot,
+  or where the player has registered a base, or with all nineteen slots registered, isn't kept, and
+  the tool says why. It can't see whether the player has Secret Power; without it, the game keeps
+  none.
 
 ## Reading bases out of a game
 
-`duo_events.py bases SAVE` (step 2) will read a save backup made by `maxduo_saves.py`, on the PC.
-It never touches the cartridge.
+`duo_events.py bases SAVE` reads a save backup made by `maxduo_saves.py`, on the PC. It never
+touches the cartridge. (`mix` with no bases reads them over the link instead, and keeps them as
+`.sb3` files in a `bases` folder.)
 
 - It finds the newest valid copy of the save, puts SaveBlock 1 together from sections 1 to 4, and
   reads the twenty bases. They start at 0x1A08 in Ruby and Sapphire and at 0x1A9C in Emerald.
@@ -144,8 +147,8 @@ It never touches the cartridge.
   - the average of each Pokémon's six EVs;
   - Eggs left out.
   That's exactly what a real Record Mixing would hand over.
-- **File names** follow the EventsGallery's style, with the owner, the room kind and the route, for
-  example `WILLOW - Tree, Route 121 (ENG).sb3`. When read from a save, the save it came from is
+- **File names** follow the EventsGallery's style, with the owner, the room and the route, for
+  example `WILLOW - Tree 1, Route 121 (ENG).sb3`. When read from a save, the save it came from is
   added, so the file can be traced.
 
 *Checked against a real save:* an English Ruby backup holds the player's own base in slot 0 at
@@ -154,12 +157,12 @@ was 0.
 
 ## Making one by hand: the base card
 
-Most `.sb3` files will be written by hand, so the tool will also turn a short text **base card**
+Most `.sb3` files will be written by hand, so the tool also turns a short text **base card**
 into an `.sb3`, and an `.sb3` back into a card:
 
 ```
-python duo_events.py base make "Willow.txt"         # writes "WILLOW - Tree, Route 121 (ENG).sb3"
-python duo_events.py base show "WILLOW - Tree, Route 121 (ENG).sb3"
+python duo_events.py base make "Willow.txt"         # writes "WILLOW - Tree 1, Route 121 (ENG).sb3"
+python duo_events.py base show "WILLOW - Tree 1, Route 121 (ENG).sb3"
 ```
 
 The card is only a way of writing an `.sb3`. **The `.sb3` is what's shared, checked and sent.** A
@@ -173,7 +176,7 @@ language   = English
 id         = 01234
 secret id  = 56789          # optional: chosen at random if left out
 received   = 0              # optional
-location   = Tree, Route 121           # or the ID: 162
+location   = Tree, room 1, Route 121   # or the ID: 162 (Route 121 has two trees)
 
 decoration = Small Desk at 2, 3        # up to 16
 decoration = Pikachu Doll at 5, 4
@@ -185,7 +188,8 @@ pokemon = Manectric Lv 43 @ Magnet    : Thunderbolt, Roar, Quick Attack, Bite   
 ```
 
 - Names of species, moves, items, decorations and locations are matched without minding capitals
-  or spaces. A misspelling is answered with the nearest real name.
+  or spaces. A misspelling is answered with the nearest real name. A location needs the room
+  number, or the entrance (`at 43,7`), when one route has two of a kind, and the tool lists them.
 - `nature`, `male`/`female` and `ability 1`/`ability 2` make the tool choose a personality value that
   gives them. `personality = 0x1234ABCD` sets one exactly.
 - `base make` runs every check above and won't write a file that fails the structural ones.
@@ -207,8 +211,15 @@ way).
 | Tree | 11 × 9 | 7 × 16 | 17 × 8 | 14 × 14 |
 | Shrub | 11 × 9 | 15 × 7 | 13 × 11 | 14 × 11 |
 
-Which tiles count as floor will be read from each room's map in step 2. That's also where the
-decorations' own sizes come in: a desk takes more than one tile.
+`secret_bases.py` carries each room's tiles, read from its map and the Secret Base tilesets: floor,
+back wall, walls, the owner's spot, the PC, the doorway, holes. It also carries each decoration's
+size and the tiles it leaves behind, such as the tops of desks and big mats that hold a doll. The
+checks follow decoration.c's `CanPlaceDecoration`:
+
+- furniture stands on bare floor;
+- plants and other tall things may reach up onto the back wall;
+- posters go on the back wall;
+- dolls and cushions sit on a desk or a mat, and a big doll needs a large spot.
 
 ## Version
 

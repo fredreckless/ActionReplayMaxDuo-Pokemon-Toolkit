@@ -58,12 +58,21 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
-- **Record Mixing and Secret Bases (4 November): step 1, research, done** in
-  `docs/RECORD_MIXING.md`, with a draft Secret Base card for the user to review. Steps 2
-  (simulator model of the Record Corner, DUO program) and 3 (hardware: Ruby, then Emerald) wait
-  for the user's yes. The user's answers (4 November): a proper `.sb3` format like `.pk3`/`.wc3`
-  (now specified in `docs/SB3_FORMAT.md`, version 1, for review), one base per file, several per
-  sitting, reading bases from save backups in the first version; mostly hand-made bases.
+- **Record Mixing and Secret Bases (4 November): steps 1 and 2 done; hardware next.**
+  - The user's choices: a proper `.sb3` format in the spirit of `.pk3`/`.wc3` (one base per file,
+    the game's own 160 bytes; `docs/SB3_FORMAT.md`), several per sitting, bases read from games in
+    the first version, mostly hand-made bases.
+  - `secret_bases.py` (new, beside the tools; the release must include it): `.sb3` checks
+    (structural: refuse; fair play: warn, `--strict` refuses), base cards (`make`/`show`), bases from
+    save backups (slot 0's team from the party, as the game does), and `predict_mix`, the game's
+    filing on the PC. The data tables at its end come from pokeemerald (generator kept in the
+    scratch folder only, `gen_tables.py`).
+  - `firmware/programs/mix.c` + `duo_events.py mix [--base ...] [--gift ITEM]`, `bases SAVE`,
+    `base make|show`. Docs: `docs/RECORD_MIXING.md` (protocol, what the DUO sends and why), README.
+  - Tests: `tests/mix_game_model.py` (Ruby's Record Corner and its own port of the filing), six
+    tests ("Record Mixing", "Secret Base"), 12 `mix` and 7 `pc` planted bugs.
+  - Next: hardware with English Ruby (both cable ways; then `--gift "Eon Ticket"` as player 0),
+    then Emerald (the DUO to say "Ruby" so Emerald uses Ruby's layout).
 - **The user chooses what to work on next.** Don't start new features unasked; the ideas
   discussed on 30 October (Enigma Berries from `.ecb`, ribbons, e-Card trainers, a trade
   distributor) are in the roadmap's goal table.
@@ -230,7 +239,7 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   `git push origin v42-local && git push origin v42-local:main`.
 - **Programs** (`firmware/programs/*.c`, clang 18 + lld; `firmware/programs.py`):
   - `adapter` (everyday Mystery Gift), `adapter_lab` (`-DLAB`), `adapter_probe` (`-DPROBE`),
-    `ereader`.
+    `ereader`, `trade`, `mix` (Record Corner; about 9.9 KB, buffers included).
   - Everything, variables included, must end below `0x0203AE00` (`programs.py` asserts it). Above
     that are the firmware's messages, and from `0x0203AF00` its transfer state.
   - There's no hardware divide: no `/` or `%` on variables.

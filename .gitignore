@@ -14,3 +14,5 @@ __pycache__/
 *.pyc
 tests/.test_times.json
 received/
+bases/
+*.sb3

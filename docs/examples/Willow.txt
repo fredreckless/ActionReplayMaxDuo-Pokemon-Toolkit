@@ -1,0 +1,23 @@
+# A sample Secret Base card (docs/SB3_FORMAT.md). Make the .sb3 with:
+#     python duo_events.py base make "docs/examples/Willow.txt"
+# then send it with:
+#     python duo_events.py mix --base "docs/examples/WILLOW - Tree 1, Route 121 (ENG).sb3"
+# WILLOW is made up. Change anything below; the tool checks it all and says what's wrong.
+
+owner      = WILLOW
+gender     = girl
+language   = English
+id         = 01234
+location   = Tree, room 1, Route 121          # or its ID: 162 (Route 121 has two trees)
+
+# up to 16 decorations; X, Y is the bottom-left tile of each, counted from the room's top-left
+decoration = Heavy Desk at 3, 5               # a 3 x 2 desk: its top row holds dolls
+decoration = Pikachu Doll at 4, 4             # dolls and cushions sit on a desk or a mat
+decoration = Red Plant at 8, 3                # tall things may reach up onto the back wall
+decoration = Ball Poster at 4, 0              # posters go on the back wall
+decoration = Small Chair at 4, 6
+
+# up to 6 Pokemon: species, level, held item, moves, EV number, and a nature (or an exact
+# `personality 0x...`); `male`/`female` and `ability 1`/`ability 2` are optional too
+pokemon = Swampert  Lv 45 @ Leftovers : Surf, Earthquake, Protect, Rest   EV 85  nature Brave  male
+pokemon = Manectric Lv 43 @ Magnet    : Thunderbolt, Roar, Quick Attack, Bite   EV 60  nature Timid

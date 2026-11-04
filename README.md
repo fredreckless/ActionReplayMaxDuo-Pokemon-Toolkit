@@ -160,6 +160,7 @@ python duo_events.py event --event "YOUR CARD.raw"      (an e-Card scan, sent as
 python duo_events.py event --event "YOUR TRAINER.ect"   (a saved e-Reader trainer)
 python duo_events.py pk3-info FILE.pk3 ...              (describe Gen 3 Pokémon files; no DUO needed)
 python duo_events.py trade --pk3 FILE.pk3              (trade the game a Pokémon: see below)
+python duo_events.py mix --base FILE.sb3               (Secret Bases by Record Mixing: see below)
 python duo_events.py event                      (a dry run: link players only)
 ```
 
@@ -211,6 +212,49 @@ A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received
 **Status:** English Ruby received the WISHMKR Jirachi on real hardware, start to finish, leaving the room included (lab sessions 29–30). Emerald and FireRed/LeafGreen use the same Cable Club and work in the simulator; they turn down a Mew or Deoxys without its event mark, and Emerald turns down Pokémon outside the Hoenn Pokédex until it has the National Pokédex. The tool names the game it finds and warns before a trade the game will refuse. See [docs/TRADE.md](docs/TRADE.md).
 
 **On the DUO's own screen** you'll see short lines about what it's playing and how far it has got ("Playing: trade partner", "Offering JIRACHI", "Traded and saved"…). They appear between the link's stages, never during one, because drawing a line costs the GBA over a frame, which a link can't spare. Mystery Gift is stricter still, as the wireless link must never wait: its lines ("Playing: Wireless Adapter", "Wonder Card loaded", "Waiting for the game", "Card sent: the game saves") appear only before the game has said a word, and after the tool has stopped the program.
+
+## Secret Bases: Record Mixing
+
+The DUO can sit in a Pokémon Center's **Record Corner** as the other player and mix records with Ruby or Sapphire. Up to twenty Secret Bases go in. The game files them by its own rules and saves by itself, just as it would with a friend's. Its own bases come back to the PC.
+
+```
+python duo_events.py mix --base "WILLOW - Tree 1, Route 121 (ENG).sb3" "ODA - Red cave 1, Route 118 (ENG).sb3"
+python duo_events.py mix                                   (no bases: just read the game's)
+python duo_events.py mix --base ... --gift "Eon Ticket"    (a gift item too: the DUO must be player 0)
+```
+
+1. **Back up your save first.** A GBA link cable, either way round (for a gift item, the DUO's GBA on the cable's master end); both GBAs off.
+2. Run the command, switch on the DUO's GBA when asked, then the game when the tool says **Ready**.
+3. Go up to the 2nd floor of any Pokémon Center (after visiting Mauville City), choose the **RECORD CORNER** with the attendant on the right, and let the game save.
+4. In the room, sit at the table on your side: the DUO walks to a seat on its side. The game mixes records and saves.
+5. Walk out of the door, or wait: the DUO stands up and leaves, and the game follows.
+
+The tool then says which bases the game kept, by the game's own rules. It turns away a base at the player's own spot, one where the player has registered a base at their PC, and one with the player's own name and IDs. The game keeps up to 19 bases from others, and **only takes bases once the player has Secret Power**. Everything else in the record, such as TV shows, news, the Mauville old man, Dewford's trends and day-care mail, is handed straight back to the game unchanged, so nothing else in the game moves. The Battle Tower record goes empty, as from a friend who hasn't been there. The game's own bases are kept as `.sb3` files in a `bases` folder beside the tools.
+
+**`.sb3` files** hold one Secret Base each: exactly the 160 bytes the game keeps, as `.pk3` and `.wc3` hold the game's own data. There are two ways to make them, with no DUO needed:
+
+```
+python duo_events.py base make "Willow.txt"         (a base card: a short text file, below)
+python duo_events.py base show "WILLOW - Tree 1, Route 121 (ENG).sb3"
+python duo_events.py bases "saves\AXVE POKEMON RUBY\2026-11-01 145321 ... .sav"   (a save backup's bases)
+```
+
+A base card looks like this:
+
+```
+owner      = WILLOW
+gender     = girl
+language   = English
+id         = 01234
+location   = Tree, room 1, Route 121          (or its ID: 162)
+decoration = Heavy Desk at 3, 5               (up to 16; X, Y is the bottom-left tile)
+decoration = Pikachu Doll at 4, 4             (dolls and cushions sit on a desk or a mat)
+pokemon    = Swampert Lv 45 @ Leftovers : Surf, Earthquake, Protect, Rest  EV 85  nature Brave  male
+```
+
+The tool checks everything the game needs, and warns about anything a real player couldn't have made: a doll on the bare floor, a poster off the back wall, overlapping furniture, a move the Pokémon can't learn. `--strict` refuses those instead. `base show` turns any `.sb3` back into a card, so a real player's base can be copied, changed and passed on.
+
+**Status:** done in the simulator (4 November 2026), against a model of Ruby's Record Corner and its filing rules ported from pokeruby. Hardware next: Ruby, then Emerald. See [docs/RECORD_MIXING.md](docs/RECORD_MIXING.md) and [docs/SB3_FORMAT.md](docs/SB3_FORMAT.md).
 
 ## If something goes wrong
 

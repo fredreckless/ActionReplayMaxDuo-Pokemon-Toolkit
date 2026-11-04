@@ -661,6 +661,8 @@ class Session:
                 block[18:20] = g.lp_field_2.to_bytes(2, "little")
                 if g.modern:                          # link.c: progressFlags = National Dex | 0x10 if champion
                     block[16 + 0x10] = (1 if g.national_dex else 0) | 0x10
+                if hasattr(g, "patch_link_player"):  # (the Record Corner's player: its own name and IDs)
+                    g.patch_link_player(block)
                 self.link.send_block(bytes(block))
             elif c == 0xBBBB:
                 self.blocks[i] = dict(size=cmd[1][i], data=bytearray())

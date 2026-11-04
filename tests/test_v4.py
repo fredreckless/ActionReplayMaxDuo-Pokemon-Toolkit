@@ -1876,6 +1876,299 @@ def _():
     assert "no trade this time" not in hw.text and "(for JIRACHI)" in os.listdir(W.RECEIVED_DIR)[0]
 
 
+# ---------------------------------------------------------------- Record Mixing: Secret Bases
+import mix_game_model as MG
+import secret_bases as SB
+
+BASE_CARD = """owner = {owner}
+gender = {gender}
+language = English
+id = {tid}
+location = {location}
+decoration = Heavy Desk at 3, 5
+decoration = Pikachu Doll at 4, 4
+decoration = Red Plant at 8, 3
+pokemon = Swampert Lv 45 @ Leftovers : Surf, Earthquake, Protect, Rest  EV 85  nature Brave
+pokemon = Manectric Lv 43 @ Magnet : Thunderbolt, Roar, Quick Attack  EV 60
+"""
+
+
+def test_base(owner="WILLOW", gender="girl", tid=1234, location=162):
+    card = BASE_CARD.format(owner=owner, gender=gender, tid=tid, location=location)
+    if location // 10 != 16:                          # (the decorations fit a tree's first room only)
+        card = "\n".join(l for l in card.splitlines() if not l.startswith("decoration"))
+    return SB.card_to_sb3(card)
+
+
+GAME_PLAYER = (0, b"\x39\x30\x12\x34", (gen3("MAY") + b"\xff" * 7)[:7])
+
+
+def game_bases(own_location=222, others=()):
+    """The game's 20 bases: its own (slot 0) at own_location, then `others` (.sb3 bytes)."""
+    own = bytearray(SB.SB3_SIZE)
+    if own_location:
+        own[0] = own_location
+        own[1] = GAME_PLAYER[0] << 4
+        own[2:9] = GAME_PLAYER[2]
+        own[9:13] = GAME_PLAYER[1]
+    out = [bytes(own)] + list(others)
+    assert all(len(b) == SB.SB3_SIZE for b in out)
+    return [bytes(b) for b in out] + [bytes(SB.SB3_SIZE)] * (20 - len(out))
+
+
+def game_tail(seed=5):
+    r = random.Random(seed)
+    tail = bytearray(r.getrandbits(8) for _ in range(MG.RECORD_SIZE - MG.TV_AT))
+    tail[MG.GIFT_AT - MG.TV_AT:MG.GIFT_AT - MG.TV_AT + 2] = b"\0\0"
+    return bytes(tail)
+
+
+def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_first=False, strict=False, **game_kw):
+    game = game or MG.RubyRecordCorner(master=master, bases=game_kw.pop("own", None) or game_bases(), player=GAME_PLAYER,
+                                       tail=game_tail(), leaves_first=leaves_first, **game_kw)
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    paths = [event_file(b, f"{k} - TEST.sb3") for k, b in enumerate(bases)]
+    W.BASES_DIR = os.path.join(tempfile.mkdtemp(), "bases")
+    r = quiet(W.mix_session, duo, types.SimpleNamespace(base=paths, gift=gift, seconds=seconds, strict=strict),
+              poll_s=0.2, stop_when=lambda: hw.lg_done)
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    hw.stop(); clean(hw)                              # nothing written to any cartridge
+    return hw, game, r[0]
+
+
+@test("Record Mixing, the game as master (the cable as fitted): the DUO sits down, the 24 rounds go across, the game files the two bases by its own rules and saves; its other sections come back unchanged, the Battle Tower empty; the DUO walks out")
+def _():
+    ours = [test_base(), test_base(owner="ODA", gender="boy", tid=4321, location=1)]
+    hw, game, report = mix_run(master=True, bases=ours)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["saved"] and res["left_room"] and res["partner_left_by_door"], res
+    assert res["partner_seat"] == (13, 6), res["partner_seat"]
+    assert res["keys_while_mixing"] < 10, res["keys_while_mixing"]          # its room keys stop with the game's
+    rec = res["partner_record"]
+    assert rec[:320] == b"".join(ours), "the game didn't receive our bases exactly"
+    assert rec[320:MG.TV_AT] == bytes(MG.TV_AT - 320)
+    own = game.own_record()
+    assert rec[MG.TV_AT:MG.BT_AT] == own[MG.TV_AT:MG.BT_AT], "the TV shows to the mail weren't handed back unchanged"
+    assert rec[MG.BT_AT:MG.GIFT_AT] == bytes(MG.GIFT_AT - MG.BT_AT) and rec[MG.GIFT_AT:MG.GIFT_AT + 2] == b"\0\0"
+    after = res["bases_after"]
+    assert sorted(b[0] for b in after if b[0]) == sorted([222, 162, 1]), [b[0] for b in after]
+    assert after == W.SB.predict_mix(res["bases_before"], ours + [bytes(160)] * 18, GAME_PLAYER), "the tool's prediction differs"
+    assert report["mixed"] and report["bad_checksums"] == 0 and report["kept"] == [True, True], report
+    for line in ("the DUO is player 1", "walking to the table", "mixing records", "Kept: WILLOW", "Kept: ODA",
+                 "it now has 2 of the 2 bases", "back in the room", "leaving the room", "done"):
+        assert line in hw.text, (line, hw.text[-2000:])
+    assert len(report["files"]) == 1 and "the player's own" in report["files"][0]
+    assert open(report["files"][0], "rb").read()[0] == 222
+    for line in ("Playing: Record Corner", "Bringing 2 Secret Bases", "Mixed and saved", "Done: the link is closed"):
+        assert line in hw.log, (line, hw.log)
+
+
+@test("Record Mixing, the DUO as master (player 0): it paces the 24 rounds itself, gives the Eon Ticket, reads the game's bases exactly; the player leaves first and the DUO follows")
+def _():
+    friend = test_base(owner="ZED", gender="boy", tid=777, location=131)
+    own = game_bases(own_location=222, others=[friend])
+    ours = [test_base(), test_base(owner="ODA", gender="boy", tid=4321, location=1)]
+    hw, game, report = mix_run(master=False, bases=ours, own=own, gift="eon ticket", leaves_first=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["saved"] and res["left_room"] and res["partner_seat"] == (6, 6), res
+    assert res["gift_received"] == MG.ITEM_EON_TICKET, res["gift_received"]
+    assert res["partner_record"][:320] == b"".join(ours)
+    diff = [(i, k) for i, (a, b) in enumerate(zip(report["game_bases"], res["bases_before"])) for k in range(160) if a[k] != b[k]]
+    assert not diff, ("the game's bases weren't read back exactly", diff[:10])
+    assert report["kept"] == [True, True] and report["bad_checksums"] == 0, report
+    assert len(report["files"]) == 2 and "ZED" in " ".join(report["files"])
+    assert "the DUO is player 0" in hw.text and "Gift item: Eon Ticket" in hw.text and "***" not in hw.text, hw.text[-1500:]
+
+
+@test("Record Mixing, the gift as player 1: the tool says the game won't take it, and it doesn't; with no bases at all the DUO only reads the game's, and the game keeps its own; the player leaves first and the DUO follows at once")
+def _():
+    hw, game, report = mix_run(master=True, bases=[], gift="Eon Ticket", leaves_first=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["gift_received"] is None, res
+    assert [b[0] for b in res["bases_after"]][:2] == [222, 0], [b[0] for b in res["bases_after"]]
+    assert "won't take the gift item" in hw.text and "only reads the game's" in hw.text, hw.text[-1500:]
+    diff = [(i, k) for i, (a, b) in enumerate(zip(report["game_bases"], res["bases_before"])) for k in range(160) if a[k] != b[k]]
+    assert not diff and len(report["files"]) == 1, (diff[:10], report["files"])
+    assert res["left_room"] and 0 <= res["partner_left_after"] <= 10, res.get("partner_left_after")
+
+
+@test("Record Mixing, the game's own filing rules: a base at the player's own spot, one where the player has registered a base, and one with the player's own name and IDs are not kept, and the tool says so; the rest are")
+def _():
+    registered = bytearray(test_base(owner="REG", gender="boy", tid=55, location=1))
+    registered[1] |= 0x40                             # registered at the player's PC
+    own = game_bases(own_location=222, others=[bytes(registered)])
+    me = bytearray(test_base(owner="MAY", gender="boy", tid=12345, location=141))
+    me[9:13] = GAME_PLAYER[1]; me[2:9] = GAME_PLAYER[2]; me[1] = GAME_PLAYER[0] << 4
+    ours = [test_base(location=222), test_base(owner="ODA", gender="boy", tid=4321, location=1), bytes(me),
+            test_base(owner="KEPT", gender="boy", tid=99, location=162)]
+    hw, game, report = mix_run(master=True, bases=ours, own=own)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    after = {b[0]: b for b in game.result["bases_after"] if b[0]}
+    assert sorted(after) == [1, 162, 222] and after[1][2:5] == gen3("REG")[:3] and after[222][2:5] == gen3("MAY")[:3], sorted(after)
+    assert report["kept"] == [False, False, False, True], report["kept"]
+    for line in ("Not kept: WILLOW (Shrub 3, Route 120) - the player's own base is there", "Not kept: ODA", "Kept: KEPT",
+                 "has the player's own name and IDs", "it now has 1 of the 4 bases"):
+        assert line in hw.text, (line, hw.text[-2500:])
+
+
+@test("Secret Base filing: the tool's copy of secret_base.c (secret_bases.predict_mix) agrees with the simulator's own port on 300 random sittings")
+def _():
+    r = random.Random(11)
+    places = [i for i in SB.tables().locations]
+    owners = [(g, bytes([t, 0, 0, 0]), (gen3(n) + b"\xff" * 7)[:7]) for g, t, n in
+              ((0, 1, "AA"), (1, 2, "BB"), (0, 3, "CC"), (1, 4, "DD"), (0, 5, "EE"), (1, 6, "FF"))]
+    def base(owner, place, registry=0, received=0):
+        b = bytearray(160)
+        b[0], b[1] = place, owner[0] << 4 | registry << 6
+        b[2:9], b[9:13] = owner[2], owner[1]
+        struct.pack_into("<H", b, 0x0E, received)
+        return bytes(b)
+    for case in range(300):
+        player = owners[0]
+        mine = [base(player, r.choice(places))] + [base(r.choice(owners[1:]), r.choice(places), r.choice((0, 0, 1)), r.randrange(4))
+                                                  if r.random() < 0.6 else bytes(160) for _ in range(19)]
+        theirs = [base(r.choice(owners), r.choice(places), 0, r.randrange(4)) if r.random() < 0.5 else bytes(160) for _ in range(20)]
+        own = [bytearray(b) for b in mine]
+        MG.mix_bases(own, [theirs, [bytes(160)] * 20] if False else [mine, theirs], 0, 2, player)
+        assert [bytes(b) for b in own] == SB.predict_mix(mine, theirs, player), f"case {case} differs"
+
+
+def party_mon(species, level, pid, moves, evs=(0,) * 6, item=0, egg=False, otid=0x00112233):
+    """A made-up 100-byte party Pokemon in the game's own (encrypted) form."""
+    g = struct.pack("<HHIBBH", species, item, 1000, 0, 70, 0)
+    a = struct.pack("<4H4B", *moves, 35, 25, 10, 5)
+    e = bytes(evs) + bytes(6)
+    m = struct.pack("<BBHII", 0, 0, 5 | 2 << 7 | 4 << 11, (1 << 30) if egg else 0x1F7BDEF7 & 0x3FFFFFFF, 0)
+    blocks = {"G": g, "A": a, "E": e, "M": m}
+    shuffled = b"".join(blocks[c] for c in W.PK3_ORDERS[pid % 24])
+    data = struct.pack("<12I", *[w ^ pid ^ otid for w in struct.unpack("<12I", shuffled)])
+    head = struct.pack("<II", pid, otid) + bytes(24)
+    return head + data + bytes([0, 0, 0, 0, level]) + bytes(15)
+
+
+def save_with_bases(game, bases, party=(), seed=3):
+    """A 128 KB save whose newest copy holds these Secret Bases and party (SaveBlock 1 is sections
+    1-4); an older copy holds nothing, so reading the wrong copy shows."""
+    data = bytearray(fixtures.make_gen3_save(seed=seed))
+    for slot, newest in ((0, True), (1, False)):
+        sb1 = bytearray(4 * 3968)
+        if newest:
+            at = SB.BASES_AT[game]
+            for i, b in enumerate(bases):
+                sb1[at + 160 * i:at + 160 * (i + 1)] = b
+            sb1[SB.PARTY_COUNT_AT] = len(party)
+            for i, mon in enumerate(party):
+                sb1[SB.PARTY_AT + 100 * i:SB.PARTY_AT + 100 * (i + 1)] = mon
+        for k in range(14):
+            o = slot * 0xE000 + k * 0x1000
+            sec = struct.unpack_from("<H", data, o + 0xFF4)[0]
+            if 1 <= sec <= 4:
+                body = bytearray(data[o:o + 0xFF4])
+                body[:3968] = sb1[3968 * (sec - 1):3968 * sec]
+                c = sum(struct.unpack_from("<992I", body, 0)) & 0xFFFFFFFF
+                data[o:o + 0xFF4] = body
+                struct.pack_into("<H", data, o + 0xFF6, ((c >> 16) + c) & 0xFFFF)
+    return bytes(data)
+
+
+@test("Secret Base files (.sb3): a card makes one and comes back from it unchanged; the game's structural rules refuse (location, name, team, items, gaps); fair play warns (dolls on the floor, posters off the wall, overlaps, moves, EVs)")
+def _():
+    card = BASE_CARD.format(owner="WILLOW", gender="girl", tid=1234, location="Tree, room 1, Route 121")
+    data = SB.card_to_sb3(card)
+    f, problems, warnings = SB.check_sb3(data)
+    assert len(data) == 160 and not problems and not warnings, (problems, warnings)
+    assert f["location"] == 162 and SB.owner_name(f) == "WILLOW" and f["gender"] == 1 and f["tid"] == 1234
+    assert SB.NATURES[f["team"][0]["personality"] % 25] == "Brave" and f["team"][1]["moves"][3] == 0
+    assert SB.card_to_sb3(SB.sb3_to_card(data)) == data, "a card written from an .sb3 doesn't make the same bytes"
+    assert SB.file_name(f) == "WILLOW - Tree 1, Route 121 (ENG).sb3"
+    try:
+        SB.card_to_sb3(card.replace("Tree, room 1, Route 121", "Tree, Route 121")); raise AssertionError("ambiguous place taken")
+    except ValueError as e:
+        assert "2 tree spots" in str(e) and "(ID 162)" in str(e) and "(ID 172)" in str(e)
+    for text, wanted in (("Leftovers", "Leftover"), ("Swampert", "Swampret")):
+        try:
+            SB.card_to_sb3(card.replace(text, wanted)); raise AssertionError("misspelling taken")
+        except ValueError as e:
+            assert f"did you mean {text.upper()}" in str(e), e
+    def broken(fn):
+        b = bytearray(data); fn(b)
+        return SB.check_sb3(bytes(b))[1]
+    assert any("75 Secret Base spots" in p for p in broken(lambda b: b.__setitem__(0, 7)))
+    assert any("name" in p for p in broken(lambda b: b.__setitem__(slice(2, 9), b"\xff" * 7)))
+    assert any("no Pokemon" in p for p in broken(lambda b: b.__setitem__(slice(0x7C, 0x88), bytes(12))))
+    assert any("after the team" in p for p in broken(lambda b: b.__setitem__(0x96, 9)))
+    assert any("can't be held" in p for p in broken(lambda b: struct.pack_into("<H", b, 0x88, 0x113)))
+    assert any("isn't a Pokemon" in p for p in broken(lambda b: struct.pack_into("<H", b, 0x7C, 260)))
+    assert any("first slots" in p for p in broken(lambda b: b.__setitem__(0x12, 0)))
+    odd = SB.card_to_sb3(card.replace("Pikachu Doll at 4, 4", "Pikachu Doll at 6, 6").replace("Red Plant at 8, 3", "Ball Poster at 8, 3")
+                         .replace("Thunderbolt, Roar", "Fly, Roar").replace("EV 60", "EV 90")
+                         + "decoration = Small Chair at 4, 5\n")
+    f, problems, warnings = SB.check_sb3(odd)
+    assert not problems, problems
+    for w in ("dolls and cushions sit on a mat or a desk", "a poster goes on the back wall", "overlaps Heavy Desk",
+              "can't learn Fly", "EV number 90"):
+        assert any(w in x for x in warnings), (w, warnings)
+    paths = [event_file(odd, "odd.sb3")]
+    assert quiet(W.load_bases, paths)[0] == [SB.normalise(odd)]
+    try:
+        quiet(W.load_bases, paths, strict=True); raise AssertionError("--strict let it through")
+    except ValueError as e:
+        assert "--strict" in str(e)
+    twice = [event_file(data, "a.sb3"), event_file(SB.card_to_sb3(card.replace("WILLOW", "OTHER")), "b.sb3")]
+    try:
+        quiet(W.load_bases, twice); raise AssertionError("two bases in one spot taken")
+    except ValueError as e:
+        assert "keeps only the first" in str(e)
+    try:
+        quiet(W.load_bases, [event_file(data, f"{k}.sb3") for k in range(21)]); raise AssertionError("21 bases taken")
+    except ValueError as e:
+        assert "at most 20" in str(e)
+
+
+@test("Secret Bases from a save backup (bases, base make/show): the newest copy's bases become .sb3 files, the player's own with its team from the party (Eggs left out, EVs averaged), the language from the cartridge code; FireRed and unknown games refused; no DUO needed")
+def _():
+    friend = test_base(owner="ZED", gender="boy", tid=777, location=131)
+    own = bytearray(160); own[0] = 222; own[1] = 0x10; own[2:9] = (gen3("KIM") + b"\xff" * 7)[:7]; own[9:13] = b"\x01\x02\x03\x04"
+    own[0x10] = 5                                     # (times entered: the player's own business)
+    party = [party_mon(280, 20, 0x11111111, (1, 2, 3, 4), evs=(60, 0, 0, 0, 0, 0), item=3),
+             party_mon(283, 5, 0x22222222, (5, 0, 0, 0), egg=True), party_mon(25, 30, 0x33333333, (85, 0, 0, 0))]
+    for game, code in (("Ruby", "AXVD"), ("Emerald", "BPEE")):
+        folder = os.path.join(tempfile.mkdtemp(), f"{code} POKEMON GAME")
+        os.makedirs(folder)
+        path = os.path.join(folder, "2026-11-04 120000 KIM #12.sav")
+        open(path, "wb").write(save_with_bases(game, [bytes(own), friend], party))
+        out = os.path.join(tempfile.mkdtemp(), "out")
+        text = quiet(W.main, ["bases", path, "--out", out])[1]
+        files = sorted(os.listdir(out))
+        assert len(files) == 2 and "the player's own" in text and "ZED" in text, (files, text)
+        mine = open(os.path.join(out, next(n for n in files if n.startswith("KIM"))), "rb").read()
+        f, problems, warnings = SB.check_sb3(mine)
+        team = [m for m in f["team"] if m["species"]]
+        assert [m["species"] for m in team] == [280, 25] and team[0]["ev"] == 10 and team[0]["item"] == 3, team
+        assert team[0]["level"] == 20 and team[0]["moves"] == [1, 2, 3, 4] and team[0]["personality"] == 0x11111111
+        assert f["entered"] == 0 and f["language"] == (5 if game == "Ruby" else 2) and not problems, (f["language"], problems)
+        assert open(os.path.join(out, next(n for n in files if n.startswith("ZED"))), "rb").read() == friend
+    shown = quiet(W.main, ["base", "show", os.path.join(out, files[0])])[1]
+    assert "pokemon = " in shown and "location   = " in shown
+    card = os.path.join(tempfile.mkdtemp(), "Willow.txt")
+    open(card, "w").write(BASE_CARD.format(owner="WILLOW", gender="girl", tid=1234, location=162))
+    made = quiet(W.main, ["base", "make", card])[1]
+    assert "Written:" in made and os.path.exists(os.path.join(os.path.dirname(card), "WILLOW - Tree 1, Route 121 (ENG).sb3"))
+    frlg = os.path.join(tempfile.mkdtemp(), "BPRE POKEMON FIRE"); os.makedirs(frlg)
+    open(os.path.join(frlg, "x.sav"), "wb").write(fixtures.make_gen3_save())
+    for p, why in ((os.path.join(frlg, "x.sav"), "FireRed has no Secret Bases"), (event_file(fixtures.make_gen3_save(), "x.sav"), "which game")):
+        try:
+            quiet(W.main, ["bases", p]); raise AssertionError("taken")
+        except SystemExit as e:
+            assert why in str(e), e
+    assert "mix --base" in W.wrong_route("trade", "base.sb3")
+
+
 @test("trade into Emerald without the National Pokedex: the DUO's link player says it has one, so the player may offer a non-Hoenn Pokemon; the tool names the game; Jirachi (in the Hoenn Pokedex) is received")
 def _():
     hw, game, report, event, path = trade_run(master=True, game_kind="emerald", national_dex=False,

@@ -197,13 +197,17 @@ hand. **Waiting:** the user's cable stays fitted for the e-Reader route for now.
    the DUO now sends the progress flags they check, and the tool warns before a trade they'd
    refuse. Hardware next (the user has European LeafGreen and Japanese Emerald).
 
-## Stage 10: Secret Bases by Record Mixing (step 1, research, done 4 November 2026)
+## Stage 10: Secret Bases by Record Mixing (simulator done, 4 November 2026; hardware next)
 
 Not part of the original goal; asked for on 3 November. The DUO sits in the Record Corner as the
-other player and hands the game up to twenty Secret Bases from hand-written "Secret Base cards";
-the game files them and saves itself. Findings and the draft card format: docs/RECORD_MIXING.md.
-Next, once agreed: a model of the Record Corner in the simulator and a DUO program (step 2), then
-hardware, Ruby first (step 3).
+other player and hands the game up to twenty Secret Bases (`.sb3`, docs/SB3_FORMAT.md, made from
+base cards or read from save backups); the game files them and saves itself, and its own bases come
+back to the PC. `python duo_events.py mix --base FILE.sb3 ...`. Details: docs/RECORD_MIXING.md.
+
+- Step 1 (research) and step 2 (`secret_bases.py`, `mix.c`, the Record Corner model, six tests)
+  done.
+- Step 3: hardware, English Ruby first (also the Eon Ticket as a Record Mixing gift, with the DUO
+  as player 0), then Emerald.
 
 ## Tidying done on 30 October
 

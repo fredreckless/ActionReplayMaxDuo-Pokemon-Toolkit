@@ -112,6 +112,13 @@ PC_MUTANTS = {
     "Trainer Hill records read in pokeemerald's English layout": ("HILL_RECORD = 0x270", "HILL_RECORD = 0x274", "Trainer Hill e-Cards"),
     "Trainer Hill set's checksum left out": ('    return (bytes([len(records), 0, 0, 0]) + struct.pack("<I", sum(body) & 0xFFFFFFFF)', '    return (bytes([len(records), 0, 0, 0]) + struct.pack("<I", 0)', "Trainer Hill e-Cards"),
     "Trainer Tower floors read in pokefirered's English layout": ("TOWER_RECORD = 0x3D4", "TOWER_RECORD = 0x3E0", "Trainer Tower e-Cards"),
+    "Secret Bases: a base filed at the player's own spot (predicted)": ("        if at == 0:\n            return\n        if at is not None:", "        if at is not None:", "Secret Base filing"),
+    "Secret Bases: a card's nature ignored": ("        if nature is not None and pid % 25 != nature:\n            continue\n", "", "Secret Base files"),
+    "Secret Bases: the player's own base keeps its out-of-date team": ("        if i == 0:                                     # SetPlayerSecretBaseParty", "        if False:", "Secret Bases from a save backup"),
+    "Secret Bases: dolls allowed on the floor": ("        if (big and tile != \"L\") or (not big and tile not in (\"s\", \"L\")):", "        if big and tile != \"L\":", "Secret Base files"),
+    "Secret Bases: two bases in one spot allowed": ("        if f[\"location\"] in places:", "        if False:", "Secret Base files"),
+    "Secret Bases: the game's bases read back one word out": ("            words = [program_poll(duo, 4 | k << 8) for k in range(SB.SB3_SIZE * SB.BASES_IN_SAVE // 4)]", "            words = [program_poll(duo, 4 | (k + 1) << 8) for k in range(SB.SB3_SIZE * SB.BASES_IN_SAVE // 4)]", "Record Mixing, the DUO as master"),
+    "Secret Bases: the gift item never loaded": ("        head = bytes([len(bases), f[\"gender\"], gift & 0xFF, gift >> 8])", "        head = bytes([len(bases), f[\"gender\"], 0, 0])", "Record Mixing, the DUO as master"),
     "every Pokemon's original route called a trade": ('    if route == "trade":\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', '    if True:\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', "how each event was originally given out"),
     "party stats left empty in a traded Pokemon": ("    return box + pk3_party_fields(f)", "    return box + bytes(20)", "party form"),
     "known game table ignored": ("    known = KNOWN_SAVE_GAMES.get(info[\"code\"][:3])\n    if forced:", "    known = None\n    if forced:", "known games"),
@@ -145,16 +152,16 @@ def run(kind, name):
                            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=paths.FIRMWARE))
         assert r.returncode == 0, r.stderr[-800:]
         env = dict(os.environ, V3_FW=os.path.join(work, "fw_mut.bin"))
-    elif kind in ("prog", "ereader", "trade"):
+    elif kind in ("prog", "ereader", "trade", "mix"):
         old, new, pick = KINDS[kind][name]
         sys.path.insert(0, paths.FIRMWARE)
         import programs
-        src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c"}[kind]
+        src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
         assert good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
-        builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",)}[kind]
+        builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
@@ -181,10 +188,11 @@ def run(kind, name):
             tool = tool.replace(good[b], bad[b])
         open(os.path.join(work, "duo_events.py"), "w").write(tool)
         shutil.copy(os.path.join(paths.ROOT, "maxduo_saves.py"), work)
+        shutil.copy(os.path.join(paths.ROOT, "secret_bases.py"), work)
         env = dict(os.environ, MAXDUO_TOOL_DIR=work)
     else:
         old, new, pick = PC_MUTANTS[name]
-        tools = {f: open(os.path.join(paths.ROOT, f)).read() for f in ("maxduo_saves.py", "duo_events.py")}
+        tools = {f: open(os.path.join(paths.ROOT, f)).read() for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py")}
         if old == "ADAPTER_IMAGE":                     # rebuild the embedded program with a wrong ID (valid CRC)
             sys.path.insert(0, paths.FIRMWARE)
             import programs
@@ -236,8 +244,23 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
     "trade: as master, never says the trade can go ahead": ("send_msg(0xCCDD, 0); state = ST_AGREED;", "send_msg(0xDDEE, 0); state = ST_AGREED;", "trade, the DUO as master"),
 }
 
+MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
+    "mix: player 1 walks left at the table, away from its seat": ("walk1[7] = { 19, 19, 21, 21, 21, 21, 19 }", "walk1[7] = { 19, 19, 20, 20, 20, 20, 19 }", "Record Mixing, the game as master"),
+    "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
+    "mix: the game's own sections not handed back": ("    memcpy(chunk, rx_buf, CHUNK);", "    zero(chunk, CHUNK);", "Record Mixing, the game as master"),
+    "mix: the game's Battle Tower record handed back too": ("        if (at >= BT_START && at < GIFT_AT) chunk[i] = 0;     /* no Battle Tower record */\n        else if", "        if", "Record Mixing, the game as master"),
+    "mix: the gift item left out": ("        else if (at == GIFT_AT) chunk[i] = GIFT_LO;", "        else if (at == GIFT_AT) chunk[i] = 0;", "Record Mixing, the DUO as master"),
+    "mix: as master, asks for the next round at once": ("if (++round_timer > ROUND_GAP)", "if (++round_timer > 0)", "Record Mixing, the DUO as master"),
+    "mix: as master, starts before the game has its first chunk ready": ("#define START_WAIT  150", "#define START_WAIT  10", "Record Mixing, the DUO as master"),
+    "mix: room keys sent all through the mixing": ("    if (game_lp_type == LT_MIX && room_keys_seen && !cafe_stopped) {", "    if (game_lp_type == LT_MIX && room_keys_seen) {", "Record Mixing, the game as master"),
+    "mix: as master, opens the room again with the Cable Club's link type": ("    return state >= ST_MIXED ? LT_AFTER : LT_MIX;", "    return LT_MIX;", "Record Mixing, the DUO as master"),
+    "mix: never follows the player out of the room": ("    if (game_exiting) { sent_exit = 1;", "    if (0) { sent_exit = 1;", "Record Mixing, the gift as player 1"),
+    "mix: screen lines shown in the middle of a link session": ("if (shown == state || (linked && state != ST_DONE)) return;", "if (shown == state) return;", "Record Mixing, the game as master"),
+    "mix: later rounds sent without waiting for the game's chunk": ("        else mirror_wait = 1;", "        else send_mirror(r);", "Record Mixing, the game as master"),
+}
+
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,
-         "pc": PC_MUTANTS}
+         "mix": MIX_MUTANTS, "pc": PC_MUTANTS}
 
 
 def runnable_kinds():

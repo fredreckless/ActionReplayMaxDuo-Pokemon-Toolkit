@@ -1,11 +1,14 @@
-# Record Mixing and Secret Bases (research, step 1)
+# Record Mixing and Secret Bases
 
-**Status (4 November 2026): research only; nothing built yet.** This reads pokeruby and
-pokeemerald to see whether the DUO can sit in a Record Corner as the other player and hand the
-game Secret Bases, so that the game merges them and **saves them itself**, the same way the trade
-works. It ends with a first draft of a "Secret Base card" file for review. Steps 2 (a model of the
-Record Corner in the simulator, and a DUO program) and 3 (hardware: Ruby, then Emerald) wait for a
-yes.
+**Status (4 November 2026): step 2 done in the simulator.** `python duo_events.py mix` runs
+`firmware/programs/mix.c` against the game; `tests/mix_game_model.py` models Ruby's Record Corner and
+its filing rules, ported from pokeruby on their own, and checks the tool's copy of them
+(`secret_bases.py`). Six tests and nineteen planted bugs cover it. Step 3, hardware (Ruby, then
+Emerald), is next. The `.sb3` file is specified in `docs/SB3_FORMAT.md`.
+
+This reads pokeruby and pokeemerald to see how the DUO can sit in a Record Corner as the other
+player and hand the game Secret Bases, so that the game merges them and **saves them itself**, the
+same way the trade works.
 
 Sources: pokeruby `record_mixing.c`, `secret_base.c`, `global.h`, `mystery_event_script.c`,
 `data/scripts/cable_club.inc`; pokeemerald `src/record_mixing.c`, `src/secret_base.c`,
@@ -144,7 +147,7 @@ PP, and **the one EV number in every stat**. So a base's team can't be shiny and
 IVs; everything else is ours to choose.
 
 **The owner's look:** Emerald picks the trainer class from `trainerId[0] % 5` and the gender (five
-classes each for boys and girls). Ruby is believed to do the same; step 2 will confirm it.
+classes each for boys and girls). Ruby is believed to do the same; hardware will confirm it.
 
 ## The gift item (and the Eon Ticket)
 
@@ -160,27 +163,58 @@ and only players other than 0 accept one (`ReceiveGiftItem`):
 the other way round from how the cable is usually set up for trades now. Bases themselves flow
 both ways, so either end works for those.
 
-## What the DUO would send
+## What the DUO sends (mix.c)
 
-A record in Ruby's layout with:
+A record in Ruby's layout:
 
-- **slot 0** the card's own base ("the person we're mixing with"), slots 1 to 19 any further
-  bases in the pack, all with `registryStatus` 0 and `toRegister` 0;
-- the TV shows, news, old man, trends, mail and Battle Tower record **empty**;
-- `giftItem` 0, or a chosen key item when the DUO is player 0.
+- **slot 0** the first `.sb3`'s base (in a real record, its owner's own), slots 1 to 19 the rest,
+  all with `registryStatus` 0 and `toRegister` 0. That is rounds 0 to 15 exactly (20 x 160 = 16 x 200);
+- **from round 16 on, the game's own sections handed straight back**: its TV shows, PokéNews, Mauville
+  old man, Dewford trends and day-care mail. Each game takes the other's old man outright and merges
+  the rest, so mixing with a copy of itself changes nothing: trends with equal words are merged
+  (`GetEqualEasyChatPairIndex`), a TV show the game already has goes back where it came from, and
+  day-care mail swaps with an identical copy. An empty record would have been worse: an all-zero
+  Mauville old man, and the player's TV shows moved out into the DUO's list and lost. To hand them
+  back, the DUO waits for the game's block of each of these rounds before sending its own (the game
+  waits for every player's block, so this costs only time: about 16 frames a round);
+- **the Battle Tower record empty**, as from a friend who hasn't been there (sub_8134AC0 files an
+  empty record into an empty slot);
+- `giftItem` from `--gift` (only player 0's is read), the filler zero.
 
-### Questions for step 2 (the simulator, before any hardware)
+The game's own rounds 0 to 15, its twenty bases, are kept in the same buffer as each of ours goes
+out, and read by the PC afterwards: its own base (slot 0) arrives with its team, as the game fills
+that in when it mixes. The PC then runs secret_base.c's filing on both sets to say which of ours the
+game kept.
 
-- Each of the other receivers (TV shows, PokéNews, the old man, Dewford trends, day-care mail,
-  Battle Tower) has to be read through to make sure an empty section is simply ignored. The
-  two-player blanking above suggests it is, but the partner's record (ours) is the one actually
-  read, so this needs checking line by line, not assuming.
-- How a room's size limits `decorationPos`: each location's room layout comes from its map, so the
-  tool should refuse a decoration placed off the floor or on top of another, as the game's own
-  decorating menu would.
-- Ruby's owner-look rule, and Ruby's location table (the one below is Emerald's maps; Ruby and
-  Sapphire are expected to match).
-- The seat and timing details: when each game starts its task, and what the master waits for.
+The rest of the sitting, as the program plays it:
+
+- **Joining:** the attendant's link (0x3311) is the trade's: link players, then the trainer cards
+  (0xCCCC 2), then room keys (0xCAFE) one a frame. The DUO's trainer card and link player show the
+  first base's owner.
+- **Sitting down:** the room is 20 x 10 with four seats round a table, (6,4), (13,4), (6,6) and
+  (13,6). Players arrive side by side at (8,9) and (9,9). The DUO walks to a seat on its own side:
+  player 0 up, up, left, left, up to (6,6); player 1 up, up, right x4, up to (13,6). Then it sends
+  key 22 ("seated"). When every player is seated, each game starts `Task_RecordMixing_Main`: its
+  room keys stop (`ClearLinkCallback_2`), so the DUO's do too.
+- **The rounds:** 20 + 60 frames, then 24 rounds. In each, the master asks with 0xCCCC 1 and every
+  player sends 200 bytes from its `gBlockSendBuffer`. A game copies its next chunk two frames after a
+  round completes, so as master the DUO waits 8 frames between rounds, and 150 frames before the
+  first.
+- **The save:** the game merges, then saves by itself (`sub_8125E2C`, no link barrier), and after 10
+  frames closes the link (0x5FFF).
+- **Back in the room:** the game reopens the link as 0x3322 (`sub_8083664`, `VAR_0x8004` = 4). The
+  room is not reloaded and everyone is still "seated" (status 0x82), so a player must send 26 before
+  moving. The DUO sends 26, walks back to the door and leaves (23), or follows the player out as
+  soon as they leave.
+
+### Still to see on hardware (step 3)
+
+- How long Ruby takes between the last round and closing the link (the model allows 19 frames).
+- That the DUO, sitting first, never blocks the player's way to their seat.
+- Emerald: the DUO's link player copies the game's version, so Emerald would mix in its own
+  layout, which the DUO doesn't speak yet. The plan is for the DUO to say "Ruby" to Emerald, so that
+  Emerald uses Ruby's layout (`Link_AnyPartnersPlayingRubyOrSapphire`). Until then the tool warns
+  and suggests leaving the room.
 
 ## The Secret Base card
 
