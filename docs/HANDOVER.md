@@ -58,6 +58,10 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **Record Mixing and Secret Bases (4 November): step 1, research, done** in
+  `docs/RECORD_MIXING.md`, with a draft Secret Base card for the user to review. Steps 2
+  (simulator model of the Record Corner, DUO program) and 3 (hardware: Ruby, then Emerald) wait
+  for the user's yes and their answers to the questions at the end of that document.
 - **The user chooses what to work on next.** Don't start new features unasked; the ideas
   discussed on 30 October (Enigma Berries from `.ecb`, ribbons, e-Card trainers, a trade
   distributor) are in the roadmap's goal table.
