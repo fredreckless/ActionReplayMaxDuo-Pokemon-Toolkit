@@ -182,56 +182,12 @@ A record in Ruby's layout with:
   Sapphire are expected to match).
 - The seat and timing details: when each game starts its task, and what the master waits for.
 
-## A first draft of the Secret Base card
+## The Secret Base card
 
-The idea is a small text file anyone can write and share, one base per file, that the tool turns
-into the 160-byte record. Several files go together as one pack, up to twenty per sitting.
-Something like:
-
-```
-# A Secret Base card for duo_events.py (draft)
-owner    = WILLOW
-gender   = girl
-id       = 01234        # public trainer ID
-secret   = 56789        # secret ID (optional; random if left out)
-location = 162          # or "Tree, Route 121 (TREE1_2)"; see the table
-
-# up to 16 decorations: name at x, y (0-based tiles inside the room)
-decoration = Small Desk at 2, 3
-decoration = Pikachu Doll at 5, 4
-decoration = Red Plant at 6, 3
-
-# up to 6 Pokemon: species, level, item, four moves, EV number, and either a nature or a
-# personality value (nature/gender/ability then follow from it)
-pokemon = Swampert  Lv 45 @ Leftovers  : Surf, Earthquake, Protect, Rest   EV 85  nature Brave
-pokemon = Manectric Lv 43 @ Magnet     : Thunderbolt, Roar, Quick Attack, Bite   EV 85
-```
-
-What I'd like the tool to do with one:
-
-- check every value against the game's rules (names that fit in seven characters, real
-  locations, real decoration and item IDs, moves the species can know, levels 1 to 100, decorations
-  on the floor and not overlapping), and refuse with a plain reason otherwise;
-- when only a nature is given, choose a personality value that gives it (and the gender asked
-  for, if there is one);
-- print a summary before sending: whose base, where it will appear ("in the tree on Route 121"),
-  what it holds, and the team;
-- after the sitting, say which bases the game took, and warn beforehand about the cases it will
-  drop: a location the player already uses for their own base, or a pack of more than nineteen.
-
-Two more sources of the same 160-byte record would fit naturally:
-
-- **a `.sb3` file**, the raw record, for sharing bases exactly;
-- **a base read from a save backup** made by `maxduo_saves.py` (reading the backup on the PC,
-  never writing the cartridge), so real players could swap bases without both being in one room.
-  The tool would need to keep owners' names and IDs out of anything it shares unless asked.
-
-Questions for you:
-
-1. Is a text file like the one above the right feel, or would you rather something more like a
-   form (JSON) that another program could write?
-2. Should a card describe one base, or should one file be able to hold a whole pack?
-3. Is reading bases out of save backups something you'd like in the first version, or later?
+Decided on 4 November: the shared file is **`.sb3`, one base per file, the game's own 160-byte
+record**, in the spirit of `.pk3` and `.wc3`. Several files go together for one sitting, bases
+can be read out of save backups in the first version, and a text "base card" makes hand-made
+ones (most bases will be hand-made). The specification is `docs/SB3_FORMAT.md`.
 
 ## Appendix: the 75 Secret Base locations (from Emerald's maps)
 
