@@ -71,6 +71,10 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
     `base make|show`. Docs: `docs/RECORD_MIXING.md` (protocol, what the DUO sends and why), README.
   - Tests: `tests/mix_game_model.py` (Ruby's Record Corner and its own port of the filing), six
     tests ("Record Mixing", "Secret Base"), 12 `mix` and 7 `pc` planted bugs.
+  - `secret_base_workshop.html` (5 November): a browser page that designs a base and saves the
+    `.sb3`; same tables as `secret_bases.py` (a test checks), byte-for-byte the same output. Also
+    published as a private claude.ai artifact (the user shares it). No game graphics in it: the
+    user asked; declined to copy Nintendo's art; offered reading it from their own ROM at run time.
   - Next: hardware with English Ruby (both cable ways; then `--gift "Eon Ticket"` as player 0),
     then Emerald (the DUO to say "Ruby" so Emerald uses Ruby's layout).
 - **The user chooses what to work on next.** Don't start new features unasked; the ideas

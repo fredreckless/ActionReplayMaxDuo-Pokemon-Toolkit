@@ -16,3 +16,5 @@ tests/.test_times.json
 received/
 bases/
 *.sb3
+roms/
+*.gba

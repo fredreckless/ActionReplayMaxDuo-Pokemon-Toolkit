@@ -239,6 +239,8 @@ python duo_events.py base show "WILLOW - Tree 1, Route 121 (ENG).sb3"
 python duo_events.py bases "saves\AXVE POKEMON RUBY\2026-11-01 145321 ... .sav"   (a save backup's bases)
 ```
 
+**The Secret Base Workshop** (`secret_base_workshop.html`) does all of this in a browser, no Python needed. Open the file, lay out the room tile by tile, choose the owner and team, and save the `.sb3`. It checks everything as the toolkit does, can open an existing `.sb3` to edit, and shows the 160 bytes as you go.
+
 A base card looks like this:
 
 ```

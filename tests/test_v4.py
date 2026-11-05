@@ -8,7 +8,7 @@ reproduces every behaviour observed on the real DUO).
 
 Needs the firmware built first: python firmware/build_firmware.py PATH_TO_DATEL_1.06_UPDATE --all
 """
-import gc, io, contextlib, glob, json, os, random, shutil, struct, subprocess, sys, tempfile, threading, time, traceback, types, zlib
+import gc, io, contextlib, glob, json, os, random, re, shutil, struct, subprocess, sys, tempfile, threading, time, traceback, types, zlib
 import paths
 import hwsim, thumbcheck, maxduo_saves as M
 import duo_events as W
@@ -2167,6 +2167,29 @@ def _():
         except SystemExit as e:
             assert why in str(e), e
     assert "mix --base" in W.wrong_route("trade", "base.sb3")
+
+
+@test("ROM copy (duo_rom.py): the whole cartridge ROM, 64 KB at a time, each checked against the GBA's own CRC; only the DUO-covered header bytes differ; the save is never touched")
+def _():
+    import duo_rom
+    g = hwsim.make_game_rom(code=b"AXVE", tag=b"FLASH1M_V103", size=0x180000, rom_size=0x200000, seed=7)
+    hw, duo = device(game=g)
+    out = tempfile.mkdtemp()
+    (path, data, info), text = quiet(duo_rom.dump, duo, types.SimpleNamespace(out=out, map=None))
+    hw.stop(); clean(hw)
+    assert len(data) == len(g) and open(path, "rb").read() == data and path.endswith("(AXVE) rev 0.gba"), (path, len(data))
+    assert data[:0x20] == g[:0x20] and data[0xA0:] == g[0xA0:], "the ROM copy differs outside the DUO-covered header"
+    assert data[0x20:0x9C] == bytes(0x7C) and "Saved:" in text and hw.save_writes == 0
+
+
+@test("Secret Base Workshop (secret_base_workshop.html): its game tables and locations are exactly secret_bases.py's")
+def _():
+    page = open(os.path.join(paths.ROOT, "secret_base_workshop.html"), encoding="utf-8").read()
+    src = open(os.path.join(paths.ROOT, "secret_bases.py"), encoding="utf-8").read()
+    tables = re.search(r'_TABLES = """(.*?)"""', src, re.S).group(1).replace("\n", "")
+    places = " ".join(re.search(r'_LOCATIONS = """(.*?)"""', src, re.S).group(1).split())
+    assert f'const TABLES_B64 = "{tables}";' in page, "the workshop's tables differ from secret_bases.py's"
+    assert f'const LOCATIONS_TXT = "{places}";' in page, "the workshop's locations differ from secret_bases.py's"
 
 
 @test("trade into Emerald without the National Pokedex: the DUO's link player says it has one, so the player may offer a non-Hoenn Pokemon; the tool names the game; Jirachi (in the Hoenn Pokedex) is received")
