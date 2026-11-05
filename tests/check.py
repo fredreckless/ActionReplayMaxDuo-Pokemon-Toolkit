@@ -8,10 +8,11 @@
 
 BASE is a git revision (default origin/main); uncommitted and new files count as changed too.
 
-When to use which (see docs/HANDOVER.md):
+When to use which (see docs/HANDOVER.md; revised 5 November to keep testing short):
 - quick: after each small change while working;
-- changed: before calling a piece of work done;
-- full: before pushing a code change;
+- changed: before every push (the only test step a push waits for);
+- full --all-bugs: before a GitHub release, at the end of a long session, or when hwsim.py,
+  mutate4.py or the firmware builds change; in the background, without waiting on it;
 - nothing: a change to documentation only (*.md, lab/, docs/)."""
 import fnmatch, os, re, subprocess, sys, time
 

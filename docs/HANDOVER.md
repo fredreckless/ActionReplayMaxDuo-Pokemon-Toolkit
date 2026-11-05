@@ -25,13 +25,19 @@ to save the event itself. Routes that write the save directly are the user's dec
 - **Pushing:** standing permission to push. Keep `main` and `v42-local` identical, and push both
   together. Any *other* GitHub change (settings, releases, issues) needs asking first. That
   includes the release on the to-do list.
-- **Tiered testing** (agreed 30 October; `python tests/check.py`):
+- **Tiered testing, kept short** (agreed 30 October; **revised 5 November** because long runs were
+  holding development back; `python tests/check.py`):
   - `quick` (about 50 s) after each small change while working;
-  - `changed` (the tests and planted bugs for the files changed since `origin/main`) before
-    calling a piece of work done;
-  - `full` (every test, plus the planted bugs for what changed) **before pushing a code change**;
-    `full --all-bugs` when the tests themselves or `mutate4.py` change;
-  - nothing for documentation-only changes (`*.md`, `lab/`, `docs/`).
+  - **`changed` before every push** (the tests and planted bugs for the files changed since
+    `origin/main`: usually a few minutes). This is the only test step a push waits for;
+  - `full --all-bugs` (about 30 minutes) only **before a GitHub release, or once at the end of a
+    long session**, or when the shared machinery changes (`tests/hwsim.py`, `tests/mutate4.py`, the
+    firmware builds). Start it in the background and **keep working; never sit waiting for it**.
+    If it finds something, fix it in the next push;
+  - adding or changing a test doesn't need every planted bug (more tests can only catch more);
+  - nothing for documentation-only changes (`*.md`, `lab/`, `docs/`);
+  - never restart a run that is already going: let it finish (and `pkill -f` matches your own
+    shell: stop a run by its task, not by pattern).
 - **No Mystery Gift hardware runs for now:** the user's GBA link cable is fitted for the e-Reader
   route and is very tight to remove. Plan hardware tests around the e-Reader cable.
 - **Never write cartridge saves** from our code. Leave the DUO's button, the AT switch and the
