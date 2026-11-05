@@ -64,6 +64,15 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **5 November, evening (lab session 31): a plan is to be agreed before any more coding.** The
+  user asked for a plan first. Results: Kousei on the Trainer Hill; trades into Japanese Emerald
+  and English LeafGreen work, and so do several in one sitting. To fix: Ruby's Record Corner goes
+  black as the room loads (three runs, either role); the DUO never reaches the door if the player
+  blocks it; `duo_rom.py` (no game check, wrong size for a 16 MB cartridge, about 20 hours). The
+  user asked whether the DUO's trainer card should carry more, and **added a battle partner to the
+  to-do list, as part of using every service upstairs in the Pokémon Centre** (ROADMAP Stage 11).
+  Also fixed today: the workshop drew the wrong room from a ROM (the game lists the layouts by
+  room number, not by kind).
 - **Record Mixing and Secret Bases (4 November): steps 1 and 2 done; hardware next.**
   - The user's choices: a proper `.sb3` format in the spirit of `.pk3`/`.wc3` (one base per file,
     the game's own 160 bytes; `docs/SB3_FORMAT.md`), several per sitting, bases read from games in

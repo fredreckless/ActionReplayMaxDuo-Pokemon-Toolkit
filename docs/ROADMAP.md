@@ -193,9 +193,10 @@ hand. **Waiting:** the user's cable stays fitted for the e-Reader route for now.
 3. **The trade distributor: working on hardware with English Ruby (lab session 29)**, both cable
    roles in the simulator (docs/TRADE.md). `duo_events.py trade --pk3 FILE`. Leaving the room
    fixed afterwards in the simulator.
-4. **Emerald and FireRed/LeafGreen: done in the simulator (1 November 2026).** The same protocol;
-   the DUO now sends the progress flags they check, and the tool warns before a trade they'd
-   refuse. Hardware next (the user has European LeafGreen and Japanese Emerald).
+4. **Emerald and FireRed/LeafGreen: working on hardware (lab session 31).** The same protocol;
+   the DUO sends the progress flags they check, and the tool warns before a trade they'd refuse.
+   A Jirachi into Japanese Emerald, the Aura Mew into English LeafGreen, and two of four in one
+   LeafGreen sitting. To fix: the DUO's walk out when the player stands in its way.
 
 ## Stage 10: Secret Bases by Record Mixing (simulator done, 4 November 2026; hardware next)
 
@@ -207,7 +208,31 @@ back to the PC. `python duo_events.py mix --base FILE.sb3 ...`. Details: docs/RE
 - Step 1 (research) and step 2 (`secret_bases.py`, `mix.c`, the Record Corner model, six tests)
   done.
 - Step 3: hardware, English Ruby first (also the Eon Ticket as a Record Mixing gift, with the DUO
-  as player 0), then Emerald.
+  as player 0), then Emerald. **First try (lab session 31): Ruby's screen goes black entering the
+  Record Corner**, in either role; to diagnose.
+
+## Stage 11: Everything upstairs in the Pokémon Centre (asked for on 5 November 2026; to plan first)
+
+The user would like the DUO to be a partner for every service on a Pokémon Centre's upper floor.
+**A plan is to be agreed before any coding.** Where each service stands:
+
+| Service | Games | Where we are |
+|---|---|---|
+| Trade Center | all five | Working on hardware (Stage 9) |
+| Record Corner | Ruby, Sapphire, Emerald | Simulator; Ruby stops at the room on hardware (Stage 10) |
+| **Colosseum: single and double battles** | all five | **New: a battle partner** (the to-do item asked for on 5 November) |
+| Colosseum: multi battle | all five | Needs four players; one DUO on a two-player cable can't fill three places |
+| Union Room, wireless trade/battle/Record Mixing, Berry Crush | Emerald, FireRed/LeafGreen | Wireless Adapter only; would build on the Mystery Gift adapter emulation; later, if wanted |
+| Mystery Gift | Emerald, FireRed/LeafGreen | Working (Stage 1) |
+
+**The battle partner, in outline.** In a Gen 3 link battle the master's GBA runs the battle and
+sends the other GBA a stream of controller commands for its own Pokémon (show this, play that,
+choose an action, choose a move); the other GBA answers each one. With the cable as fitted the
+game is the master, so the DUO plays the follower: it answers every command, and for the choices it
+asks the PC, which picks moves for a team given as files (`.pk3`s, a Secret Base's team, an
+e-Reader trainer). Steps: read pokeruby/pokeemerald's link battle (setup, the controller commands,
+the follower's controller); a hardware probe that only records what the game sends; a model; the
+program; then the PC's choices.
 
 ## Tidying done on 30 October
 
