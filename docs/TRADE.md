@@ -199,7 +199,26 @@ Emerald, no National Pokedex") and warns if the game will refuse the Pokémon. T
 each game's rules; tests cover Emerald (no National Dex), FireRed (the player offering a
 non-Kanto Pokémon) and a Mew without the mark.
 
+## Walking round the player (lab session 31, 5 November 2026)
+
+On LeafGreen the player stood in the DUO's fixed way out; its steps failed, it pressed DOWN and sent
+23 away from the door, and the screen went black. Now both rooms' walks use `room_walk.h`: the DUO
+follows both characters from the keys the games exchange every frame (the same rules as the
+models' rooms), walks a shortest way to its seat or to a door tile around the player (planned
+between frames, giving way to any transfer), presses DOWN only on the door facing down, and waits
+while every way is blocked - the PC says so ("the DUO's way is blocked by your character"). Tests:
+the player on the DUO's nearest door tile, and right below its seat; and in the Record Corner.
+
+**The trainer card** (`duo_events.trade_card`, 5 November): as realistic as the event allows - the
+event trainer's name, ID and gender; the game the event Pokémon came from (Emerald and FireRed/
+LeafGreen draw the card in that game's style); a Pokédex (the Cable Club opens only to a trainer
+with one) counting at least the Pokémon on offer; where the event says nothing, a new save's money
+(3000) and trainer-card profile phrase; no stars, play time or link records; and the party, which
+FireRed/LeafGreen show on the card's back.
+
 ## Still to check on hardware
+
+- The walk round a player in the way, and the trainer card in each game.
 
 - The walk's timing (40 frames after the room's first key, then a step every 20 frames).
 - That nothing else happens between the attendant and the room that needs an answer.

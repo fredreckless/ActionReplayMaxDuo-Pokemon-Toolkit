@@ -64,15 +64,32 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
-- **5 November, evening (lab session 31): a plan is to be agreed before any more coding.** The
-  user asked for a plan first. Results: Kousei on the Trainer Hill; trades into Japanese Emerald
-  and English LeafGreen work, and so do several in one sitting. To fix: Ruby's Record Corner goes
-  black as the room loads (three runs, either role); the DUO never reaches the door if the player
-  blocks it; `duo_rom.py` (no game check, wrong size for a 16 MB cartridge, about 20 hours). The
-  user asked whether the DUO's trainer card should carry more, and **added a battle partner to the
-  to-do list, as part of using every service upstairs in the Pokémon Centre** (ROADMAP Stage 11).
-  Also fixed today: the workshop drew the wrong room from a ROM (the game lists the layouts by
-  room number, not by kind).
+- **5 November, late (after lab session 31): the plan agreed and most of it done; hardware next.**
+  - **The user's choices:** the trainer card as realistic to the event as possible; the battle
+    partner's team is a set of `.pk3` files, with easy, medium and elite levels (elite highly
+    intelligent and strategic; easy not stupidly easy); the ROM reader targets the parts of the
+    game the workshop needs; the workshop gets a Generate button, more help, one placement per pick,
+    and a "save first?" question that clears the room when changing spot.
+  - **Done (simulator; all pushed):** the Record Corner's black screen (the fade-in's "ready"
+    barrier, 0x2FFE, unanswered: docs/RECORD_MIXING.md); walking round the player to the seat and
+    the door (`firmware/programs/room_walk.h`, docs/TRADE.md); the trainer card (`trade_card`);
+    a line when nothing changes for 30 s, a line when the player blocks the DUO, and Ctrl+C now
+    stops a session cleanly and still keeps what was traded; `duo_rom.py` reads only the
+    workshop's parts by pret's addresses (English Ruby revs 0-2, Sapphire rev 0, Emerald) in about
+    two minutes, refuses games without Secret Bases unless `--whole`, and caps Pokémon cartridges at
+    16 MB; the workshop's Generate (six themes, every spot tested), help, mover buttons and spot
+    dialog. The battle partner's design: docs/BATTLE.md (nothing built yet).
+  - **Next on hardware:** Record Mixing with English Ruby again (the room should fade in now), then
+    the Eon Ticket gift as player 0; a trade where the player stands in the way out; the trainer
+    card in Ruby, Emerald and LeafGreen; `python duo_rom.py` with the Ruby cartridge, then the
+    workshop with the file it makes.
+  - **Not yet:** Emerald Record Mixing (the DUO saying "Ruby"); the targeted ROM reader for
+    Japanese and European cartridges (no pret addresses: a GBA-side search would do it, so the
+    user's Japanese Emerald needs `--whole` for now); the battle partner (docs/BATTLE.md, step 1).
+  - **Space:** `mix` is exactly at its limit (11,760 bytes, 0 spare) after the room walk; `trade`
+    has about 500 bytes. Before adding to `mix`, find room (its screen lines, or share more buffers).
+  - The user's Aura Mew trade on LeafGreen (session 31) wasn't kept in `received\`: Ctrl+C skipped
+    the saving then (fixed since).
 - **Record Mixing and Secret Bases (4 November): steps 1 and 2 done; hardware next.**
   - The user's choices: a proper `.sb3` format in the spirit of `.pk3`/`.wc3` (one base per file,
     the game's own 160 bytes; `docs/SB3_FORMAT.md`), several per sitting, bases read from games in

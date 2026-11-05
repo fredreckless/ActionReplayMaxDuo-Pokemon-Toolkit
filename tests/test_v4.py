@@ -1825,12 +1825,13 @@ TRADE_EVENT = None
 
 
 def trade_run(master=True, accept=True, event=None, game_species=(25, 151, 280), pick=1, seconds=240, leaves_first=False,
-              game_kind="ruby", national_dex=True, events=None, picks=None):
+              game_kind="ruby", national_dex=True, events=None, picks=None, in_the_way=None):
     """The DUO's trade program against a simulated Ruby in the Trade Center (docs/TRADE.md)."""
     event = event or test_pk3(species=409, pid=0x0BADCAFE, otid=0x00004E44)
     party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
     game = TG.RubyTrade(master=master, party=party, pick=pick, accept=accept, leaves_first=leaves_first,
-                        game=game_kind, national_dex=national_dex, trades=len(events) if events else 1, picks=picks)
+                        game=game_kind, national_dex=national_dex, trades=len(events) if events else 1, picks=picks,
+                        in_the_way=in_the_way)
     hw, duo = run42()
     hw.attach_mp_game(game.run(), game_master=game.master)
     path = event_file(event, "385 - JIRACHI - TEST.pk3")
@@ -1858,7 +1859,7 @@ def _():
     assert res["received"] == W.pk3_party_form(event), "the game didn't receive the event Pokemon exactly"
     assert res["saved"] and not res["national_dex_enabled"] and res["partner_seat"] == (7, 5), res
     assert len(res["partner_party"]) == 1 and res["partner_pick"] == 0
-    assert report["traded"] and report["bad_checksums"] == 0 and report["barriers"] == 3, report
+    assert report["traded"] and report["bad_checksums"] == 0 and report["barriers"] == 4, report   # the room's fade-in, then the save's three
     assert kept_files(path) == [res["gave"]], "the .pk3 kept isn't what the game gave"
     assert W.parse_pk3(res["gave"])[0]["name"] == "MEW"
     for line in ("the DUO is player 1", "walking to the table", "swapping parties", "traded and saved", "You gave: #151 MEW", "Kept on this PC",
@@ -1867,6 +1868,13 @@ def _():
     # its trainer card and link player: the event's own trainer (TESTER, ID 19524, male), not blank
     card = res["partner_card"]
     assert card[0x30:0x38] == gen3("TESTER").ljust(8, b"\xff")[:8] and card[0x0E:0x10] == (0x4E44).to_bytes(2, "little"), card.hex()
+    # ... as realistic as the event allows: a Pokedex, a new save's money and profile phrase, the
+    # event Pokemon's own game (the test file's: Ruby), the party for FireRed/LeafGreen's card back
+    assert card[0x02] == 1 and struct.unpack_from("<H", card, 0x0C)[0] == 1, card.hex()
+    assert struct.unpack_from("<I", card, 0x24)[0] == 3000, card.hex()
+    assert struct.unpack_from("<4H", card, 0x28) == (W.EC_I_AM, W.EC_A, W.EC_POKEMON, W.EC_GREAT), card.hex()
+    assert card[0x38] == 2, card.hex()                               # Ruby: the test file's own game
+    assert struct.unpack_from("<H", card, 0x54)[0] == W.parse_pk3(event)[0]["species"], card.hex()
     assert card[0] == 0 and card[0x38] == 2 and game.link_players[1]["name"][:7] == gen3("TESTER"), game.link_players[1]
     # the DUO's own screen: what it plays and where it has got to, shown only between link sessions
     for line in ("Playing: trade partner", "Offering JIRACHI", "Seated at the table", "Traded and saved", "Done: the link is closed"):
@@ -2169,13 +2177,118 @@ def _():
     assert "mix --base" in W.wrong_route("trade", "base.sb3")
 
 
+def secret_base_rom(code=b"AXVE", revision=1, seed=5):
+    """A made-up 16 MB cartridge with everything the Secret Base Workshop looks for, at the addresses
+    pret's notes give for English Ruby (duo_rom.WORKSHOP_PARTS): the 24 room layouts in the layout
+    table, their maps and tilesets (one compressed), the decoration table, the object pictures and
+    palettes. Random tiles and pictures: nothing here is a real game's data."""
+    import duo_rom
+    rng = random.Random(seed)
+    where = duo_rom.WORKSHOP_PARTS[f"{code.decode()}{revision}"]
+    g = bytearray(hwsim.make_game_rom(code=code, size=0x1000, tag_at=0x800, seed=seed, revision=revision))
+    g += bytes(duo_rom.GAME_ROM_SIZE - len(g))
+    free = [0x08600000]
+    def put(addr, data):
+        g[addr - 0x08000000:addr - 0x08000000 + len(data)] = data
+        return addr
+    def new(data):
+        a = free[0]; free[0] = (a + len(data) + 3) & ~3
+        return put(a, data)
+    def stored_lz(raw):                                 # LZ77 with literals only: a real, valid stream
+        out = bytearray([0x10]) + len(raw).to_bytes(3, "little")
+        for i in range(0, len(raw), 8):
+            out += b"\0" + raw[i:i + 8]
+        return bytes(out)
+    def tileset(compressed, first_pal):
+        tiles = bytes(rng.getrandbits(8) for _ in range(512 * 32))
+        pals = bytes(rng.getrandbits(8) for _ in range(16 * 32))
+        metas = b"".join(struct.pack("<H", rng.randrange(1024) | rng.randrange(first_pal, first_pal + 6) << 12)
+                         for _ in range(512 * 8))
+        t = new(stored_lz(tiles) if compressed else tiles)
+        return new(struct.pack("<BBHIIIII", compressed, 0, 0, t, new(pals), new(metas), 0, 0))
+    primary, seconds = tileset(1, 0), [tileset(0, 6) for _ in range(6)]
+    for k, (w, h) in enumerate(duo_rom.ROOM_SIZES):
+        blocks = b"".join(struct.pack("<H", rng.choice([rng.randrange(512), 512 + rng.randrange(512)])) for _ in range(w * h))
+        put(where["rooms"][k], struct.pack("<IIIIII", w, h, new(bytes(8)), new(blocks), primary, seconds[k % 6]))
+    put(where["layouts"], struct.pack("<6I", *[0] * 6) + struct.pack("<24I", *where["rooms"]))
+    gfx_at, gfx_size = where["gfx"]
+    pal_at, pal_size = where["pals"]
+    for i in range(pal_size // 8):
+        put(pal_at + 8 * i, struct.pack("<IHH", new(bytes(rng.getrandbits(8) for _ in range(32))), 0x1100 + i, 0))
+    for i in range(gfx_size // 4):
+        side = rng.choice((16, 32))
+        frame = new(struct.pack("<II", new(bytes(rng.getrandbits(8) for _ in range(side * side // 2))), side * side // 2))
+        info = struct.pack("<HHHHHH", 0xFFFF, 0x1100 + i % (pal_size // 8), 0x1100, 0, side, side) + bytes(16) + struct.pack("<II", frame, 0)
+        put(gfx_at + 4 * i, struct.pack("<I", new(info)))
+    for k in range(121):
+        first = rng.randrange(gfx_size // 4) if k >= 76 else rng.randrange(512)
+        tiles = new(struct.pack("<9H", first, *[rng.randrange(512) for _ in range(8)]))
+        rec = bytes([k]) + bytes(16) + bytes([rng.randrange(5), rng.randrange(10), rng.randrange(8)]) + bytes(8) + struct.pack("<I", tiles)
+        put(where["decorations"] + 32 * k, rec)
+    return bytes(g)
+
+
+@test("ROM copy for the workshop (duo_rom.py): only the parts the Secret Base Workshop draws with, found by pret's addresses and checked; the workshop draws every room, decoration and doll from them exactly as from the whole ROM")
+def _():
+    import duo_rom
+    g = secret_base_rom()
+    hw, duo = device(game=g)
+    out = tempfile.mkdtemp()
+    (path, data, info), text = quiet(duo_rom.dump, duo, types.SimpleNamespace(out=out, map=None, whole=False))
+    hw.stop(); clean(hw)
+    assert path.endswith("rev 1 - workshop parts.gba") and len(data) == len(g) and hw.save_writes == 0, path
+    got = sum(1 for i in range(0, len(data), 4096) if any(data[i:i + 4096]))
+    assert got < 400, f"read {got} 4 KB blocks: more than the workshop needs"
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise Skip("needs Python's playwright to compare the workshop's pictures")
+    full = os.path.join(out, "whole.gba")
+    open(full, "wb").write(g)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            pg = browser.new_page()
+            pg.route("**/fonts.googleapis.com/**", lambda r: r.abort())
+            pg.goto("file://" + os.path.join(paths.ROOT, "secret_base_workshop.html"))
+            pg.wait_for_function("typeof T !== 'undefined' && T && typeof S !== 'undefined' && S")
+            draw = """async (b64) => {
+                const bin = atob(b64), rom = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) rom[i] = bin.charCodeAt(i);
+                const r = readRom(rom), out = [];
+                for (const id of [1, 61, 103, 162, 183, 233]) out.push(r.picture(id, [{d: 3, x: 1, y: 3}, {d: 77, x: 2, y: 2}, {d: 66, x: 2, y: 0}]));
+                for (let d = 1; d <= 120; d++) out.push(r.preview(d));
+                return out; }"""
+            import base64
+            a = pg.evaluate(draw, base64.b64encode(g).decode())
+            b = pg.evaluate(draw, base64.b64encode(data).decode())
+        finally:
+            browser.close()
+    assert a == b, [k for k, (x, y) in enumerate(zip(a, b)) if x != y][:10]
+
+
+@test("ROM copy (duo_rom.py): a game without Secret Bases (LeafGreen) is turned away before anything is read, unless --whole")
+def _():
+    import duo_rom
+    g = hwsim.make_game_rom(code=b"BPGE", title=b"POKEMON LEAF", size=0x1000, tag_at=0x800, rom_size=0x200000, seed=3)
+    hw, duo = device(game=g)
+    try:
+        quiet(duo_rom.dump, duo, types.SimpleNamespace(out=tempfile.mkdtemp(), map=None, whole=False))
+    except M.DuoError as e:
+        assert "no Secret Bases" in str(e) and "--whole" in str(e), e
+    else:
+        raise AssertionError("LeafGreen wasn't turned away")
+    finally:
+        hw.stop(); clean(hw)
+
+
 @test("ROM copy (duo_rom.py): the whole cartridge ROM, 64 KB at a time, each checked against the GBA's own CRC; only the DUO-covered header bytes differ; the save is never touched")
 def _():
     import duo_rom
     g = hwsim.make_game_rom(code=b"AXVE", tag=b"FLASH1M_V103", size=0x180000, rom_size=0x200000, seed=7)
     hw, duo = device(game=g)
     out = tempfile.mkdtemp()
-    (path, data, info), text = quiet(duo_rom.dump, duo, types.SimpleNamespace(out=out, map=None))
+    (path, data, info), text = quiet(duo_rom.dump, duo, types.SimpleNamespace(out=out, map=None, whole=True))
     hw.stop(); clean(hw)
     assert len(data) == len(g) and open(path, "rb").read() == data and path.endswith("(AXVE) rev 0.gba"), (path, len(data))
     assert data[:0x20] == g[:0x20] and data[0xA0:] == g[0xA0:], "the ROM copy differs outside the DUO-covered header"
@@ -2190,6 +2303,57 @@ def _():
     places = " ".join(re.search(r'_LOCATIONS = """(.*?)"""', src, re.S).group(1).split())
     assert f'const TABLES_B64 = "{tables}";' in page, "the workshop's tables differ from secret_bases.py's"
     assert f'const LOCATIONS_TXT = "{places}";' in page, "the workshop's locations differ from secret_bases.py's"
+
+
+@test("Secret Base Workshop: Generate makes a valid base in every one of the 75 spots (no rule broken, the door reaches the owner and the PC, at most 16, positions 0-15), and changing spot asks first and starts the room empty")
+def _():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise Skip("needs Python's playwright to run the page")
+    page_path = os.path.join(paths.ROOT, "secret_base_workshop.html")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            pg = browser.new_page()
+            errors = []
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.route("**/fonts.googleapis.com/**", lambda r: r.abort())
+            pg.goto("file://" + page_path)
+            pg.wait_for_function("typeof T !== 'undefined' && T && typeof S !== 'undefined' && S")
+            bad = pg.evaluate("""() => {
+                const out = [];
+                for (const id of T.locations.keys()) for (let s = 1; s <= 2; s++) {
+                    const g = generateBase(id, id * 977 + s * 31337), res = checkDecorations(id, g.list);
+                    if (res.why.some(Boolean) || res.bag.length || g.list.length > 16 || g.list.length < 4
+                        || !walkable(id, g.list) || g.list.some(q => q.x > 15 || q.y > 15)) out.push([id, s, res.why, g.list.length]);
+                }
+                return out; }""")
+            assert not bad, bad[:5]
+            pg.click("#newBtn"); pg.click("#genBtn")
+            assert pg.evaluate("checkAll().bad.length === 0 && checkAll().warn.length === 0"), pg.evaluate("checkAll()")
+            before = pg.evaluate("S.location")
+            pg.select_option("#spot", index=2)
+            assert pg.evaluate("$('switchDlg').open") and pg.evaluate("S.location") == before, "changing spot didn't ask first"
+            pg.click("#switchGo")
+            assert pg.evaluate("S.location") != before and pg.evaluate("S.decorations.length") == 0
+            pg.click("#cats button[data-cat='CHAIR']"); pg.click("#palette button >> nth=0")
+            pg.click("#board .cell[data-x='3'][data-y='3']"); pg.click("#board .cell[data-x='5'][data-y='3']")
+            assert pg.evaluate("S.decorations.length") == 1 and pg.evaluate("pick") is None, "a pick placed more than once"
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
+@test("Record Mixing: back in the room, the player stands in the DUO's way to the door (lab session 31) - the DUO goes round, asks to leave from a door tile, and both games warp out")
+def _():
+    # the game is player 0 (master), seated at (6,6): down, right x3, down to (9,8), in the middle of
+    # the DUO's way from (13,6) to the door (8-11,9)
+    hw, game, report = mix_run(master=True, bases=[test_base()], in_the_way=[18, 21, 21, 21, 18])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    r = game.result
+    assert report["mixed"] and r["left_room"] and r["partner_left_by_door"] and 1 in game.room.asked_to_leave, r
+    assert r["positions_at_exit"][0] == (9, 8) and r["positions_at_exit"][1][1] == 9, r["positions_at_exit"]
 
 
 @test("trade into Emerald without the National Pokedex: the DUO's link player says it has one, so the player may offer a non-Hoenn Pokemon; the tool names the game; Jirachi (in the Hoenn Pokedex) is received")
@@ -2253,8 +2417,29 @@ def _():
 def _():
     hw, game, report, event, path = trade_run(master=True, leaves_first=True)
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
-    assert report["traded"] and game.result["left_room"] and not game.result["partner_left_by_door"], game.result
+    assert report["traded"] and game.result["left_room"], game.result
     assert 0 <= game.result["partner_left_after"] <= 5, game.result     # it followed at once
+
+
+@test("trade: back in the room, the player stands on the DUO's nearest door tile (lab session 31) - the DUO goes round to the other door tile, asks to leave there, and both games warp out")
+def _():
+    # the game is player 0 (master), seated at (4,5): down, down, right, right, down to (6,8),
+    # the door tile player 1 would use; the DUO (player 1, at (7,5)) must take (5,8)
+    hw, game, report, event, path = trade_run(master=True, in_the_way=[18, 18, 21, 21, 18])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    r = game.result
+    assert report["traded"] and r["left_room"] and r["partner_left_by_door"], r
+    assert r["positions_at_exit"] == {0: (6, 8), 1: (5, 8)}, r["positions_at_exit"]
+    assert 1 in game.room.asked_to_leave, "the DUO left without the exit prompt on the door"
+
+
+@test("trade: back in the room, the player stands right below the DUO's seat - the DUO walks round the other way and still leaves by the door")
+def _():
+    # game player 0 from (4,5): down, down, right x3, up to (7,6), just below the DUO's seat (7,5)
+    hw, game, report, event, path = trade_run(master=True, in_the_way=[18, 18, 21, 21, 21, 19])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    r = game.result
+    assert report["traded"] and r["left_room"] and r["partner_left_by_door"] and 1 in game.room.asked_to_leave, r
 
 
 @test("trade, the DUO as master: it asks for the blocks itself (spaced so the game has filled each), and the game still receives the event Pokemon and saves")

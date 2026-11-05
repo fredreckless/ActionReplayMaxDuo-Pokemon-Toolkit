@@ -5,7 +5,8 @@
  *
  * The link engine (transfers, roles, master pacing, the PC) is trade.c's, unchanged. On top:
  *   - the Cable Club (0x3311, cable_club.c sub_808350C): link players, each player's trainer card
- *     (0xCCCC 2), and the same link carries on into the Record Corner: once the game sends room
+ *     (0xCCCC 2), and the same link carries on into the Record Corner (after the warp, the fade-in
+ *     waits for everyone's "ready", 0x2FFE, which we answer): once the game sends room
  *     keys (0xCAFE), we send one a frame too, walking to a seat on our side of the table - player
  *     0: up, up, left, left, up to (6,6); player 1: up, up, right x4, up to (13,6) - then key 22
  *     ("seated");
@@ -111,6 +112,7 @@ static u8 game_player[60];
 static u32 room_keys_seen, walk_frame, game_ready, game_quiet, cafe_stopped;
 static u32 rounds_asked, game_blocks, our_blocks, mirror_wait, copy_pending, round_timer, start_timer;
 static u32 game_exiting, sent_exit, close_pending, close_at;
+static u32 barriers;                       /* "ready" barriers answered (0x2FFE) */
 static u8 chunk[CHUNK];                   /* a later round's chunk: the game's, handed back */
 
 /* ------------------------------------------------------------------ the link layer */
@@ -122,12 +124,12 @@ static u32 qhead, qcount;
 static u16 loaded;
 
 static u32 rx_size, rx_have, rx_on;       /* the game's block */
-static u8 rx_buf[224];
+static u8 rx_buf[CHUNK];                   /* (the Record Corner's biggest block)*/
 static u32 player_pending;
 
 static const u8 *tx_src;                  /* our outgoing block */
 static u32 tx_len, tx_off, tx_on, tx_header, tx_kind;
-static u8 our_player[60], blank[100];
+static u8 our_player[60];
 
 static void build_our_player(void)
 {
@@ -157,48 +159,66 @@ static void send_block(const u8 *src, u32 len, u32 kind)
     tx_src = src; tx_len = len; tx_off = 0; tx_header = 0; tx_on = 1; tx_kind = kind;
 }
 
+#define RW_DIST chunk                      /* (the mixing buffer: idle whenever anyone walks) */
+#include "room_walk.h"
+
+/* The Record Corner (layout RecordCorner, 20 x 10) as room_walk.h sees it: the table in the
+ * middle, our seats at (6,6) for player 0 and (13,6) for player 1, the door at (8,9)-(11,9). */
+static const u16 corner_room[10] = { 0x0, 0x0, 0xFFF, 0xFFF, 0xE07, 0xF0F, 0xE07, 0xFFF, 0xFFF, 0xF0 };   /* bit (x - 4): open floor */
+static u32 sat, sat_at, asked_at;
+
 static u16 room_key(void)                 /* our key for this frame in the Record Corner */
 {
-    /* after the room has settled: a step, then nothing until it's over (20 frames); then
-     * "seated" (22), once the game has seen us step onto the seat */
-    static const u8 walk0[5] = { 19, 19, 20, 20, 19 };
-    static const u8 walk1[7] = { 19, 19, 21, 21, 21, 21, 19 };
-    u32 steps = is_master ? 5 : 7;
+    /* after the room has settled, a shortest way to our seat around the player (a step at a time,
+     * each once the last has finished; waiting while the way is blocked); on it, "seated" (22) */
+    u32 me = is_master ? 0 : 1, seat_x = is_master ? 6 : 13;
     u32 f = walk_frame++;
-    if (f < 40) return 17;
-    f -= 40;
-    if (f < steps * 20) {
-        if (f % 20) return 17;
-        return is_master ? walk0[f / 20] : walk1[f / 20];
+    if (f == 0) { rw_start(corner_room, 4, 20, 10, 9, 8, 11, 8, 9); sat = 0; }
+    if (sat) {
+        if (f == sat_at + 10) { state = ST_SEATED; return 22; }
+        return 17;
     }
-    if (f == steps * 20 + 10) { state = ST_SEATED; return 22; }
-    return 17;
+    if (f < 40 || !rw_free(me)) return 17;
+    if (rw_at(me, seat_x, 6)) { sat = 1; sat_at = f; return 17; }
+    u16 k;
+    if (!rw_take(seat_x, 6, &k)) return 17;
+    rw_blocked_now = !k;
+    if (!k) return 17;
+    rw_await = 1;
+    return k;
 }
 
 static u16 exit_key(void)                 /* back in the room after mixing: leave it */
 {
-    /* we are still "seated" (0x82): stand up (26) once the game's player is free to move, walk
-     * back to the door (player 1 from (13,6): down, left x4, down, down; player 0 from (6,6):
-     * down, right x2, down, down), press down on it (the exit prompt), then 23. If the player
-     * leaves first, we follow at once. */
-    static const u8 out0[5] = { 18, 21, 21, 18, 18 };
-    static const u8 out1[7] = { 18, 20, 20, 20, 20, 18, 18 };
-    u32 steps = is_master ? 5 : 7;
+    /* we are still "seated" (0x82): stand up (26) once the game's player is free to move, then a
+     * shortest way to a door tile around the player (waiting while every way is blocked), DOWN
+     * there facing down (the exit prompt), then 23. If the player leaves first, we follow at once. */
+    u32 me = is_master ? 0 : 1;
     u32 f = walk_frame++;
+    if (f == 0) { rw_settle(); asked_at = 0; }
     if (sent_exit) return 17;
     if (game_exiting) { sent_exit = 1; state = ST_EXITING; return 23; }
     if (f < 90) return 17;
     if (f == 90) return 26;
-    f -= 110;
-    if ((int)f < 0) return 17;
-    if (f < steps * 20) {
-        if (f % 20) return 17;
-        state = ST_WALKING_OUT;
-        return is_master ? out0[f / 20] : out1[f / 20];
+    if (f < 110) return 17;
+    if (asked_at) {
+        if (f >= asked_at + 30) { sent_exit = 1; state = ST_EXITING; return 23; }
+        return 17;
     }
-    if (f == steps * 20 + 10) return 18;
-    if (f == steps * 20 + 40) { sent_exit = 1; state = ST_EXITING; return 23; }
-    return 17;
+    if (!rw_free(me)) return 17;
+    state = ST_WALKING_OUT;
+    if (rw_on_door(me)) {
+        rw_blocked_now = 0; rw_await = 1;
+        if (rw[me].facing != RW_KEY_DOWN) return RW_KEY_DOWN;   /* turn to the way out (a wall: no step) */
+        asked_at = f;
+        return RW_KEY_DOWN;                                     /* "Will the link be terminated?" */
+    }
+    u16 k;
+    if (!rw_take(-1, -1, &k)) return 17;
+    rw_blocked_now = !k;
+    if (!k) return 17;
+    rw_await = 1;
+    return k;
 }
 
 static void next_command(void)
@@ -219,7 +239,7 @@ static void next_command(void)
         current[0] = 0x8888;
         for (u32 j = 0; j < 7; j++) {
             u32 at = tx_off + 2 * j;
-            u32 lo = at < tx_len ? tx_src[at] : 0, hi = at + 1 < tx_len ? tx_src[at + 1] : 0;
+            u32 lo = tx_src && at < tx_len ? tx_src[at] : 0, hi = tx_src && at + 1 < tx_len ? tx_src[at + 1] : 0;
             current[1 + j] = lo | hi << 8;
         }
         tx_off += 14;
@@ -236,14 +256,20 @@ static void next_command(void)
     }
 }
 
-static u8 card[100];
+#define card chunk                         /* (only at the attendant's desk, before anything else uses it) */
+static const u16 profile[4] = { 0xA29, 0x1020, 0x20E, 0x1240 };     /* a new Ruby's: I AM A POKeMON GREAT */
 static void build_card(void)              /* the trainer card the game shows for us */
 {
     /* struct TrainerCard (pokeruby trainer_card.h): the first base's owner's gender, ID and name;
-     * no stars, no play time, no money, no Pokedex */
-    zero(card, sizeof card);
+     * a Pokedex (the Cable Club opens only to a trainer with one); and what a new save holds where
+     * the base says nothing: its money (3000) and profile phrase; no stars, play time or records.
+     * (Room is short here: the trade's card, made on the PC, says more.) */
+    zero(card, 100);
     card[0x00] = OUR_GENDER;
+    card[0x02] = 1;
     card[0x0E] = OUR_TID[0]; card[0x0F] = OUR_TID[1];
+    card[0x24] = 3000 & 0xFF; card[0x25] = 3000 >> 8;
+    memcpy(card + 0x28, profile, 8);
     memcpy(card + 0x30, OUR_NAME, 8);
     card[0x38] = game_player[16];
 }
@@ -285,7 +311,7 @@ static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
         build_card();
         send_block(card, 100, 4);
     } else {
-        send_block(blank, n == 4 ? 40 : n == 2 ? 100 : n == 3 ? 220 : 200, 4);
+        send_block(0, n == 4 ? 40 : n == 3 ? 220 : 200, 4);     /* (zeros: a request we don't expect) */
     }
 }
 
@@ -318,6 +344,8 @@ static void process_command(void)
 {
     u32 game = is_master ? 1 : 0;
     u16 c = frame[0][game];
+    if ((game_lp_type == LT_MIX && room_keys_seen && !cafe_stopped) || game_lp_type == LT_AFTER)
+        rw_apply(frame[0][0], frame[1][0], frame[0][1], frame[1][1], is_master ? 0 : 1);   /* where everyone is */
     if (c == 0x2222 || frame[0][is_master ? 0 : 1] == 0x2222)
         player_pending = 1;
     if (frame[0][is_master ? 0 : 1] == 0xCCCC)                  /* our own request, as master */
@@ -338,6 +366,13 @@ static void process_command(void)
         break;
     case 0xCCCC:
         answer_request(frame[1][game]);
+        break;
+    case 0x2FFE:
+        /* "ready" (link.c sub_80084A4): after the warp into the Record Corner the game's fade-in
+         * (field_fadetransition.c sub_8080A5C) keeps the screen black until every player has sent
+         * it. Lab session 31: without this answer Ruby stayed black, the music playing. */
+        queue(0x2FFE, 0, 0);
+        barriers++;
         break;
     case 0xCAFE:
         room_keys_seen = 1;
@@ -504,7 +539,7 @@ static int pc_service(api_t *api)
     }
     switch (arg & 0xFF) {
     case 0: v = state | is_master << 5 | (sessions & 3) << 6 | (transfers & 0xFFFFFF) << 8; break;
-    case 1: v = bad_checksums; break;
+    case 1: v = bad_checksums | barriers << 16; break;
     case 2: v = game_lp_type | game_lp_lang << 16; break;
     case 3: v = rounds_asked | game_blocks << 8 | our_blocks << 16 | game_ready << 24; break;
     case 4: {                                                    /* the bases area, a word at a time */
@@ -519,6 +554,7 @@ static int pc_service(api_t *api)
         break;
     }
     case 8: v = max_gap; break;
+    case 10: v = rw_blocked_now; break;                        /* the way to the seat or door is blocked */
     case 9: v = game_player[16 + 0x10]; break;                  /* the game's player's gender */
     case 20: put_at = 0; blob_ready = 0; v = sizeof blob_words; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
@@ -575,6 +611,8 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))
             pc_service(api);
+        if (rw_need && send_idx == 0 && recv_idx == 0 && !in_flight)
+            rw_plan_run(is_master ? 0 : 1);       /* (between two frames' cycles; it gives way to transfers) */
         /* the end: done once our own 0x5FFF has gone out and the game has had time to close */
         if (close_pending && !qcount && !tx_on && state != ST_DONE) {
             if (!close_at) close_at = now() | 1;

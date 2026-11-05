@@ -98,7 +98,7 @@ class Room:
         self.on_seat_already = set(w for w in (0, 1) if self.pos[w] in SEATS)
 
     def blocked(self, who, x, y):
-        if ROOM[y][x] == "#":
+        if not (0 <= y < len(ROOM) and 0 <= x < len(ROOM[0])) or ROOM[y][x] == "#":
             return True
         other = 1 - who
         return (x, y) in (self.pos[other], self.prev[other])
@@ -143,7 +143,7 @@ class Room:
 class RubyTrade:
     def __init__(self, master=True, language=LANG_ENGLISH, party=None, pick=0, accept=True, version=2,
                  pace=300, frame_blocks=25 * 228, lp_field_2=0x8000, leaves_first=False, game="ruby",
-                 national_dex=True, trades=1, picks=None):
+                 national_dex=True, trades=1, picks=None, in_the_way=None):
         """party: the game's party, 100-byte Pokemon in the game's form (1-6); pick: which it
         trades; accept: whether the player says yes. lp_field_2: this game's own link-player
         field (0x8000 when it has the National Dex; trade.c turns the partner's National Dex on
@@ -163,6 +163,9 @@ class RubyTrade:
         self.pace, self.frame_blocks = pace, frame_blocks
         self.lp_field_2 = lp_field_2
         self.leaves_first = leaves_first              # the player walks out first, not the partner
+        # in_the_way: back in the room, the player walks these steps and then stands there (lab
+        # session 31: the player stood in the DUO's way out), leaving only once the partner has
+        self.in_the_way = list(in_the_way or [])
         self.room = None
         self.my_id = 0 if master else 1
         self.other = 1 - self.my_id
@@ -277,6 +280,10 @@ class RubyTrade:
         s.stage = "room: warping in"
         for _ in range(90):                           # the warp and the room's map load
             yield
+        # the fade-in after a cable-club warp (field_fadetransition.c sub_8080A5C): the screen stays
+        # black, music playing, until every player has sent "ready" (0x2FFE, link.c sub_80084A4)
+        s.stage = s.stage.replace("warping in", "the room's fade-in: waiting for every player's ready (0x2FFE)")
+        yield from s.barrier()
         room = self.room = Room()
         mine = list(WALK_TO_SEAT[self.my_id])
         key_plan, wait = [], 0
@@ -492,7 +499,7 @@ class RubyTrade:
             yield
         room = self.room
         room.back_from_trade()
-        mine = list(WALK_TO_DOOR[self.my_id]) if self.leaves_first else []
+        mine = list(WALK_TO_DOOR[self.my_id]) if self.leaves_first else list(self.in_the_way)
         left_at = {}
         wait, told, exit_at = 0, False, None            # (the player gets up straight away)
         s.stage = "back in the room"
@@ -502,12 +509,12 @@ class RubyTrade:
                 exit_at = frame + 40                  # the message box, then 23 (sub_805559C)
             if exit_at is not None and frame == exit_at:
                 key = KEY_EXIT
-            elif exit_at is None and self.leaves_first:
+            elif exit_at is None and (self.leaves_first or self.in_the_way):
                 if wait:
                     wait -= 1
                 elif mine:
                     key, wait = mine.pop(0), STEP_FRAMES + 2
-                elif room.status[self.my_id] == 0x80 and not told:
+                elif self.leaves_first and room.status[self.my_id] == 0x80 and not told:
                     key, told = KEY_DOWN, True        # on the door: down, then YES
             s.link.send(0xCAFE, key)
             keys = s.keys_this_frame()
@@ -520,6 +527,7 @@ class RubyTrade:
                 self.result["partner_left_after"] = left_at[self.other] - left_at.get(self.my_id, left_at[self.other])
                 self.result["left_room"] = True
                 self.result["partner_left_by_door"] = room.pos[self.other] in DOOR
+                self.result["positions_at_exit"] = dict(room.pos)
                 self.log.append(("left the room", frame))
                 s.stage = "leaving: closing the link"
                 s.close()

@@ -227,7 +227,9 @@ def run(kind, name):
 
 
 TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
-    "trade: player 1 walks left at the table, away from its seat": ("walk1[4] = { 19, 19, 21, 19 }", "walk1[4] = { 19, 19, 20, 19 }", "trade, the game as master"),
+    "trade: player 1 heads for player 0's seat": ("seat_x = is_master ? 4 : 7;", "seat_x = is_master ? 4 : 4;", "trade, the game as master"),
+    "trade: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (1) {", "the player stands on the DUO's nearest door tile"),
+    "trade: never waits for a step to finish before the next": ("    if (!rw_free(me)) return 17;\n    state = ST_WALKING_OUT;", "    state = ST_WALKING_OUT;", "the player stands right below the DUO's seat"),
     "trade: our link player turns the game's National Dex on": ("lp[0] = game_player[16]; lp[1] = game_player[17];", "lp[0] = game_player[16]; lp[1] = game_player[17]; lp[3] = 0x80;", "trade, the game as master"),
     "trade: every block request answered with the first two Pokemon": ("u32 k = requests_answered < 3 ? requests_answered : 2;", "u32 k = 0;", "trade, the game as master"),
     "trade: the save's ready barriers never answered": ('queue(0x2FFE, 0, 0);                                     /* "ready": we are */', ";", "trade, the game as master"),
@@ -245,7 +247,8 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
 }
 
 MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
-    "mix: player 1 walks left at the table, away from its seat": ("walk1[7] = { 19, 19, 21, 21, 21, 21, 19 }", "walk1[7] = { 19, 19, 20, 20, 20, 20, 19 }", "Record Mixing, the game as master"),
+    "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13;", "seat_x = is_master ? 6 : 6;", "Record Mixing, the game as master"),
+    "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
     "mix: the game's own sections not handed back": ("    memcpy(chunk, rx_buf, CHUNK);", "    zero(chunk, CHUNK);", "Record Mixing, the game as master"),
     "mix: the game's Battle Tower record handed back too": ("        if (at >= BT_START && at < GIFT_AT) chunk[i] = 0;     /* no Battle Tower record */\n        else if", "        if", "Record Mixing, the game as master"),
@@ -257,6 +260,7 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "mix: never follows the player out of the room": ("    if (game_exiting) { sent_exit = 1;", "    if (0) { sent_exit = 1;", "Record Mixing, the gift as player 1"),
     "mix: screen lines shown in the middle of a link session": ("if (shown == state || (linked && state != ST_DONE)) return;", "if (shown == state) return;", "Record Mixing, the game as master"),
     "mix: later rounds sent without waiting for the game's chunk": ("        else mirror_wait = 1;", "        else send_mirror(r);", "Record Mixing, the game as master"),
+    "mix: the room's \"ready\" (0x2FFE) never answered - the game stays black (lab session 31)": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Record Mixing, the game as master"),
 }
 
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,

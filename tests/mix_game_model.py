@@ -250,12 +250,14 @@ def mix_bases(own, records, my_id, players, player, has_secret_power=True):
 
 class RubyRecordCorner(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, bases=None, player=None, tail=None, gift=0,
-                 secret_power=True, leaves_first=False, has_items=(), pace=300, frame_blocks=25 * 228, version=2):
+                 secret_power=True, leaves_first=False, has_items=(), pace=300, frame_blocks=25 * 228, version=2,
+                 in_the_way=None):
         """bases: the game's own 20 Secret Bases (160 bytes each); player: its (gender, trainer ID
         bytes, name bytes); tail: the rest of its record (0x5B0 bytes: TV shows to the filler);
         gift: the Record Mixing gift it holds (it gives it only as player 0)."""
         super().__init__(master=master, language=language, party=[bytes(100)], pace=pace,
-                         frame_blocks=frame_blocks, version=version, leaves_first=leaves_first)
+                         frame_blocks=frame_blocks, version=version, leaves_first=leaves_first,
+                         in_the_way=in_the_way)
         self.bases = [bytearray(b) for b in (bases or [bytes(BASE_SIZE)] * BASES)]
         assert len(self.bases) == BASES and all(len(b) == BASE_SIZE for b in self.bases)
         self.player = player or (0, b"\x01\x02\x03\x04", b"\xbb\xbc\xbd\xff\xff\xff\xff")
@@ -305,6 +307,10 @@ class RubyRecordCorner(RubyTrade):
         s.stage = "Record Corner: warping in"
         for _ in range(90):
             yield
+        # the fade-in after a cable-club warp (field_fadetransition.c sub_8080A5C): the screen stays
+        # black, music playing, until every player has sent "ready" (0x2FFE, link.c sub_80084A4)
+        s.stage = s.stage.replace("warping in", "the room's fade-in: waiting for every player's ready (0x2FFE)")
+        yield from s.barrier()
         room = self.room = CornerRoom()
         mine = list(WALK_TO_SEAT[self.my_id])
         wait, sent_seated = 0, False
@@ -391,7 +397,7 @@ class RubyRecordCorner(RubyTrade):
         room = self.room
         # Main state 4: "Mixing complete" for 60 frames, then the script; a gift's message waits for A
         busy = 60 + (120 if self.result["gift_received"] else 0)
-        mine = list(WALK_TO_DOOR[self.my_id]) if self.leaves_first else []
+        mine = list(WALK_TO_DOOR[self.my_id]) if self.leaves_first else list(self.in_the_way)
         left_at, wait, told, exit_at, freed = {}, 0, False, None, False
         s.stage = "back in the room"
         for frame in range(5000):
@@ -403,12 +409,12 @@ class RubyRecordCorner(RubyTrade):
                     exit_at = frame + 40
                 if exit_at is not None and frame == exit_at:
                     key = KEY_EXIT
-                elif exit_at is None and self.leaves_first:
+                elif exit_at is None and (self.leaves_first or self.in_the_way):
                     if wait:
                         wait -= 1
                     elif mine:
                         key, wait = mine.pop(0), STEP_FRAMES + 2
-                    elif room.status[self.my_id] == 0x80 and not told:
+                    elif self.leaves_first and room.status[self.my_id] == 0x80 and not told:
                         key, told = KEY_DOWN, True
             s.link.send(0xCAFE, key)
             keys = s.keys_this_frame()
@@ -418,6 +424,7 @@ class RubyRecordCorner(RubyTrade):
                     if room.status[w] == 0x83:
                         left_at.setdefault(w, frame)
             if all(v == 0x83 for v in room.status.values()):
+                self.result["positions_at_exit"] = dict(room.pos)
                 self.result["partner_left_after"] = left_at[self.other] - left_at.get(self.my_id, left_at[self.other])
                 self.result["left_room"] = True
                 self.result["partner_left_by_door"] = room.pos[self.other] in DOOR

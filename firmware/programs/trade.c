@@ -7,7 +7,7 @@
  *   - every link session copies the game's link type and language into our link player, with
  *     lp_field_2 = 0 (0x8000 there would turn the game's National Dex on);
  *   - the Cable Club (0x1133, cable_club.c sub_80834E4): link players, then each player's trainer
- *     card (0xCCCC 2, 100 bytes; ours is blank), and the same link carries on into the Trade
+ *     card (0xCCCC 2, 100 bytes; ours is the event trainer's, made by the PC), and the same link carries on into the Trade
  *     Center: once the game sends room keys (0xCAFE), we send one a frame too,
  *     walking to our seat - player 1: up, up, right, up; player 0: up, up, left, up - then key 22
  *     ("seated");
@@ -81,7 +81,7 @@ static u32 now(void)
 }
 
 /* ------------------------------------------------------------------ what the PC loads */
-#define BLOB_MAX (16 + 600 + 220 + 28)
+#define BLOB_MAX (16 + 600 + 220 + 28 + 100)
 static u32 blob_words[BLOB_MAX / 4], put_at, blob_ready;
 #define BLOB ((u8 *)blob_words)
 #define PARTY_COUNT BLOB[0]
@@ -93,6 +93,7 @@ static u32 blob_words[BLOB_MAX / 4], put_at, blob_ready;
 #define PARTY       (BLOB + 16)         /* 6 x 100 */
 #define MAIL        (BLOB + 616)        /* 220 */
 #define LABEL       ((const char *)BLOB + 836)   /* 28: a line for the screen, e.g. "Offering JIRACHI" */
+#define CARD        (BLOB + 864)        /* 100: our trainer card, made by the PC from the event (duo_events.trade_card) */
 
 /* ------------------------------------------------------------------ progress, for the PC */
 enum { ST_WAITING, ST_HANDSHAKE, ST_CONNECTED, ST_ROOM, ST_WALKING, ST_SEATED, ST_PARTIES, ST_MENU,
@@ -126,7 +127,7 @@ static u32 player_pending;
 
 static const u8 *tx_src;                  /* our outgoing block */
 static u32 tx_len, tx_off, tx_on, tx_header, tx_kind;
-static u8 our_player[60], msg[20], blank[100];
+static u8 our_player[60], msg[20];
 
 static void build_our_player(void)
 {
@@ -173,43 +174,67 @@ static void send_msg(u16 w0, u16 w1)      /* a 20-byte trade message */
     send_block(msg, 20, 2);
 }
 
+static u8 rw_dist_space[12 * 9];
+#define RW_DIST rw_dist_space
+#include "room_walk.h"
+
+/* The Trade Center (layout TradeCenter, 12 x 9) as room_walk.h sees it: the table at (5,5)-(6,5),
+ * the seats beside it at (4,5) for player 0 and (7,5) for player 1, the door at (5,8)-(6,8). */
+static const u16 trade_room[9] = { 0x0, 0x0, 0x0, 0x7FE, 0x7FE, 0x79E, 0x7FE, 0x7FE, 0x60 };   /* bit (x - 0): open floor */
+static u32 sat, sat_at, asked_at;
+
 static u16 room_key(void)                 /* our key for this frame in the Trade Center */
 {
-    /* after the room has settled: a step, then nothing until it's over (16 frames), four times;
-     * then "seated" (22), once the game has seen us step onto the seat */
-    static const u8 walk1[4] = { 19, 19, 21, 19 }, walk0[4] = { 19, 19, 20, 19 };
+    /* after the room has settled, a shortest way to our seat around the player (a step at a time,
+     * each once the last has finished; waiting while the way is blocked); on it, "seated" (22) */
+    u32 me = is_master ? 0 : 1, seat_x = is_master ? 4 : 7;
     u32 f = walk_frame++;
-    if (f < 40) return 17;
-    f -= 40;
-    if (f < 4 * 20) {
-        if (f % 20) return 17;
-        return is_master ? walk0[f / 20] : walk1[f / 20];
+    if (f == 0) rw_start(trade_room, 0, 12, 9, 8, 5, 6, 5, 6);
+    if (sat) {
+        if (f == sat_at + 10) { state = ST_SEATED; return 22; }
+        return 17;
     }
-    if (f == 4 * 20 + 10) { state = ST_SEATED; return 22; }
-    return 17;
+    if (f < 40 || !rw_free(me)) return 17;
+    if (rw_at(me, seat_x, 5)) { sat = 1; sat_at = f; return 17; }
+    u16 k;
+    if (!rw_take(seat_x, 5, &k)) return 17;
+    rw_blocked_now = !k;
+    if (!k) return 17;
+    rw_await = 1;
+    return k;
 }
 
 static u16 exit_key(void)                 /* back in the room after the trade screen: leave it */
 {
     /* overworld.c: a player who sends 23 has terminated the link (status 0x83); any other player
      * then runs the TerminateLink script and sends 23 too; once everyone has, both games warp out
-     * and close the link. We stand up, walk back to the door (player 1: down, down, left, down;
-     * player 0: down, down, right, down), press down on it (the exit prompt), then 23. If the
-     * player leaves first, we follow at once. */
-    static const u8 out1[4] = { 18, 18, 20, 18 }, out0[4] = { 18, 18, 21, 18 };
+     * and close the link. We walk a shortest way to a door tile around the player (waiting while
+     * every way is blocked), press DOWN there facing down (the exit prompt), then 23. If the player
+     * leaves first, we follow at once. */
+    u32 me = is_master ? 0 : 1;
     u32 f = walk_frame++;
+    if (f == 0) rw_settle();
     if (sent_exit) return 17;
     if (game_exiting) { sent_exit = 1; state = ST_EXITING; return 23; }
     if (f < 60) return 17;
-    f -= 60;
-    if (f < 4 * 20) {
-        if (f % 20) return 17;
-        state = ST_WALKING_OUT;
-        return is_master ? out0[f / 20] : out1[f / 20];
+    if (asked_at) {
+        if (f >= asked_at + 30) { sent_exit = 1; state = ST_EXITING; return 23; }
+        return 17;
     }
-    if (f == 4 * 20 + 10) return 18;
-    if (f == 4 * 20 + 40) { sent_exit = 1; state = ST_EXITING; return 23; }
-    return 17;
+    if (!rw_free(me)) return 17;
+    state = ST_WALKING_OUT;
+    if (rw_on_door(me)) {
+        rw_blocked_now = 0; rw_await = 1;
+        if (rw[me].facing != RW_KEY_DOWN) return RW_KEY_DOWN;   /* turn to the way out (a wall: no step) */
+        asked_at = f;
+        return RW_KEY_DOWN;                                     /* "Will the link be terminated?" */
+    }
+    u16 k;
+    if (!rw_take(-1, -1, &k)) return 17;
+    rw_blocked_now = !k;
+    if (!k) return 17;
+    rw_await = 1;
+    return k;
 }
 
 static void next_command(void)
@@ -230,7 +255,7 @@ static void next_command(void)
         current[0] = 0x8888;
         for (u32 j = 0; j < 7; j++) {
             u32 at = tx_off + 2 * j;
-            u32 lo = at < tx_len ? tx_src[at] : 0, hi = at + 1 < tx_len ? tx_src[at + 1] : 0;
+            u32 lo = tx_src && at < tx_len ? tx_src[at] : 0, hi = tx_src && at + 1 < tx_len ? tx_src[at + 1] : 0;
             current[1 + j] = lo | hi << 8;
         }
         tx_off += 14;
@@ -247,17 +272,11 @@ static void next_command(void)
     }
 }
 
-static u8 card[100];
 static void build_card(void)              /* the trainer card the game shows for us */
 {
-    /* struct TrainerCard (pokeruby trainer_card.h; pokeemerald's adds the version at 0x38): the
-     * event trainer's gender, ID and name, as a distribution's partner would show; no stars, no
-     * play time, no money, no Pokedex */
-    zero(card, sizeof card);
-    card[0x00] = OUR_GENDER;
-    card[0x0E] = OUR_TID[0]; card[0x0F] = OUR_TID[1];
-    memcpy(card + 0x30, OUR_NAME, 8);
-    card[0x38] = game_player[16];                                /* the game's own version */
+    /* struct TrainerCard: the PC fills it in from the event (duo_events.trade_card); only the
+     * version, when the event's own game isn't one of the five, is the game's own */
+    if (!CARD[0x38]) CARD[0x38] = game_player[16];
 }
 
 static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
@@ -270,9 +289,9 @@ static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
         send_block(MAIL, 220, 3);
     } else if (n == 2) {
         build_card();
-        send_block(card, 100, 4);
+        send_block(CARD, 100, 4);
     } else {
-        send_block(blank, n == 4 ? 40 : n == 2 ? 100 : 200, 4);
+        send_block(0, n == 4 ? 40 : 200, 4);                   /* (zeros: a request we don't expect) */
     }
 }
 
@@ -291,7 +310,7 @@ static void game_block(u32 size)          /* a whole block from the game has arr
             if (state == ST_PARTIES) have_partner_pick = 0;
         }
         if (game_lp_type == LT_SCENE) state = ST_SCENE;
-        if (game_lp_type == LT_BACK) { state = ST_BACK; room_keys_seen = walk_frame = game_exiting = sent_exit = 0; }
+        if (game_lp_type == LT_BACK) { state = ST_BACK; room_keys_seen = walk_frame = game_exiting = sent_exit = asked_at = 0; }
         return;
     }
     if (size != 20) game_blocks_total++;
@@ -317,6 +336,8 @@ static void process_command(void)
 {
     u32 game = is_master ? 1 : 0;
     u16 c = frame[0][game];
+    if (game_lp_type == LT_ROOM || game_lp_type == LT_BACK)         /* both players' keys: where they are */
+        rw_apply(frame[0][0], frame[1][0], frame[0][1], frame[1][1], is_master ? 0 : 1);
     if (c == 0x2222 || frame[0][is_master ? 0 : 1] == 0x2222)
         player_pending = 1;
     if (frame[0][is_master ? 0 : 1] == 0xCCCC)                  /* our own request, as master */
@@ -564,6 +585,7 @@ static int pc_service(api_t *api)
     case 6: v = game_player[16] | game_player[17] << 8 | game_player[18] << 16 | (u32)game_player[19] << 24; break;
     case 7: v = game_player[32] | game_player[33] << 8 | game_player[34] << 16 | (u32)game_player[35] << 24; break;
     case 8: v = max_gap; break;
+    case 10: v = rw_blocked_now; break;                        /* the way to the seat or door is blocked */
     case 20: put_at = 0; blob_ready = 0; v = sizeof blob_words; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= 16 + 600 + 220 && PARTY_COUNT >= 1 && PARTY_COUNT <= 6 && FIRST_PICK < PARTY_COUNT;
@@ -620,6 +642,8 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))
             pc_service(api);
+        if (rw_need && send_idx == 0 && recv_idx == 0 && !in_flight)
+            rw_plan_run(is_master ? 0 : 1);       /* (between two frames' cycles; it gives way to transfers) */
         /* the end: done once our own 0x5FFF has gone out and the game has had time to close */
         if (close_pending && !qcount && !tx_on && state != ST_DONE) {
             if (!close_at) close_at = now() | 1;

@@ -207,7 +207,19 @@ The rest of the sitting, as the program plays it:
   moving. The DUO sends 26, walks back to the door and leaves (23), or follows the player out as
   soon as they leave.
 
+### Lab session 31: the black screen, and the fix (5 November 2026)
+
+On hardware Ruby's screen stayed black, music playing, as it warped into the Record Corner (three
+runs, either role). After a cable-club warp the fade-in (`field_fadetransition.c sub_8080A5C`)
+sends "ready" (0x2FFE, `link.c sub_80084A4`) and waits for every player's; `mix.c` never answered
+it, and the model never asked. Both models now send it after the warp (the trade program already
+answered it), `mix.c` answers it, and a planted bug checks the answer stays.
+
+The walk to the seat and to the door now goes round the player (`room_walk.h`, docs/TRADE.md).
+
 ### Still to see on hardware (step 3)
+
+- That Ruby's room now fades in and the 24 rounds go across.
 
 - How long Ruby takes between the last round and closing the link (the model allows 19 frames).
 - That the DUO, sitting first, never blocks the player's way to their seat.

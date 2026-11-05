@@ -225,7 +225,9 @@ The user would like the DUO to be a partner for every service on a Pokémon Cent
 | Union Room, wireless trade/battle/Record Mixing, Berry Crush | Emerald, FireRed/LeafGreen | Wireless Adapter only; would build on the Mystery Gift adapter emulation; later, if wanted |
 | Mystery Gift | Emerald, FireRed/LeafGreen | Working (Stage 1) |
 
-**The battle partner, in outline.** In a Gen 3 link battle the master's GBA runs the battle and
+**The battle partner: the design is docs/BATTLE.md** (5 November): a set of `.pk3` files for its
+team; easy, medium and elite levels (easy not stupidly easy; elite highly intelligent and
+strategic). Its outline: In a Gen 3 link battle the master's GBA runs the battle and
 sends the other GBA a stream of controller commands for its own Pokémon (show this, play that,
 choose an action, choose a move); the other GBA answers each one. With the cable as fitted the
 game is the master, so the DUO plays the follower: it answers every command, and for the choices it
