@@ -2,7 +2,7 @@
     python mutate4.py [KIND ...]      run them all, or the kinds named (fw, fw42, prog, ereader, pc)
     python mutate4.py fw  "<name>"    one firmware mutant, rebuilt from build_v4.py
     python mutate4.py pc  "<name>"    one tool mutant"""
-import os, re, shutil, subprocess, sys
+import glob, os, re, shutil, subprocess, sys
 FW_MUTANTS = {
     "restart doesn't wait for the hello (v4's race)": ("    ldr  r7, lit_wait\nrs_wait:\n    bl   {AVAIL:#x}\n    cmp  r0, #0\n    bne  rs_go\n    bl   {IDLE:#x}\n    subs r7, #1\n    bne  rs_wait\nrs_go:\n", "", "ten in a row"),
     "restart uses hard reset": ("    svc  #0\n", "    svc  #0x26\n", "restart"),
@@ -70,6 +70,8 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 }
 
 PC_MUTANTS = {
+    "trade: the trainer card without the trainer's name": ("    card[0x30:0x38] = name[:8]\n", "", "trade, the game as master"),
+    "trade: the trainer card without a Pokedex or a new save's profile": ("    card[0x02] = 1                                                     # has a Pokedex\n", "", "trade, the game as master"),
     "event files: any size accepted": ("        if len(data) > MEV_MAX:", "        if False:", "e-Reader: with no event"),
     "a .me3 is sent as it is, unwrapped": ("    script = build_event_script(me3, language)\n", "    script = data\n", "Mystery Event files"),
     "a .me3's RAM script checksum is never checked": ("    if stored != sum(block):", "    if False:", "Mystery Event files"),
@@ -167,6 +169,8 @@ def run(kind, name):
         os.makedirs(os.path.join(work, "programs"))
         open(os.path.join(work, "programs", src_name), "w").write(good_src.replace(old, new))
         shutil.copy(os.path.join(paths.FIRMWARE, "programs", "link.ld"), os.path.join(work, "programs"))
+        for h in glob.glob(os.path.join(paths.FIRMWARE, "programs", "*.h")):   # (room_walk.h, shared)
+            shutil.copy(h, os.path.join(work, "programs"))
         with BUILD_LOCK:
             saved = programs._HERE
             programs._HERE = work
@@ -228,7 +232,7 @@ def run(kind, name):
 
 TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
     "trade: player 1 heads for player 0's seat": ("seat_x = is_master ? 4 : 7;", "seat_x = is_master ? 4 : 4;", "trade, the game as master"),
-    "trade: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (1) {", "the player stands on the DUO's nearest door tile"),
+    "trade: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "the player stands on the DUO's nearest door tile"),
     "trade: never waits for a step to finish before the next": ("    if (!rw_free(me)) return 17;\n    state = ST_WALKING_OUT;", "    state = ST_WALKING_OUT;", "the player stands right below the DUO's seat"),
     "trade: our link player turns the game's National Dex on": ("lp[0] = game_player[16]; lp[1] = game_player[17];", "lp[0] = game_player[16]; lp[1] = game_player[17]; lp[3] = 0x80;", "trade, the game as master"),
     "trade: every block request answered with the first two Pokemon": ("u32 k = requests_answered < 3 ? requests_answered : 2;", "u32 k = 0;", "trade, the game as master"),
@@ -239,7 +243,6 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
     "trade: never follows the player out of the room": ("if (game_exiting) { sent_exit = 1;", "if (0) { sent_exit = 1;", "back in the room, the player leaves first"),
     "trade: as master, opens the room again with the Cable Club's link type": ("if (state == ST_RETURNING) return LT_BACK;", "if (state == ST_RETURNING) return LT_ROOM;", "trade, the DUO as master"),
     "trade: offers the same slot again after a trade": ("            cur_pick++;                                          /* next time, the next event Pokemon */", "            ;", "three Pokemon in one sitting"),
-    "trade: the trainer card without the trainer's name": ("    memcpy(card + 0x30, OUR_NAME, 8);", "    (void)card;", "trade, the game as master"),
     "trade: as master, opens a second trade screen where the scene should be": ("    if (state == ST_AGREED) return LT_SCENE;", "    if (state == ST_AGREED) return LT_TRADE;", "trade, the DUO as master"),
     "trade: screen lines shown in the middle of a link session": ("if (shown == state || (linked && state != ST_DONE)) return;", "if (shown == state) return;", "trade, the game as master"),
     "trade: no progress flags for Emerald and FireRed/LeafGreen": ("        lp[0x10] = 0x11;", "        lp[0x10] = 0;", "trade into FireRed"),
@@ -248,7 +251,7 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
 
 MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13;", "seat_x = is_master ? 6 : 6;", "Record Mixing, the game as master"),
-    "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
+    "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
     "mix: the game's own sections not handed back": ("    memcpy(chunk, rx_buf, CHUNK);", "    zero(chunk, CHUNK);", "Record Mixing, the game as master"),
     "mix: the game's Battle Tower record handed back too": ("        if (at >= BT_START && at < GIFT_AT) chunk[i] = 0;     /* no Battle Tower record */\n        else if", "        if", "Record Mixing, the game as master"),
