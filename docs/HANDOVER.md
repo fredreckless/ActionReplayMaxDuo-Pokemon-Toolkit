@@ -64,6 +64,11 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **6 November, evening: every part of a record (asked for by the user).** The Secret Base
+  Workshop is to grow into a Record Workshop with a tool for each part of a Record Mixing record.
+  Formats: docs/RECORD_FORMATS.md (draft 1: `.rm3` whole records and a file per part, `.tv3`,
+  `.om3`, `.dt3`, `.bt3`...); plan: docs/RECORD_WORKSHOP.md. Waiting on the user's answers to the
+  three open questions at the end of RECORD_FORMATS.md before any code.
 - **6 November: the battle partner's thinking side, on the PC (the user can't test Record Mixing
   for now and asked for something else).**
   - `duo_battle.py` (new, beside the tools; the release must include it and `battle_data.py`): a
