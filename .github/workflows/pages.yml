@@ -1,0 +1,47 @@
+# Publishes the Secret Base Workshop on GitHub Pages: the repository's own
+# secret_base_workshop.html becomes the site's index.html (no second copy to keep in step).
+# Needs Settings > Pages > Build and deployment > Source: "GitHub Actions".
+name: Secret Base Workshop on GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - secret_base_workshop.html
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Put the workshop together as a site
+        run: |
+          mkdir _site
+          cp secret_base_workshop.html _site/index.html
+          cat > _site/404.html <<'HTML'
+          <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Not found - Secret Base Workshop</title><meta http-equiv="refresh" content="3; url=./">
+          <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:40px 16px;background:#e9ede6;color:#1c2420}
+          @media (prefers-color-scheme: dark){body{background:#121815;color:#e2e9e3}a{color:#79c48f}}</style></head>
+          <body><p>That page isn't here. Taking you to the <a href="./">Secret Base Workshop</a>...</p></body></html>
+          HTML
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
