@@ -63,11 +63,14 @@ damage roll, accuracy and evasion, priority and speed order).
   knock-out, finishes off weakened Pokémon, uses set-up moves and status when it's safe to, keeps
   priority moves for the right moment, and switches out of a clearly bad match-up when a better
   Pokémon waits on the bench.
-- **Elite** plays to win against strong players: it looks two turns ahead over its own and the
-  opponent's likely choices (expectimax over the damage rolls, accuracy, critical hits and speed
-  ties), weighs switching against attacking, predicts switches, plays around Protect, Focus Punch,
-  sleep, Leftovers and choice-locked items, manages its team's health across the whole battle,
-  and in doubles chooses targets and spread moves for both its Pokémon together.
+- **Elite** plays to win: for each choice it has, it plays the battle on to the end in several
+  imagined copies (the other side answering as a good player would, then both sides playing on as
+  good players), with the same damage rolls, accuracy checks and critical hits for every choice so
+  they're compared fairly, and each copy with its own guess at what it can't see (moves, items,
+  IVs, EVs, nature, ability). It takes the choice that ends best on average - but leaves the good
+  player's choice only when the playouts clearly say so, as they're only as right as its guesses.
+  (A two-turn expectimax was tried first and played worse than medium: its evaluation of positions
+  was too rough. Playing on to the end - rollout improvement - is what made the difference.)
 
 **Fair play.** The game sends its whole party at the start, so the PC *could* know every move and
 item the player has. By default every level uses only what a human opponent would see (species,
@@ -84,6 +87,40 @@ prior for the elite level. Whether the elite level may "see everything" is for t
   fixed positions (it must find a knock-out, must not use a move that can't work, and so on), and
   the levels against each other in simulated battles (elite should beat medium, medium easy).
 - Then hardware: a first run that only records what the game sends, then a battle.
+
+## Progress (6 November 2026)
+
+Step 4 is done on the PC: `duo_battle.py`, with `battle_data.py` made from pret's sources by
+`tools/make_battle_data.py` (base stats, types, abilities, every move's numbers and flags, the type
+chart, held items). Singles only so far. The damage follows pokeemerald's `CalculateBaseDamage` and
+the battle script commands step by step, rounding where the game rounds; the move effects,
+abilities and items that change battles most are modelled, the rarest do nothing (that only
+affects choosing - in a real link battle the game runs the battle itself).
+
+    python duo_battle.py --demo                          a battle between two made-up teams
+    python duo_battle.py --pk3 my/*.pk3 --level elite    your .pk3 files as the elite level's team
+    python duo_battle.py --tournament 40 --level medium --opponent easy
+
+Strength, playing both ways round on the same made-up teams (fully evolved, trained, level 50,
+three each), all levels using only what they could see:
+
+| match | wins |
+|---|---|
+| easy against random choices | 92% (100 battles) |
+| medium against easy | 72% (200) |
+| elite against medium | 56-57% (160 each, two settings) |
+| elite against medium, elite seeing everything | 59-62% |
+
+Gen 3 battles are very random, so these are clear but not crushing margins; easy is a real
+opponent (it isn't "stupidly easy"). An elite choice takes well under a second.
+
+Tests (`tests/test_v4.py`, "battle:"): damage worked by hand against the game's steps; a .pk3's
+stats against duo_events' party fields; 150 battles with every species, move and item; fixed
+positions (no level uses a move that can't work; medium and elite always take a sure knock-out);
+and the levels in order of strength.
+
+Next: what a human sees of the other side's party in a link battle (now each level knows the
+other side's species from the start), doubles, and the DUO side (steps 1-3).
 
 ## Steps
 

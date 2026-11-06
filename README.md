@@ -258,6 +258,18 @@ The tool checks everything the game needs, and warns about anything a real playe
 
 **Status:** done in the simulator (4 November 2026), against a model of Ruby's Record Corner and its filing rules ported from pokeruby. Hardware next: Ruby, then Emerald. See [docs/RECORD_MIXING.md](docs/RECORD_MIXING.md) and [docs/SB3_FORMAT.md](docs/SB3_FORMAT.md).
 
+## A battle partner (in progress)
+
+The plan is for the DUO to sit in the Colosseum as a link-battle opponent or partner, its team a set of your `.pk3` files, playing at easy, medium or elite level ([docs/BATTLE.md](docs/BATTLE.md)). The thinking half runs on the PC and can already battle on its own:
+
+```
+python duo_battle.py --demo                                  (a battle between two made-up teams, turn by turn)
+python duo_battle.py --pk3 "mine\*.pk3" --level elite         (your .pk3 files as the elite level's team)
+python duo_battle.py --tournament 40 --level medium --opponent easy
+```
+
+**Status:** the PC side (6 November 2026): Gen 3 singles with the game's damage, and the three levels tested against each other. The DUO side is next.
+
 ## If something goes wrong
 
 | Message or problem | Try this |

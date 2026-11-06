@@ -2964,6 +2964,124 @@ def _():
     crc, payload = M.check_update_file(paths.build_file("duo_1.06_reckless_v4.2.bin"))
     assert payload == FW42 and "v4.2" in M.KNOWN_FIRMWARE.get(crc, "")
 
+# ===================================================================== battle partner (PC side)
+def battle_mon(name, level=50, moves=(), item="", **kw):
+    import duo_battle as B
+    return B.Mon(B.species_id(name), level, [B.move_id(m) for m in moves], B.item_id(item), **kw)
+
+
+@test("battle: damage is the game's, step by step (pokemon.c CalculateBaseDamage, then critical hit, STAB, types, the 85-100 roll), worked by hand")
+def _():
+    import duo_battle as B
+    swampert = battle_mon("SWAMPERT", moves=["EARTHQUAKE", "SURF"])      # Hardy, IVs 31, no EVs
+    blaziken = battle_mon("BLAZIKEN", moves=["BLAZE KICK"])
+    assert swampert.stats == [175, 130, 110, 80, 105, 110] and blaziken.stats == [155, 140, 90, 100, 130, 90]
+    b = B.Battle([swampert], [blaziken], seed=1)
+    eq, surf = swampert.moves
+    # Earthquake: 130 * 100 * (2*50/5 + 2) // 90 // 50 + 2 = 65; STAB 65*15//10 = 97; Ground on Fire 97*20//10 = 194
+    assert b.damage(swampert, blaziken, eq, b.sides[1], roll=100)[0] == 194
+    assert b.damage(swampert, blaziken, eq, b.sides[1], roll=85)[0] == 194 * 85 // 100 == 164
+    assert b.damage(swampert, blaziken, eq, b.sides[1], crit=True, roll=100)[0] == 130 * 15 // 10 * 2 == 390
+    # Surf (special in Gen 3, as Water): 105 * 95 * 22 // 90 // 50 + 2 = 50; STAB 75; Water on Fire 150
+    assert b.damage(swampert, blaziken, surf, b.sides[1], roll=100)[0] == 150
+    b.sides[1].light_screen = 5                                       # halves it before the +2
+    assert b.damage(swampert, blaziken, surf, b.sides[1], roll=100)[0] == (105 * 95 * 22 // 90 // 50 // 2 + 2) * 15 // 10 * 2
+    b.weather = "RAIN"                                                 # and rain x1.5 (still before the +2)
+    assert b.damage(swampert, blaziken, surf, b.sides[1], roll=100)[0] == (105 * 95 * 22 // 90 // 50 // 2 * 15 // 10 + 2) * 15 // 10 * 2
+    # immunities: Ground on a Flying type or Levitate; Normal on a Ghost; Wonder Guard
+    for name in ("SKARMORY", "GENGAR", "SHEDINJA"):
+        assert b.immune(swampert, battle_mon(name), eq), name
+    assert b.immune(battle_mon("SNORLAX"), battle_mon("GENGAR"), B.move_id("BODY SLAM")) == "types"
+    assert b.immune(blaziken, battle_mon("SHEDINJA"), B.move_id("BLAZE KICK")) == ""      # Fire is super effective on Bug
+    # stat stages, accuracy, critical hits
+    swampert.stages[B.ATK] = 8                                        # +2: x2
+    assert b.damage(swampert, blaziken, eq, b.sides[1], roll=100)[0] == (260 * 100 * 22 // 90 // 50 + 2) * 15 // 10 * 2
+    assert b.accuracy(swampert, blaziken, B.move_id("HYDRO PUMP")) == 0.8
+    assert b.crit_chance(swampert, blaziken, eq) == 1 / 16 and b.crit_chance(blaziken, swampert, B.move_id("BLAZE KICK")) == 1 / 8
+    assert b.crit_chance(swampert, battle_mon("AGGRON"), eq) == 1 / 16 and b.crit_chance(swampert, battle_mon("ARMALDO"), eq) == 0     # Battle Armor
+
+
+@test("battle: a Pokemon from a .pk3 has the stats the game gives it (duo_events' party fields), its moves, item, nature and ability")
+def _():
+    import duo_battle as B
+    for pid in (0x12345678, 24, 0x9ABCDEF1):
+        data = test_pk3(pid=pid, encrypted=pid & 1 == 0)
+        f, _ = W.parse_pk3(data)
+        mon = B.mon_from_pk3(data)
+        party = W.pk3_party_fields(f)
+        assert mon.level == party[4] and mon.stats == list(struct.unpack_from("<6H", party, 8)), (mon.stats, party)
+        assert mon.moves == [1, 2] and mon.nature == pid % 25 and mon.species == 409 and mon.hp == mon.maxhp
+        assert mon.ability == B.ABILITY[B.SPECIES[409][8]]                           # Serene Grace
+
+
+@test("battle: whole battles with every species, move and held item play to the end without a fault (random, easy and medium players)")
+def _():
+    import duo_battle as B
+    rng = random.Random(41)
+    valid = [s for s in range(1, len(B.SPECIES)) if B.SPECIES[s][0] and s in B.tables().learn]
+    items = [int(k) for k in B.HELD] + [0]
+    def mon():
+        sp, lv = rng.choice(valid), rng.randrange(5, 101)
+        pool = sorted(B.learnable(sp, lv)) or [33]
+        return B.Mon(sp, lv, rng.sample(pool, min(4, len(pool))), rng.choice(items), rng.randrange(2),
+                     [rng.randrange(32) for _ in range(6)], [rng.randrange(256) for _ in range(6)], rng.randrange(25))
+    ended = 0
+    for n in range(150):
+        b = B.Battle([mon() for _ in range(3)], [mon() for _ in range(3)], seed=n)
+        kinds = [rng.choice(["random", "easy", "medium"]) for _ in (0, 1)]
+        b.run([B.PLAYERS[kinds[0]](n), B.PLAYERS[kinds[1]](n + 1)])
+        ended += b.sides[0].lost or b.sides[1].lost
+        assert all(0 <= m.hp <= m.maxhp for side in b.sides for m in side.team)
+        assert all(0 <= x <= 12 for side in b.sides for m in side.team for x in m.stages)
+    assert ended >= 140, ended                                          # (the rest ran to 200 turns)
+    log = lambda: B.Battle(B.random_team(random.Random(5)), B.random_team(random.Random(6)), seed=7, log=True)
+    one, two = log(), log()
+    one.run([B.Medium(1), B.Easy(2)]); two.run([B.Medium(1), B.Easy(2)])
+    assert one.log == two.log, "the same seeds gave a different battle"
+
+
+@test("battle: positions - every level avoids moves that can't work (Normal on a Ghost, Toxic on a Poison type, Thunder Wave on a Ground type, Earthquake on Levitate), and medium and elite always take a sure knock-out")
+def _():
+    import duo_battle as B
+    cases = [("SNORLAX", ["BODY SLAM", "TOXIC", "EARTHQUAKE", "SHADOW BALL"], "GENGAR", {"BODY SLAM", "TOXIC", "EARTHQUAKE"}),
+             ("MANECTRIC", ["THUNDER WAVE", "THUNDERBOLT", "CRUNCH"], "SWAMPERT", {"THUNDER WAVE", "THUNDERBOLT"}),
+             ("SWAMPERT", ["EARTHQUAKE", "SURF"], "CLAYDOL", {"EARTHQUAKE"})]
+    for me, moves, foe, bad in cases:
+        for level in ("easy", "medium", "elite"):
+            for k in range(6 if level == "elite" else 25):
+                b = B.Battle([battle_mon(me, moves=moves)], [battle_mon(foe, moves=["TACKLE"])], seed=k)
+                kw = dict(samples=3, playout=10) if level == "elite" else {}
+                kind, i = B.PLAYERS[level](k, **kw).choose(b, 0)
+                assert B.move_name(b.sides[0].mon.moves[i]) not in bad, (level, me, foe, B.move_name(b.sides[0].mon.moves[i]))
+    # a sure knock-out: the foe on its last few HP, with a set-up move and a weak attack to choose from
+    for level in ("medium", "elite"):
+        for k in range(6):
+            foe = battle_mon("SALAMENCE", moves=["DRAGON CLAW", "EARTHQUAKE"])
+            foe.hp = 20
+            b = B.Battle([battle_mon("GARDEVOIR", moves=["CALM MIND", "PSYCHIC", "THUNDERBOLT", "HYPNOSIS"]), battle_mon("SNORLAX", moves=["BODY SLAM"])],
+                         [foe], seed=k)                                     # (its last Pokemon: the knock-out wins)
+            kw = dict(samples=4, playout=12) if level == "elite" else {}
+            kind, i = B.PLAYERS[level](k, **kw).choose(b, 0)
+            assert kind == "move" and B.move_name(b.sides[0].mon.moves[i]) in ("PSYCHIC", "THUNDERBOLT"), (level, kind, i)
+
+
+@test("battle: easy, medium and elite in order of strength - easy wins most battles against random choices (it isn't stupid), medium beats easy, elite beats easy (played both ways round on the same teams)")
+def _():
+    import duo_battle as B
+    w, l, d = B.tournament("easy", "random", 40, seed=3)
+    assert w >= 30, (w, l, d)
+    w, l, d = B.tournament("medium", "easy", 60, seed=3)
+    assert w >= 36, (w, l, d)
+    rng, wins = random.Random(8), 0
+    for n in range(5):
+        teams = B.random_team(rng), B.random_team(rng)
+        for swap in (0, 1):
+            ta, tb = teams if not swap else teams[::-1]
+            b = B.Battle([m.clone() for m in ta], [m.clone() for m in tb], seed=rng.random())
+            wins += b.run([B.Elite(rng.random(), samples=4, playout=20), B.Easy(rng.random())]) == 0
+    assert wins >= 7, wins
+
+
 if __name__ == "__main__":
     pick = sys.argv[1] if len(sys.argv) > 1 else ""
     passed = failed = skipped = 0

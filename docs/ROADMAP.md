@@ -220,7 +220,7 @@ The user would like the DUO to be a partner for every service on a Pokémon Cent
 |---|---|---|
 | Trade Center | all five | Working on hardware (Stage 9) |
 | Record Corner | Ruby, Sapphire, Emerald | Simulator; Ruby stops at the room on hardware (Stage 10) |
-| **Colosseum: single and double battles** | all five | **New: a battle partner** (the to-do item asked for on 5 November) |
+| **Colosseum: single and double battles** | all five | **A battle partner**: the PC's thinking side done for singles (`duo_battle.py`, 6 November); the DUO side next |
 | Colosseum: multi battle | all five | Needs four players; one DUO on a two-player cable can't fill three places |
 | Union Room, wireless trade/battle/Record Mixing, Berry Crush | Emerald, FireRed/LeafGreen | Wireless Adapter only; would build on the Mystery Gift adapter emulation; later, if wanted |
 | Mystery Gift | Emerald, FireRed/LeafGreen | Working (Stage 1) |
