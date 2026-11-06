@@ -288,6 +288,8 @@ def main(argv=None):
     ap.add_argument("--map", type=lambda v: int(v, 0), default=None, help="cartridge mapping (default 0x101, as for saves)")
     ap.add_argument("--wait", type=int, default=120, help="seconds to wait for the GBA to be switched on (default 120)")
     args = ap.parse_args(argv)
+    import runlog
+    runlog.start("duo_rom", argv)
     t = UsbTransport()
     try:
         duo = MaxDuo(t)

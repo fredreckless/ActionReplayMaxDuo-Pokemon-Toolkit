@@ -402,6 +402,8 @@ def main(argv=None):
     s = sub.add_parser("join"); s.add_argument("files", nargs="+"); s.add_argument("--out", required=True)
     s.add_argument("--gift", help="a gift item for the others (only player 0's counts)")
     a = ap.parse_args(argv)
+    import runlog
+    runlog.start("records", argv)
     try:
         if a.cmd == "show":
             return _show(a.files)

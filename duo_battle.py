@@ -1884,6 +1884,8 @@ def main(argv=None):
     ap.add_argument("--tournament", type=int, metavar="N", help="N battles between --level and --opponent")
     ap.add_argument("--seed", type=int, default=None)
     args = ap.parse_args(argv)
+    import runlog
+    runlog.start("duo_battle", argv)
     rng = random.Random(args.seed)
     if args.tournament:
         w, l, d = tournament(args.level, args.opponent, args.tournament, seed=args.seed or 1)

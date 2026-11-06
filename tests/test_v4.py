@@ -10,6 +10,7 @@ Needs the firmware built first: python firmware/build_firmware.py PATH_TO_DATEL_
 """
 import gc, io, contextlib, glob, json, os, random, re, shutil, struct, subprocess, sys, tempfile, threading, time, traceback, types, zlib
 import paths
+os.environ["ACTIONREPLAY_NO_LOG"] = "1"     # (the tools' run logs: tested on their own, not written by every test)
 import hwsim, thumbcheck, maxduo_saves as M
 import duo_events as W
 
@@ -2343,6 +2344,48 @@ def _():
             assert not errors, errors
         finally:
             browser.close()
+
+
+@test("Record Mixing: a session stopped early (Ctrl+C) leaves the DUO's program running; the next run ends it and connects at once (6 November, hardware), and the copy of the game's bases shows its progress")
+def _():
+    game = MG.RubyRecordCorner(master=True, bases=game_bases(), player=GAME_PLAYER, tail=game_tail())
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    W.run_program(duo, "mix")
+    said = []
+    assert duo.connect(wait_s=20, say=said.append) == 0x104, said
+    assert any("still running the last session's program" in m for m in said), said
+    assert not any("unexpected answer" in m for m in said), said
+    W.run_program(duo, "mix")                                     # and it runs a program again after that
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        bases = W.copy_game_bases(duo)
+    assert len(bases) == 20 and "Copying the game's bases [########################] 100%" in out.getvalue()
+    assert W.stop_program_quietly(duo) is not None and duo.hello() == 0x104
+    hw.stop(); clean(hw)
+
+
+@test("Run logs (runlog.py): every tool run writes its command, everything it printed and any error to logs/, with latest.log the newest")
+def _():
+    tmp = tempfile.mkdtemp()
+    try:
+        env = dict(os.environ, ACTIONREPLAY_LOG_DIR=tmp)
+        env.pop("ACTIONREPLAY_NO_LOG", None)
+        r = subprocess.run([sys.executable, os.path.join(paths.ROOT, "records.py"), "show", "nothing.om3"], env=env,
+                           capture_output=True, text=True, cwd=tmp)
+        assert r.returncode == 2 and "nothing.om3" in r.stderr, r
+        logs = [f for f in os.listdir(tmp) if f != "latest.log"]
+        assert len(logs) == 1 and " records show.log" in logs[0], logs
+        text = open(os.path.join(tmp, logs[0]), encoding="utf-8").read()
+        assert text.startswith("records show nothing.om3") and "nothing.om3" in text.split("\n", 3)[3] and "ended" in text, text
+        assert open(os.path.join(tmp, "latest.log"), encoding="utf-8").read() == text
+        r = subprocess.run([sys.executable, os.path.join(paths.ROOT, "duo_battle.py"), "--tournament", "2", "--level", "easy",
+                            "--opponent", "random"], env=env, capture_output=True, text=True, cwd=tmp)
+        assert r.returncode == 0, r.stderr
+        newest = open(os.path.join(tmp, "latest.log"), encoding="utf-8").read()
+        assert newest.startswith("duo_battle --tournament 2") and "easy against random:" in newest, newest
+    finally:
+        shutil.rmtree(tmp)
 
 
 @test("Record Mixing: back in the room, the player stands in the DUO's way to the door (lab session 31) - the DUO goes round, asks to leave from a door tile, and both games warp out")

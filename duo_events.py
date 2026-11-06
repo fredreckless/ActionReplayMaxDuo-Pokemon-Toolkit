@@ -26,6 +26,7 @@ import time
 import zlib
 
 import maxduo_saves
+import runlog
 import secret_bases as SB
 from maxduo_saves import DuoError, MaxDuo, UsbTransport, SAFE_COMMANDS, Lab, LAB_STAGE
 
@@ -141,6 +142,7 @@ def run_program(duo, name):
             duo.connect(wait_s=30, say=lambda m: print("  " + m))
     duo.lab_resident = False                       # the staging area now holds the program
     code, val = duo.ask(CMD_RUN)
+    run_program.running = (code, val) == (CMD_RUN, RUN_ACK)
     if (code, val) != (CMD_RUN, RUN_ACK):
         raise DuoError(f"the DUO refused the program ({code:#x} {val:#x})")
 
@@ -164,6 +166,7 @@ def program_poll(duo, arg=0, tries=3):
 
 def program_stop(duo):
     code, val = duo.ask(PROG_STOP)
+    run_program.running = False
     if code != PROG_STOP:
         raise DuoError(f"the program didn't stop cleanly ({code:#x} {val:#x})")
     return val
@@ -2141,17 +2144,24 @@ def mix_session(duo, args, poll_s=0.3, stop_when=None):
         print("  Stopped (Ctrl+C). Collecting what the DUO has...")
         report["stopped"] = True
     finally:
-        info = program_poll(duo, 3)
-        asked, got, sent = info & 0xFF, info >> 8 & 0xFF, info >> 16 & 0xFF
-        theirs = None
-        if got >= 16 and sent >= 16:                  # every base round both ways
-            words = [program_poll(duo, 4 | k << 8) for k in range(SB.SB3_SIZE * SB.BASES_IN_SAVE // 4)]
-            data = b"".join(w.to_bytes(4, "little") for w in words)
-            theirs = [data[SB.SB3_SIZE * i:SB.SB3_SIZE * (i + 1)] for i in range(SB.BASES_IN_SAVE)]
-        bad = program_poll(duo, 1)
-        st = program_stop(duo)
-        report.update(state=st & 0x1F, transfers=st >> 8, bad_checksums=bad & 0xFFFF, rounds=(asked, got, sent),
-                      mixed=got == 24 and sent == 24, game_bases=theirs, master=last is not None and master)
+        asked = got = sent = bad = 0
+        theirs, st = None, None
+        try:
+            info = program_poll(duo, 3)
+            asked, got, sent = info & 0xFF, info >> 8 & 0xFF, info >> 16 & 0xFF
+            if got >= 16 and sent >= 16:              # every base round both ways
+                theirs = copy_game_bases(duo)
+            bad = program_poll(duo, 1)
+        except KeyboardInterrupt:
+            print("  Stopped (Ctrl+C) while copying the game's bases: they weren't kept on this PC.")
+            report["stopped"] = True
+        except Exception as err:
+            print(f"  Couldn't read the rest from the DUO ({err}).")
+            runlog.detail(f"reading after the session: {err!r}")
+        st = stop_program_quietly(duo)
+        report.update(state=(st or 0) & 0x1F, transfers=(st or 0) >> 8, bad_checksums=bad & 0xFFFF,
+                      rounds=(asked, got, sent), mixed=got == 24 and sent == 24, game_bases=theirs,
+                      master=last is not None and master)
     if report["mixed"] and theirs is not None:
         report["kept"] = mix_results(bases, theirs, player)
         report["files"] = keep_game_bases(theirs, player)
@@ -2162,6 +2172,40 @@ def mix_session(duo, args, poll_s=0.3, stop_when=None):
     print(f"  Transfers: {report['transfers']}, checksum mismatches: {report['bad_checksums']}")
     mix_session.last = report
     return report
+
+
+def copy_game_bases(duo):
+    """The game's twenty bases from the DUO (800 words, one poll each), with a progress bar and
+    the time each part took in the log. None if the DUO stops answering partway."""
+    n = SB.SB3_SIZE * SB.BASES_IN_SAVE // 4
+    words, t0, slowest = [], time.time(), 0.0
+    for k in range(n):
+        t = time.time()
+        words.append(program_poll(duo, 4 | k << 8))
+        slowest = max(slowest, time.time() - t)
+        if k % 40 == 39 or k == n - 1:
+            bar = "#" * ((k + 1) * 24 // n)
+            sys.stdout.write(f"\r  Copying the game's bases [{bar:<24}] {(k + 1) * 100 // n:3d}%")
+            sys.stdout.flush()
+    print()
+    runlog.detail(f"copied the game's bases: {n} polls in {time.time() - t0:.1f} s, slowest {slowest * 1000:.0f} ms")
+    data = b"".join(w.to_bytes(4, "little") for w in words)
+    return [data[SB.SB3_SIZE * i:SB.SB3_SIZE * (i + 1)] for i in range(SB.BASES_IN_SAVE)]
+
+
+def stop_program_quietly(duo):
+    """Ends the DUO's program; returns its last status word, or None if it couldn't be told."""
+    for attempt in range(3):
+        try:
+            return program_stop(duo)
+        except KeyboardInterrupt:
+            continue                                  # (a second Ctrl+C: still stop the program)
+        except Exception as err:
+            runlog.detail(f"stopping the program: {err!r}")
+            time.sleep(0.3)
+            getattr(duo, "drain", lambda: 0)()
+    print("  (The DUO's program didn't confirm it had stopped; the next run will end it.)")
+    return None
 
 
 def mix_warnings(bases, player, lang, version, master, gift):
@@ -2526,6 +2570,7 @@ def main(argv=None):
         argv = new
     ap = parser()
     args = ap.parse_args(argv)
+    runlog.start("duo_events", argv)
     if not args.command:
         ap.print_help()
         return
@@ -2558,6 +2603,14 @@ def main(argv=None):
     t = UsbTransport()
     try:
         run(MaxDuo(t), args)
+    except KeyboardInterrupt:
+        print("\nStopped (Ctrl+C).")
+        if getattr(run_program, "running", False):  # (a program still running on the GBA: end it)
+            try:
+                stop_program_quietly(MaxDuo(t))
+            except BaseException:
+                pass
+        sys.exit(130)
     except DuoError as err:
         sys.exit(f"\nStopped: {err}")
     except Exception as err:

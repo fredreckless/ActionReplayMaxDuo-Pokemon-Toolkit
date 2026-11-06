@@ -248,6 +248,22 @@ class MaxDuo:
             code, version = parse(reply)
             if code == 0x03:
                 return version
+            if code in (0x2A, 0x2B, 0x2C) and 0x2B in SAFE_COMMANDS and retries < 2:
+                # A program from an earlier run (stopped with Ctrl+C) is still running on the GBA and
+                # answered our hello as one of its polls: tell it to stop, then say hello again.
+                retries += 1
+                say("The DUO was still running the last session's program (it was stopped early); ending it...")
+                self.drain()
+                self.t.write(packet(0x2B))
+                try:
+                    self.t.read(2000)
+                except Exception as err:
+                    if not _is_timeout(err):
+                        raise
+                time.sleep(0.5)
+                self.drain()
+                self.t.write(packet(HELLO))
+                continue
             if retries >= 2:
                 raise DuoError(f"unexpected answer to hello ({reply.hex(' ')})")
             retries += 1
@@ -1454,6 +1470,8 @@ def main():
     ap.add_argument("--cart", action="store_true",
                     help="read the save straight from the cartridge in the slot")
     args = ap.parse_args()
+    import runlog
+    runlog.start("maxduo_saves")
 
     t = UsbTransport()
     try:
