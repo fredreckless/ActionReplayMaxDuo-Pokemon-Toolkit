@@ -44,12 +44,16 @@ SPRITE_DECORATIONS = range(76, 121)      # the dolls and cushions (objects, not 
 # with their sizes, and SecretBase_<Kind><n>_Layout in layout order). Code + revision.
 WORKSHOP_PARTS = {
     "AXVE0": dict(layouts=0x8304f18, decorations=0x83eb6c4, gfx=(0x836dc58, 0x368), pals=(0x837377c, 0xe0),
+                 easy_chat=(0x83dbf2c, 0x83de0e0),
                  rooms=(0x82e7788, 0x82e7870, 0x82e7958, 0x82e7a40, 0x82e7b28, 0x82e7c10, 0x82e7d10, 0x82e7e2c, 0x82e7f20, 0x82e803c, 0x82e813c, 0x82e8230, 0x82e8340, 0x82e84ac, 0x82e8620, 0x82e8748, 0x82e8878, 0x82e89b8, 0x82e8ae8, 0x82e8c58, 0x82e8dac, 0x82e8f38, 0x82e90e0, 0x82e9234)),
     "AXVE1": dict(layouts=0x8304f30, decorations=0x83eb6e0, gfx=(0x836dc70, 0x368), pals=(0x8373794, 0xe0),
+                 easy_chat=(0x83dbf48, 0x83de0fc),
                  rooms=(0x82e77a0, 0x82e7888, 0x82e7970, 0x82e7a58, 0x82e7b40, 0x82e7c28, 0x82e7d28, 0x82e7e44, 0x82e7f38, 0x82e8054, 0x82e8154, 0x82e8248, 0x82e8358, 0x82e84c4, 0x82e8638, 0x82e8760, 0x82e8890, 0x82e89d0, 0x82e8b00, 0x82e8c70, 0x82e8dc4, 0x82e8f50, 0x82e90f8, 0x82e924c)),
     "AXVE2": dict(layouts=0x8304f30, decorations=0x83eb6e0, gfx=(0x836dc70, 0x368), pals=(0x8373794, 0xe0),
+                 easy_chat=(0x83dbf48, 0x83de0fc),
                  rooms=(0x82e77a0, 0x82e7888, 0x82e7970, 0x82e7a58, 0x82e7b40, 0x82e7c28, 0x82e7d28, 0x82e7e44, 0x82e7f38, 0x82e8054, 0x82e8154, 0x82e8248, 0x82e8358, 0x82e84c4, 0x82e8638, 0x82e8760, 0x82e8890, 0x82e89d0, 0x82e8b00, 0x82e8c70, 0x82e8dc4, 0x82e8f50, 0x82e90f8, 0x82e924c)),
     "AXPE0": dict(layouts=0x8304ea8, decorations=0x83eb71c, gfx=(0x836dbe8, 0x368), pals=(0x837370c, 0xe0),
+                 easy_chat=(0x83dbf84, 0x83de138),
                  rooms=(0x82e7718, 0x82e7800, 0x82e78e8, 0x82e79d0, 0x82e7ab8, 0x82e7ba0, 0x82e7ca0, 0x82e7dbc, 0x82e7eb0, 0x82e7fcc, 0x82e80cc, 0x82e81c0, 0x82e82d0, 0x82e843c, 0x82e85b0, 0x82e86d8, 0x82e8808, 0x82e8948, 0x82e8a78, 0x82e8be8, 0x82e8d3c, 0x82e8ec8, 0x82e9070, 0x82e91c4)),
     "BPEE0": dict(layouts=0x8481dd4, decorations=0x85a5c08, gfx=(0x8505620, 0x3bc), pals=(0x850bbc8, 0x120),
                  rooms=(0x8440880, 0x8440968, 0x8440a50, 0x8440b38, 0x8440c20, 0x8440d08, 0x8440e08, 0x8440f24, 0x8441018, 0x8441134, 0x8441234, 0x8441328, 0x8441438, 0x84415a4, 0x8441718, 0x8441840, 0x8441970, 0x8441ab0, 0x8441be0, 0x8441d50, 0x8441ea4, 0x8442030, 0x84421d8, 0x844232c)),
@@ -225,6 +229,14 @@ def workshop_parts(lab, mapping, info, header):
     pal_at, pal_size = where["pals"]
     pals = p.read([(pal_at, pal_size)])[0]
     p.read([(u32(pals, 8 * i), 32) for i in range(pal_size // 8) if ok(u32(pals, 8 * i))])
+    # the Easy Chat words (Ruby and Sapphire: every group's words, then the table of 22 pointers
+    # to them), for the Record Workshop's old man, trends and the rest
+    if "easy_chat" in where:
+        words_at, table_at = where["easy_chat"]
+        block = p.read([(words_at, table_at + 22 * 4 - words_at)])[0]
+        ptrs = struct.unpack_from("<22I", block, table_at - words_at)
+        if ptrs[0] != words_at or any(not words_at <= a < table_at for a in ptrs) or list(ptrs) != sorted(ptrs):
+            raise DuoError("the Easy Chat words aren't where pret's notes put them for this game")
     print()
     return bytes(p.image)
 

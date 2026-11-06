@@ -221,7 +221,11 @@ The DUO can sit in a Pokémon Center's **Record Corner** as the other player and
 python duo_events.py mix --base "WILLOW - Tree 1, Route 121 (ENG).sb3" "ODA - Red cave 1, Route 118 (ENG).sb3"
 python duo_events.py mix                                   (no bases: just read the game's)
 python duo_events.py mix --base ... --gift "Eon Ticket"    (a gift item too: the DUO must be player 0)
+python duo_events.py mix --record "MAY - a record.rm3"     (a whole record: bases, TV, old man, trends...)
+python duo_events.py mix --base ... --old-man "BARD - song by WILLOW (ENG).om3" --trend "TREND 1 - ....dt3"
 ```
+
+**Everything else in a record, too** (6 November 2026): the DUO can also bring TV shows (`--tv`), PokéNews (`--news`), the Mauville old man (`--old-man`), Dewford trends (`--trend`), day-care letters (`--mail`) and a Battle Tower trainer (`--tower`), or a whole record (`--record FILE.rm3`). Any part you don't bring is handed back from the game's own record, so that part of the game doesn't change. After a sitting the game's whole record is kept in a `records` folder as an `.rm3`. The formats are in [docs/RECORD_FORMATS.md](docs/RECORD_FORMATS.md); `python records.py` splits a save backup's record into part files, joins part files into a record, shows them, and says what a game would keep (`records.py predict SAVE RECORD.rm3`), by Ruby's own rules.
 
 1. **Back up your save first.** A GBA link cable, either way round (for a gift item, the DUO's GBA on the cable's master end); both GBAs off.
 2. Run the command, switch on the DUO's GBA when asked, then the game when the tool says **Ready**.
@@ -239,7 +243,7 @@ python duo_events.py base show "WILLOW - Tree 1, Route 121 (ENG).sb3"
 python duo_events.py bases "saves\AXVE POKEMON RUBY\2026-11-01 145321 ... .sav"   (a save backup's bases)
 ```
 
-**The Secret Base Workshop** (`secret_base_workshop.html`, also on the web at <https://fredreckless.github.io/ActionReplayMaxDuo-Pokemon-Toolkit/>) does all of this in a browser, no Python needed. Open the file, lay out the room tile by tile (or press **Generate** for a themed base that follows the game's rules, with a clear way from the door to the owner and the PC), choose the owner and team, and save the `.sb3`. It checks everything as the toolkit does, can open an existing `.sb3` to edit, and shows the 160 bytes as you go. "How to use the workshop" at the top explains the controls. To draw the rooms with the game's own pictures, `python duo_rom.py` copies just the parts it needs from a Ruby, Sapphire or Emerald cartridge in the DUO (English versions so far; `--whole` copies any cartridge whole, slowly), and "Use my ROM's graphics…" loads the file.
+**The Record Workshop** (`secret_base_workshop.html`, also on the web at <https://fredreckless.github.io/ActionReplayMaxDuo-Pokemon-Toolkit/>) does all of this in a browser, no Python needed: Secret Bases, and in its other tabs the Mauville old man, Dewford trends and whole records (the words come from your own ROM). Open the file, lay out the room tile by tile (or press **Generate** for a themed base that follows the game's rules, with a clear way from the door to the owner and the PC), choose the owner and team, and save the `.sb3`. It checks everything as the toolkit does, can open an existing `.sb3` to edit, and shows the 160 bytes as you go. "How to use the workshop" at the top explains the controls. To draw the rooms with the game's own pictures, `python duo_rom.py` copies just the parts it needs from a Ruby, Sapphire or Emerald cartridge in the DUO (English versions so far; `--whole` copies any cartridge whole, slowly), and "Use my ROM's graphics…" loads the file.
 
 A base card looks like this:
 
@@ -269,6 +273,10 @@ python duo_battle.py --tournament 40 --level medium --opponent easy
 ```
 
 **Status:** the PC side (6 November 2026): Gen 3 singles with the game's damage, and the three levels tested against each other. The DUO side is next.
+
+## Logs of every run
+
+Every run of the tools (`duo_events.py`, `duo_rom.py`, `maxduo_saves.py`, `records.py`, `duo_battle.py`) writes what it printed, any error, and a few timings to a `logs` folder beside the tools: `logs\latest.log` is always the newest. They hold no save data. If something goes wrong, that file is the one to send (or let Claude read through the desktop app).
 
 ## If something goes wrong
 

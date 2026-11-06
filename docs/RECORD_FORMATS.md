@@ -1,6 +1,8 @@
 # Record files: every part of a Record Mixing record
 
-**Status (6 November 2026): specification, draft 1; the user's decisions are at the end.** It extends
+**Status (6 November 2026): specification, draft 1, in use for Ruby and Sapphire; the user's decisions are
+at the end.** `records.py` reads, checks, writes and predicts every part; `duo_events.py mix` sends any of
+them; the Record Workshop page makes old men, trends and whole records. It extends
 `.sb3` (docs/SB3_FORMAT.md) to everything else a Record Mixing record carries. The tool and the web
 page that will use it are planned in docs/RECORD_WORKSHOP.md.
 

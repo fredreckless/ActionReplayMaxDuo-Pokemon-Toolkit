@@ -1,7 +1,20 @@
 # The Record Workshop: a plan
 
-**Status (6 November 2026): plan, for agreement before any code.** The formats are in
-docs/RECORD_FORMATS.md.
+**Status (6 November 2026, late): steps 1-3 done in the simulator; hardware next.** The formats
+are in docs/RECORD_FORMATS.md.
+
+- Step 1: the game model (`tests/mix_game_model.py`) merges TV shows, news, the old man, trends,
+  day-care letters and the Battle Tower as pokeruby does; `records.py predict` is the tool's own
+  port, and a test checks the two agree in 120 random sittings (both are this session's work, so
+  hardware still has the last word).
+- The DUO sends a whole record (`mix.c`): the PC's file now lives in the firmware's save-transfer
+  buffer (0x02010030, unused while a program runs), which also freed 3 KB of the program's area;
+  parts we don't bring are handed back from the game's own chunks, as before; the game's whole
+  record comes back to the PC (`records\` folder).
+- Step 3 (begun): the page is now the Record Workshop, with tabs: Secret Bases, the Mauville old
+  man, Dewford trends and a whole record. The Easy Chat words are read from the user's ROM (Ruby
+  and Sapphire), and `duo_rom.py` copies them too. Still to come: the TV, mail and Battle Tower
+  tabs, the game's own lines around the words (the Bard's verses, Dewford's chatter), Emerald.
 
 The Secret Base Workshop (`secret_base_workshop.html`) grows into a **Record Workshop**: one page,
 still a single file that works offline and on GitHub Pages, with a tab for each part of a record,

@@ -4,6 +4,7 @@
     python records.py split FILE [--out DIR]       a .rm3, or a Ruby/Sapphire save backup's own record,
                                                    into part files (.sb3 .tv3 .pn3 .om3 .dt3 .dm3 .bt3)
     python records.py join PART... --out FILE.rm3  part files into a whole record
+    python records.py predict SAVE RECORD.rm3      what the save's game would keep after mixing with it
 
 Ruby/Sapphire's layout first (the user's choice, 6 November): it is the one every game mixes with.
 Each file holds the game's own bytes; this module reads, checks, writes and converts them. The
@@ -319,6 +320,193 @@ def kind_of_file(path, data):
     raise ValueError(f"{os.path.basename(path)}: not a record file (.rm3 or {' '.join(EXT_PART)})")
 
 
+# ------------------------------------------------------------------- what the game will keep
+# The tool's own reading of pokeruby's merges for two players (tests/mix_game_model.py has an
+# independent copy; the tests check they agree). "game" is the receiving Ruby or Sapphire.
+SB2_TOWER_RECORDS_AT = 0xA8 + 0xA4
+SB2_SEEN_AT = 0x18 + 0x44
+GAME_CLEAR_FLAG = 0x804
+SPECIES_FIELDS = {1: (2,), 3: (2,), 4: (6,), 5: (2, 0x1C), 6: (2,), 7: (0x0A, 0x14), 21: (0x10,), 23: (0x0C, 0x0E),
+                  24: (4,), 25: (8, 4)}
+ALWAYS_SHOWN = (2, 22, 41)                 # kinds that don't depend on the Pokédex
+
+
+def _random(state):
+    """The games' random number: (new state, value)."""
+    state = (state * 1103515245 + 24691) & 0xFFFFFFFF
+    return state, state >> 16
+
+
+def game_state(save, game="Ruby", language=2):
+    """What the game holds that decides the merge: its record as it would send it, its five Battle
+    Tower trainers, its trainer ID, which Pokémon it has seen, and whether it has beaten the game."""
+    sb1, sb2 = save_blocks(save)
+    seen_bits = sb2[SB2_SEEN_AT:SB2_SEEN_AT + 52]
+    clear = bool(sb1[0x1220 + GAME_CLEAR_FLAG // 8] >> (GAME_CLEAR_FLAG % 8) & 1)
+    import duo_events
+    def seen(species):
+        dex = duo_events.pk3_species(species)[0] if 0 < species <= 411 else 0
+        return dex > 0 and bool(seen_bits[(dex - 1) // 8] >> ((dex - 1) % 8) & 1)
+    return dict(record=record_from_save(save, game, language), tid=struct.unpack_from("<I", sb2, 0x0A)[0],
+                tower=[bytes(sb2[SB2_TOWER_RECORDS_AT + 164 * i:SB2_TOWER_RECORDS_AT + 164 * (i + 1)]) for i in range(5)],
+                seen=seen, game_clear=clear)
+
+
+def predict(state, ours, our_tid, game_is_player0=False):
+    """What a Ruby or Sapphire keeps after mixing with one partner who sends `ours` (a record):
+    returns {tv, news, old_man, trends, daycare_mail, tower, tower_slots}. `state` as game_state()
+    gives it. tower_slots: where the partner's trainer may go (more than one when the game picks
+    one of its lowest win streaks at random)."""
+    mine = split(state["record"])
+    theirs = split(ours)
+    order = (mine, theirs) if game_is_player0 else (theirs, mine)
+    ids = (state["tid"] & 0xFFFF, our_tid & 0xFFFF) if game_is_player0 else (our_tid & 0xFFFF, state["tid"] & 0xFFFF)
+    me = 0 if game_is_player0 else 1
+    out = {}
+
+    # TV: each side's shows that are off the air move across, if the receiver didn't make them
+    shows = [[bytearray(b) for b in order[p]["tv"]] for p in (0, 1)]
+    def channel_of(kind):
+        return channel(kind) if kind <= 60 else 0
+    def give(show, to_id):
+        lo, hi = to_id & 0xFF, to_id >> 8
+        made_by, passed_by, passed_by2 = (show[0x22], show[0x23]), (show[0x20], show[0x21]), (show[0x1E], show[0x1F])
+        ch = channel_of(show[0])
+        if ch == 3:
+            if passed_by == (lo, hi) or made_by == (lo, hi):
+                return None
+            moved = bytearray(show)
+            moved[0x20:0x22], moved[0x1E:0x20] = bytes(passed_by2), bytes([lo, hi])
+        elif ch in (2, 4):
+            if made_by == (lo, hi):
+                return None
+            moved = bytearray(show)
+            moved[0x22:0x24], moved[0x20:0x22] = bytes(passed_by), bytes([lo, hi])
+        else:
+            return None
+        moved[1] = 1
+        if ch == 4:
+            moved[0x16:0x18] = b"\x01\x00"
+        return moved
+    while True:
+        finished = 0
+        for p in (0, 1):
+            k = next((k for k in range(24) if not shows[p][k][1] and 1 <= shows[p][k][0] <= 60), None)
+            if k is None:
+                finished += 1
+                continue
+            q = 1 - p
+            free = next((f for f in range(5, 24) if not shows[q][f][0]), None)
+            moved = give(shows[p][k], ids[q]) if free is not None else None
+            if moved is not None:
+                shows[q][free] = moved
+            shows[p][k] = bytearray(36)
+        if finished == 2:
+            break
+    tv = shows[me]
+    def compact(lo, hi):
+        kept = [b for b in tv[lo:hi] if b[0]]
+        tv[lo:hi] = kept + [bytearray(36) for _ in range(hi - lo - len(kept))]
+    compact(0, 5); compact(5, 24)
+    free = sum(1 for b in tv[5:24] if not b[0])
+    if free < 5:
+        tv[5:24] = tv[5 + 5 - free:24] + [bytearray(36) for _ in range(5 - free)]
+    for b in tv[:24]:
+        if b[0] in (0,) + ALWAYS_SHOWN:
+            continue
+        if b[0] in SPECIES_FIELDS:
+            if not all(state["seen"](struct.unpack_from("<H", b, at)[0]) for at in SPECIES_FIELDS[b[0]]):
+                b[1] = 0
+        else:
+            b[1] = 0
+        if not state["game_clear"] and b[0] in (7, 41):
+            b[1] = 0
+    if not state["game_clear"]:
+        for b in tv[:24]:
+            if b[0] == 41:
+                b[1] = 0
+    out["tv"] = [bytes(b) for b in tv]
+
+    # News: news of a kind the game hasn't got comes in as "upcoming"; Ruby keeps kinds 1-3
+    news = [[list(struct.unpack_from("<BBH", order[p]["news"][0], 4 * i)) for i in range(16)] for p in (0, 1)]
+    for i in range(16):
+        for p in (0, 1):
+            item = news[p][i]
+            dst = news[1 - p]
+            if item[0] and any(not d[0] for d in dst) and all(d[0] != item[0] for d in dst):
+                dst[next(x for x in range(16) if not dst[x][0])] = [item[0], 1, item[2]]
+    kept = [n for n in news[me] if 0 < n[0] <= 3]
+    kept += [[0, 0, 0]] * (16 - len(kept))
+    if not state["game_clear"]:
+        kept = [[k, 0, d] for k, s_, d in kept]
+    out["news"] = [tuple(n) for n in kept]
+
+    # The old man: the partner's, talking afresh
+    o = bytearray(theirs["old_man"][0])
+    if o[0] in (0, 1, 2, 3):
+        o[{0: 0x29, 1: 1, 2: 49, 3: 1}[o[0]]] = 0
+    out["old_man"] = bytes(o)
+
+    # Trends: everyone's, the trendier copy of a phrase, sorted, the top five
+    pool = {}
+    order_seen = []
+    for p in (0, 1):
+        for t in order[p]["trends"]:
+            w = struct.unpack("<HHHH", t)
+            key = w[2:]
+            if key not in pool:
+                pool[key] = w
+                order_seen.append(key)
+            elif pool[key][0] & 0x7F < w[0] & 0x7F:
+                pool[key] = w
+    items = [pool[k] for k in order_seen]
+    rank = lambda w: (w[0] & 0x7F, w[0] >> 7 & 0x7F, w[1], w[2], w[3])
+    for h in range(len(items)):
+        for i in range(h + 1, len(items)):
+            if rank(items[i]) >= rank(items[h]):
+                items[i], items[h] = items[h], items[i]
+    out["trends"] = [struct.pack("<HHHH", *w) for w in items[:5]] + [bytes(8)] * (5 - min(5, len(items)))
+
+    # Day-care letters: swapped between the two sides' Pokémon that hold nothing
+    mail = [bytearray(order[p]["mail"][0]) for p in (0, 1)]
+    rng = ids[0] & 0xFFFF
+    picks = []
+    for p in (0, 1):
+        m = mail[p]
+        n = struct.unpack_from("<I", m, 112)[0]
+        free = [j < min(n, 2) and not m[116 + 2 * j] for j in (0, 1)]
+        if free[0] != free[1]:
+            picks.append((p, 0 if free[0] else 1))
+        elif free[0]:
+            has = [struct.unpack_from("<H", m, 56 * j + 0x20)[0] != 0 for j in (0, 1)]
+            if has[0] != has[1]:
+                picks.append((p, 0 if has[0] else 1))
+            else:
+                rng, r = _random(rng)
+                picks.append((p, r % 2))
+    if len(picks) == 2:
+        (a, ja), (b, jb) = picks
+        la, lb = bytes(mail[a][56 * ja:56 * ja + 56]), bytes(mail[b][56 * jb:56 * jb + 56])
+        mail[a][56 * ja:56 * ja + 56], mail[b][56 * jb:56 * jb + 56] = lb, la
+    out["daycare_mail"] = bytes(mail[me][:112])
+
+    # The Battle Tower: the partner's trainer into one of the five
+    new = theirs["tower"][0]
+    tower = [bytes(r) for r in state["tower"]]
+    same = [i for i, r in enumerate(tower) if r[12:16] == new[12:16] and r[8] == new[8]]
+    empty = [i for i, r in enumerate(tower) if struct.unpack_from("<H", r, 2)[0] == 0]
+    if same:
+        slots = same[:1]
+    elif empty:
+        slots = empty[:1]
+    else:
+        streaks = [struct.unpack_from("<H", r, 2)[0] for r in tower]
+        slots = [i for i, v in enumerate(streaks) if v == min(streaks)]
+    out["tower_slots"] = slots
+    out["tower"] = [new if i == slots[0] else r for i, r in enumerate(tower)] if len(slots) == 1 else tower
+    return out
+
+
 # ------------------------------------------------------------------- command line
 def _show(paths):
     bad = 0
@@ -394,6 +582,29 @@ def _join(paths, out, gift):
     return 0
 
 
+def _predict(save_path, ours_path, our_tid, first):
+    game, language = SB.game_from_path(os.path.abspath(save_path))
+    state = game_state(open(save_path, "rb").read(), game or "Ruby", language or 2)
+    ours = open(ours_path, "rb").read()
+    before, after = split(state["record"]), predict(state, ours, our_tid, first)
+    print(f"What the game keeps after mixing with {os.path.basename(ours_path)} (Ruby's own rules):")
+    new = [b for b in after["tv"][5:24] if b[0] and b not in before["tv"]]
+    print(f"  TV: {len(new)} new show(s)" + "".join(f"\n    {describe('tv', b, language or 2)}" for b in new))
+    kinds = [NEWS_KINDS.get(k, k) for k, st, d in after["news"] if k]
+    print(f"  News: {', '.join(map(str, kinds)) or 'none'}" + ("" if state["game_clear"] else " (not active until the game is beaten)"))
+    print(f"  Old man: {describe('old_man', after['old_man'], language or 2)}")
+    print("  Trends, top first:")
+    for t in after["trends"]:
+        if any(t):
+            print(f"    {describe('trends', t)}")
+    changed = after["daycare_mail"] != before["mail"][0][:112]
+    print(f"  Day-care letters: {'swapped' if changed else 'unchanged'}")
+    slots = after["tower_slots"]
+    print(f"  Battle Tower: the partner's trainer goes to slot {slots[0] + 1}" if len(slots) == 1 else
+          f"  Battle Tower: the partner's trainer replaces one of slots {', '.join(str(x + 1) for x in slots)} (the game picks)")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="records.py", description="Record Mixing records and their parts, as files.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -401,6 +612,10 @@ def main(argv=None):
     s = sub.add_parser("split"); s.add_argument("file"); s.add_argument("--out", default=".")
     s = sub.add_parser("join"); s.add_argument("files", nargs="+"); s.add_argument("--out", required=True)
     s.add_argument("--gift", help="a gift item for the others (only player 0's counts)")
+    s = sub.add_parser("predict", help="what a Ruby or Sapphire save would keep after mixing with a record")
+    s.add_argument("save"); s.add_argument("record", help="the partner's record (.rm3)")
+    s.add_argument("--partner-id", type=int, default=0, help="the partner's trainer ID (default 0)")
+    s.add_argument("--game-first", action="store_true", help="the game is player 0 (the cable's master end)")
     a = ap.parse_args(argv)
     import runlog
     runlog.start("records", argv)
@@ -409,6 +624,8 @@ def main(argv=None):
             return _show(a.files)
         if a.cmd == "split":
             return _split(a.file, a.out)
+        if a.cmd == "predict":
+            return _predict(a.save, a.record, a.partner_id, a.game_first)
         return _join(a.files, a.out, a.gift)
     except (ValueError, OSError) as e:
         print(f"records.py: {e}", file=sys.stderr)

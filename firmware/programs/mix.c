@@ -12,17 +12,18 @@
  *     ("seated");
  *   - once both players are seated, each game runs Task_RecordMixing_Main: its room keys stop
  *     (ClearLinkCallback_2), and after 80 frames the records go across in 24 rounds: the master
- *     asks with 0xCCCC 1 and every player sends 200 bytes. Our record is the PC's twenty bases
- *     (rounds 0-15 exactly), then - so that nothing else in the game changes - its own TV shows,
- *     news, Mauville old man, Dewford trends and day-care mail handed straight back, which takes
- *     waiting for the game's block of each later round before sending ours; an empty Battle Tower
- *     record (a friend who hasn't been there); and the PC's gift item (only player 0's counts);
- *   - the game's bases (its rounds 0-15) are kept, in place of ours once each has gone, for the PC;
+ *     asks with 0xCCCC 1 and every player sends 200 bytes. Our record is the PC's whole record
+ *     (docs/RECORD_FORMATS.md: bases, TV shows, news, old man, trends, day-care mail, Battle Tower,
+ *     gift item), except the parts the PC asks us to hand back: for those, the game's own bytes go
+ *     straight back, so that part of the game doesn't change, which takes waiting for the game's
+ *     chunk of that round before sending ours;
+ *   - the game's whole record is kept, round by round in place of ours once each has gone, for the PC;
  *   - the game merges, saves (by itself, no link barrier) and closes the link (0x5FFF); then
  *     reopens it as 0x3322 (cable_club.c sub_8083664) and the room comes back: we stand up (26),
  *     walk back to the door and leave (23), or follow the player out;
  *   - 0x5FFF answered, as always.
- * The PC loads: base count, our gender, gift item, trainer name and ID, 20 x 160-byte bases. */
+ * The PC loads: base count, our gender, trainer name and ID, our 4,656-byte record, which parts to
+ * hand back, and a line for the screen. */
 typedef unsigned int u32;
 typedef unsigned short u16;
 typedef unsigned char u8;
@@ -68,9 +69,8 @@ typedef struct {
 
 #define CHUNK       200   /* record_mixing.c BUFFER_CHUNK_SIZE */
 #define ROUNDS      24    /* Ruby sends 24 chunks of its 0x1230-byte record */
-#define BASE_ROUNDS 16    /* 20 x 160 bytes of Secret Bases: exactly rounds 0-15 */
-#define BT_START    0x1124 /* struct PlayerRecords: the Battle Tower record, 0xA4 bytes */
-#define GIFT_AT     0x11C8 /* u16 giftItem, then filler to 0x1230 */
+#define RECORD_SIZE 0x1230 /* struct PlayerRecords: bases, TV shows, news, old man, trends, mail,
+                            * Battle Tower, gift item, filler (docs/RECORD_FORMATS.md) */
 #define START_WAIT  150   /* as master: frames after both are seated before the first round
                            * (each game waits 20 + 60 frames, then copies its first chunk) */
 #define ROUND_GAP   8     /* as master: frames between a round's end and the next request */
@@ -88,18 +88,22 @@ static u32 now(void)
     return lines_total;
 }
 
-/* ------------------------------------------------------------------ what the PC loads */
-#define BLOB_MAX (16 + 3200 + 28)
-static u32 blob_words[BLOB_MAX / 4], put_at, blob_ready;
-#define BLOB ((u8 *)blob_words)
+/* ------------------------------------------------------------------ what the PC loads
+ * Our whole record is too big for the program's own area, so the PC's file lives in the
+ * firmware's save-transfer buffer, which nothing uses while a program runs. */
+#define BLOB_AT     0x02010030          /* build_v4.py BUFFER */
+#define BLOB_MAX    (48 + RECORD_SIZE)  /* (then the last round's filler, zeroed here) */
+static u32 put_at, blob_ready;
+#define blob_words  ((u32 *)BLOB_AT)
+#define BLOB        ((u8 *)BLOB_AT)
 #define BASE_COUNT  BLOB[0]
-#define OUR_GENDER  BLOB[1]             /* the first base's owner: 0 boy, 1 girl */
-#define GIFT_LO     BLOB[2]
-#define GIFT_HI     BLOB[3]
+#define OUR_GENDER  BLOB[1]             /* our trainer: 0 boy, 1 girl */
 #define OUR_NAME    (BLOB + 4)          /* 8 bytes, game charset */
 #define OUR_TID     (BLOB + 12)         /* 4 bytes */
-#define BASES       (BLOB + 16)         /* 20 x 160: ours to send; then the game's, as they arrive */
-#define LABEL       ((const char *)BLOB + 3216)  /* 28: a line for the screen, e.g. "Bringing 12 bases" */
+#define MIRROR      BLOB[16]            /* bit k: hand the game's own part k back (TV shows, news,
+                                         * old man, trends, day-care mail), so it doesn't change */
+#define LABEL       ((const char *)BLOB + 20)   /* 28: a line for the screen */
+#define RECORD      (BLOB + 48)         /* our whole record to send; then the game's, round by round */
 
 /* ------------------------------------------------------------------ progress, for the PC */
 enum { ST_WAITING, ST_HANDSHAKE, ST_CONNECTED, ST_ROOM, ST_WALKING, ST_SEATED, ST_MIXING, ST_MIXED,
@@ -274,25 +278,36 @@ static void build_card(void)              /* the trainer card the game shows for
     card[0x38] = game_player[16];
 }
 
-static void flush_copy(void)              /* a base round's game block, once ours has gone */
+static void flush_copy(void)              /* the game's chunk, kept for the PC once ours has gone */
 {
-    /* (both blocks of a round start in the same frame, so ours has always gone by the time the
-     * game's arrives; the wait is a safety margin, not something the tests can tell apart) */
-    if (copy_pending && !tx_on) {
-        memcpy(BASES + CHUNK * (game_blocks - 1), rx_buf, CHUNK);
+    if (copy_pending && !tx_on && our_blocks >= game_blocks) {
+        u32 at = CHUNK * (game_blocks - 1);
+        memcpy(RECORD + at, rx_buf, at + CHUNK <= RECORD_SIZE ? CHUNK : RECORD_SIZE - at);
         copy_pending = 0;
     }
 }
 
-static void send_mirror(u32 r)            /* round r >= 16: the game's own chunk, handed back */
+static const u16 part_at[5] = { 0x0C80, 0x1004, 0x1044, 0x1084, 0x10AC }, part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124 };
+static u32 round_mirrors(u32 r)          /* does round r carry any of the game's own parts back? */
 {
-    memcpy(chunk, rx_buf, CHUNK);
-    u32 at = CHUNK * r;
-    for (u32 i = 0; i < CHUNK; i++, at++) {
-        if (at >= BT_START && at < GIFT_AT) chunk[i] = 0;     /* no Battle Tower record */
-        else if (at == GIFT_AT) chunk[i] = GIFT_LO;
-        else if (at == GIFT_AT + 1) chunk[i] = GIFT_HI;
-        else if (at > GIFT_AT + 1) chunk[i] = 0;              /* the filler */
+    u32 lo = CHUNK * r, hi = lo + CHUNK;
+    for (u32 k = 0; k < 5; k++)
+        if (MIRROR >> k & 1 && part_at[k] < hi && part_end[k] > lo) return 1;
+    return 0;
+}
+
+static void send_round(u32 r)             /* our chunk r: our record, with any parts handed back */
+{
+    u32 lo = CHUNK * r, hi = lo + CHUNK;
+    if (!round_mirrors(r)) {
+        send_block(RECORD + lo, CHUNK, 1);                    /* (the last round's filler is zero) */
+        return;
+    }
+    memcpy(chunk, RECORD + lo, CHUNK);
+    for (u32 k = 0; k < 5; k++) {
+        if (!(MIRROR >> k & 1)) continue;
+        u32 a = part_at[k] > lo ? part_at[k] : lo, b = part_end[k] < hi ? part_end[k] : hi;
+        if (a < b) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);
     }
     send_block(chunk, CHUNK, 1);
 }
@@ -304,9 +319,8 @@ static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
         u32 r = rounds_asked++;
         if (state < ST_MIXING) state = ST_MIXING;
         cafe_stopped = 1;
-        if (r < BASE_ROUNDS) send_block(BASES + CHUNK * r, CHUNK, 1);
-        else if (game_blocks > r) send_mirror(r);             /* (the game's was quicker) */
-        else mirror_wait = 1;
+        if (!round_mirrors(r) || game_blocks > r) send_round(r);   /* (the game's chunk is here) */
+        else mirror_wait = 1;                                      /* wait for it, to hand it back */
     } else if (n == 2) {
         build_card();
         send_block(card, 100, 4);
@@ -330,13 +344,12 @@ static void game_block(u32 size)          /* a whole block from the game has arr
     }
     if (size == CHUNK && game_lp_type == LT_MIX && game_blocks < ROUNDS) {
         u32 r = game_blocks++;
-        if (r < BASE_ROUNDS) {
-            copy_pending = 1;                                  /* into BASES once ours has gone */
-            flush_copy();
-        } else if (mirror_wait && r + 1 == rounds_asked) {
+        copy_pending = 1;                                      /* into RECORD once ours has gone */
+        if (mirror_wait && r + 1 == rounds_asked) {
             mirror_wait = 0;
-            send_mirror(r);
+            send_round(r);
         }
+        flush_copy();
     }
 }
 
@@ -532,7 +545,7 @@ static int pc_service(api_t *api)
         return 1;
     }
     if (pkt[3] == 0x2C) {
-        if (put_at < sizeof blob_words / 4)
+        if (put_at < BLOB_MAX / 4)
             blob_words[put_at++] = arg;
         api->reply(0x2C, put_at);
         return 0;
@@ -542,9 +555,9 @@ static int pc_service(api_t *api)
     case 1: v = bad_checksums | barriers << 16; break;
     case 2: v = game_lp_type | game_lp_lang << 16; break;
     case 3: v = rounds_asked | game_blocks << 8 | our_blocks << 16 | game_ready << 24; break;
-    case 4: {                                                    /* the bases area, a word at a time */
+    case 4: {                                                    /* the record, a word at a time */
         u32 at = 4 * idx;
-        v = at + 3 < 3200 ? BASES[at] | BASES[at + 1] << 8 | BASES[at + 2] << 16 | (u32)BASES[at + 3] << 24 : 0;
+        v = at + 3 < RECORD_SIZE ? RECORD[at] | RECORD[at + 1] << 8 | RECORD[at + 2] << 16 | (u32)RECORD[at + 3] << 24 : 0;
         break;
     }
     case 6: v = game_player[16] | game_player[17] << 8 | game_player[18] << 16 | (u32)game_player[19] << 24; break;
@@ -556,9 +569,10 @@ static int pc_service(api_t *api)
     case 8: v = max_gap; break;
     case 10: v = rw_blocked_now; break;                        /* the way to the seat or door is blocked */
     case 9: v = game_player[16 + 0x10]; break;                  /* the game's player's gender */
-    case 20: put_at = 0; blob_ready = 0; v = sizeof blob_words; break;
+    case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
-             blob_ready = put_at * 4 >= 16 + 3200 && BASE_COUNT <= 20;
+             blob_ready = put_at * 4 >= BLOB_MAX && BASE_COUNT <= 20;
+             if (blob_ready) zero(RECORD + RECORD_SIZE, ROUNDS * CHUNK - RECORD_SIZE);
              break;
     default: v = 0xFFFFFFFF; break;
     }
@@ -611,6 +625,7 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))
             pc_service(api);
+        flush_copy();
         if (rw_need && send_idx == 0 && recv_idx == 0 && !in_flight)
             rw_plan_run(is_master ? 0 : 1);       /* (between two frames' cycles; it gives way to transfers) */
         /* the end: done once our own 0x5FFF has gone out and the game has had time to close */

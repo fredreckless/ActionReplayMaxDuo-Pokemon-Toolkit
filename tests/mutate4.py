@@ -70,6 +70,9 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 }
 
 PC_MUTANTS = {
+    "mix: the gift item left out of our record": ("    parts[\"gift\"] = gift\n", "    parts[\"gift\"] = 0\n", "Record Mixing, the DUO as master"),
+    "mix: a part we bring is handed back from the game instead": ("    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS) if not parts.get(name))", "    mirror = 0x1F", "Record Mixing with a whole record"),
+    "records: the prediction keeps the lower trendiness": ("            elif pool[key][0] & 0x7F < w[0] & 0x7F:", "            elif pool[key][0] & 0x7F > w[0] & 0x7F:", "Record files: what Ruby keeps"),
     "trade: the trainer card without the trainer's name": ("    card[0x30:0x38] = name[:8]\n", "", "trade, the game as master"),
     "trade: the trainer card without a Pokedex or a new save's profile": ("    card[0x02] = 1                                                     # has a Pokedex\n", "", "trade, the game as master"),
     "event files: any size accepted": ("        if len(data) > MEV_MAX:", "        if False:", "e-Reader: with no event"),
@@ -119,8 +122,7 @@ PC_MUTANTS = {
     "Secret Bases: the player's own base keeps its out-of-date team": ("        if i == 0:                                     # SetPlayerSecretBaseParty", "        if False:", "Secret Bases from a save backup"),
     "Secret Bases: dolls allowed on the floor": ("        if (big and tile != \"L\") or (not big and tile not in (\"s\", \"L\")):", "        if big and tile != \"L\":", "Secret Base files"),
     "Secret Bases: two bases in one spot allowed": ("        if f[\"location\"] in places:", "        if False:", "Secret Base files"),
-    "Secret Bases: the game's bases read back one word out": ("            words = [program_poll(duo, 4 | k << 8) for k in range(SB.SB3_SIZE * SB.BASES_IN_SAVE // 4)]", "            words = [program_poll(duo, 4 | (k + 1) << 8) for k in range(SB.SB3_SIZE * SB.BASES_IN_SAVE // 4)]", "Record Mixing, the DUO as master"),
-    "Secret Bases: the gift item never loaded": ("        head = bytes([len(bases), f[\"gender\"], gift & 0xFF, gift >> 8])", "        head = bytes([len(bases), f[\"gender\"], 0, 0])", "Record Mixing, the DUO as master"),
+    "Secret Bases: the game's bases read back one word out": ("        words.append(program_poll(duo, 4 | k << 8))", "        words.append(program_poll(duo, 4 | (k + 1) << 8))", "Record Mixing, the DUO as master"),
     "every Pokemon's original route called a trade": ('    if route == "trade":\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', '    if True:\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', "how each event was originally given out"),
     "party stats left empty in a traded Pokemon": ("    return box + pk3_party_fields(f)", "    return box + bytes(20)", "party form"),
     "known game table ignored": ("    known = KNOWN_SAVE_GAMES.get(info[\"code\"][:3])\n    if forced:", "    known = None\n    if forced:", "known games"),
@@ -192,11 +194,13 @@ def run(kind, name):
             tool = tool.replace(good[b], bad[b])
         open(os.path.join(work, "duo_events.py"), "w").write(tool)
         shutil.copy(os.path.join(paths.ROOT, "maxduo_saves.py"), work)
-        shutil.copy(os.path.join(paths.ROOT, "secret_bases.py"), work)
+        for f in ("secret_bases.py", "records.py", "runlog.py"):
+            shutil.copy(os.path.join(paths.ROOT, f), work)
         env = dict(os.environ, MAXDUO_TOOL_DIR=work)
     else:
         old, new, pick = PC_MUTANTS[name]
-        tools = {f: open(os.path.join(paths.ROOT, f)).read() for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py")}
+        tools = {f: open(os.path.join(paths.ROOT, f)).read() for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py",
+                                                                      "records.py", "runlog.py")}
         if old == "ADAPTER_IMAGE":                     # rebuild the embedded program with a wrong ID (valid CRC)
             sys.path.insert(0, paths.FIRMWARE)
             import programs
@@ -253,16 +257,17 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13;", "seat_x = is_master ? 6 : 6;", "Record Mixing, the game as master"),
     "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
-    "mix: the game's own sections not handed back": ("    memcpy(chunk, rx_buf, CHUNK);", "    zero(chunk, CHUNK);", "Record Mixing, the game as master"),
-    "mix: the game's Battle Tower record handed back too": ("        if (at >= BT_START && at < GIFT_AT) chunk[i] = 0;     /* no Battle Tower record */\n        else if", "        if", "Record Mixing, the game as master"),
-    "mix: the gift item left out": ("        else if (at == GIFT_AT) chunk[i] = GIFT_LO;", "        else if (at == GIFT_AT) chunk[i] = 0;", "Record Mixing, the DUO as master"),
+    "mix: the game's own sections not handed back": ("        if (a < b) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "        if (0) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "Record Mixing, the game as master"),
+    "mix: the game's Battle Tower record handed back too": ("part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124 };", "part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x11C8 };", "Record Mixing, the game as master"),
+    "mix: the game's chunk kept before ours is made from that round - our parts in it lost": ("        copy_pending = 1;                                      /* into RECORD once ours has gone */\n        if (mirror_wait", "        copy_pending = 1;                                      /* into RECORD once ours has gone */\n        memcpy(RECORD + CHUNK * r, rx_buf, CHUNK);\n        if (mirror_wait", "Record Mixing with a whole record"),
+    "mix: the PC's record from the wrong place in the file": ("#define RECORD      (BLOB + 48)", "#define RECORD      (BLOB + 16)", "Record Mixing with a whole record"),
     "mix: as master, asks for the next round at once": ("if (++round_timer > ROUND_GAP)", "if (++round_timer > 0)", "Record Mixing, the DUO as master"),
     "mix: as master, starts before the game has its first chunk ready": ("#define START_WAIT  150", "#define START_WAIT  10", "Record Mixing, the DUO as master"),
     "mix: room keys sent all through the mixing": ("    if (game_lp_type == LT_MIX && room_keys_seen && !cafe_stopped) {", "    if (game_lp_type == LT_MIX && room_keys_seen) {", "Record Mixing, the game as master"),
     "mix: as master, opens the room again with the Cable Club's link type": ("    return state >= ST_MIXED ? LT_AFTER : LT_MIX;", "    return LT_MIX;", "Record Mixing, the DUO as master"),
     "mix: never follows the player out of the room": ("    if (game_exiting) { sent_exit = 1;", "    if (0) { sent_exit = 1;", "Record Mixing, the gift as player 1"),
     "mix: screen lines shown in the middle of a link session": ("if (shown == state || (linked && state != ST_DONE)) return;", "if (shown == state) return;", "Record Mixing, the game as master"),
-    "mix: later rounds sent without waiting for the game's chunk": ("        else mirror_wait = 1;", "        else send_mirror(r);", "Record Mixing, the game as master"),
+    "mix: later rounds sent without waiting for the game's chunk": ("        else mirror_wait = 1;                                      /* wait", "        else send_round(r);                                      /* wait", "Record Mixing, the game as master"),
     "mix: the room's \"ready\" (0x2FFE) never answered - the game stays black (lab session 31)": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Record Mixing, the game as master"),
 }
 

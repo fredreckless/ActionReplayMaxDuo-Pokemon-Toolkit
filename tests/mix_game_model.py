@@ -248,10 +248,254 @@ def mix_bases(own, records, my_id, players, player, has_secret_power=True):
     return saved
 
 
+# ---------------------------------------------------------------- the rest of the record, ported
+# (pokeruby tv.c, dewford_trend.c, mauville_man.c, trader.c, record_mixing.c, battle_tower.c, on
+# their own, for two players; records.py has the tool's own copy, so the two check each other)
+SHOW, SHOWS, NEWS, TOWER = 36, 25, 16, 0xA4
+
+
+class GameRng:
+    """random.c: the GBA games' linear congruential generator."""
+    def __init__(self, seed=0):
+        self.state = seed & 0xFFFFFFFF
+
+    def next(self):
+        self.state = (self.state * 1103515245 + 24691) & 0xFFFFFFFF
+        return self.state >> 16
+
+
+def _tv_channel(kind):                               # GetTVChannelByShowType
+    if kind == 0:
+        return 0
+    if 0 < kind <= 20:
+        return 2
+    if 20 < kind <= 40:
+        return 3
+    if 40 < kind <= 60:
+        return 4
+    return 0
+
+
+def _tv_delete(lst, i):                              # sub_80BF55C
+    lst[i][:] = bytes(SHOW)
+
+
+def _tv_compact(lst):                                # sub_80BF588 (the second loop clears the save's own slot)
+    for i in range(4):
+        if lst[i][0] == 0:
+            for j in range(i + 1, 5):
+                if lst[j][0]:
+                    lst[i][:] = lst[j]
+                    _tv_delete(lst, j)
+                    break
+    for i in range(5, 24):
+        if lst[i][0] == 0:
+            for j in range(i + 1, 24):
+                if lst[j][0]:
+                    lst[i][:] = lst[j]
+                    _tv_delete(lst, j)
+                    break
+
+
+def _tv_copy(dst, src, receiver_id):                 # sub_80C004C / sub_80C00B4 / sub_80C0134
+    lo, hi = receiver_id & 0xFF, receiver_id >> 8 & 0xFF
+    ch = _tv_channel(src[0])
+    if ch == 3:
+        if (src[0x20], src[0x21]) == (lo, hi) or (src[0x22], src[0x23]) == (lo, hi):
+            return False
+        src[0x20], src[0x21] = src[0x1E], src[0x1F]
+        src[0x1E], src[0x1F] = lo, hi
+    elif ch in (2, 4):
+        if (src[0x22], src[0x23]) == (lo, hi):
+            return False
+        src[0x22], src[0x23] = src[0x20], src[0x21]
+        src[0x20], src[0x21] = lo, hi
+    else:
+        return False
+    dst[:] = src
+    dst[1] = 1
+    if ch == 4:
+        struct.pack_into("<H", dst, 0x16, 1)         # (common.var16[0]: the outbreak's days left)
+    return True
+
+
+def mix_tv(lists, ids, own, seen=lambda species: True, game_clear=True):
+    """ReceiveTvShowsData for every player's 25 shows (lists of bytearrays, by player number, changed
+    in place; `own` the receiving game's number), `ids` the link players' trainer IDs."""
+    n = len(lists)
+    while True:
+        for i in range(n):
+            if i == 0:
+                done = 0
+            idx = next((k for k in range(24) if lists[i][k][1] == 0 and 0 <= lists[i][k][0] - 1 < 60), -1)
+            if idx == -1:
+                done += 1
+                if done == n:
+                    break
+                continue
+            for j in range(n - 1):
+                other = (i + j + 1) % n
+                free = next((k for k in range(5, 24) if lists[other][k][0] == 0), -1)
+                if free != -1 and _tv_copy(lists[other][free], lists[i][idx], ids[other]):
+                    _tv_delete(lists[i], idx)
+                    break
+            else:
+                _tv_delete(lists[i], idx)
+        else:
+            continue
+        break
+    mine = lists[own]
+    _tv_compact(mine)
+    empty = sum(1 for k in range(5, 24) if mine[k][0] == 0)    # sub_80C04A0
+    for k in range(5 - empty):
+        _tv_delete(mine, k + 5)
+    _tv_compact(mine)
+    for k in range(24):                                          # sub_80C01D4
+        b = mine[k]
+        kind = b[0]
+        species = {1: (2,), 3: (2,), 4: (6,), 5: (2, 0x1C), 6: (2,), 7: (0x0A, 0x14), 21: (0x10,), 23: (0x0C, 0x0E),
+                   24: (4,), 25: (8, 4)}
+        if kind in (0, 2, 22, 41):
+            continue
+        if kind in species:
+            for at in species[kind]:
+                if not seen(struct.unpack_from("<H", b, at)[0]):
+                    b[1] = 0
+        else:
+            b[1] = 0
+    if not game_clear:                                           # sub_80C0408
+        for k in range(24):
+            if mine[k][0] in (7, 41):
+                mine[k][1] = 0
+
+
+def mix_news(lists, own, game_clear=True):
+    """ReceivePokeNewsData: every player's 16 news items as [kind, state, days] lists."""
+    n = len(lists)
+    for i in range(NEWS):
+        for j in range(n):
+            if lists[j][i][0] == 0:
+                continue
+            for k in range(n - 1):
+                dst = lists[(j + k + 1) % n]
+                free = next((x for x in range(NEWS) if dst[x][0] == 0), -1)
+                if free != -1:
+                    src = lists[j][i]
+                    if src[0] and all(dst[x][0] != src[0] for x in range(NEWS)):
+                        dst[free] = [src[0], 1, src[2]]
+    mine = lists[own]
+    for i in range(NEWS):                                        # sub_80C0750
+        if mine[i][0] > 3:
+            mine[i] = [0, 0, 0]
+    for i in range(15):
+        if mine[i][0] == 0:
+            for j in range(i + 1, NEWS):
+                if mine[j][0]:
+                    mine[i], mine[j] = mine[j], [0, 0, 0]
+                    break
+    if not game_clear:                                           # sub_80C0788
+        for x in mine:
+            x[1] = 0
+
+
+def _trend_before(a, b):                             # sub_80FA670, mode 2: a sorts before b
+    ka = (a[0] & 0x7F, a[0] >> 7 & 0x7F, a[1], a[2], a[3])
+    kb = (b[0] & 0x7F, b[0] >> 7 & 0x7F, b[1], b[2], b[3])
+    for x, y in zip(ka, kb):
+        if x != y:
+            return x > y
+    return True
+
+
+def mix_trends(records):
+    """ReceiveDewfordTrendData: every player's five trends (8 bytes each), by player number; returns
+    the five the game keeps."""
+    pool = []
+    for rec in records:
+        for t in rec:
+            w = struct.unpack("<HHHH", t)
+            same = next((k for k, p in enumerate(pool) if p[2:] == w[2:]), -1)
+            if same < 0:
+                pool.append(w)
+            elif pool[same][0] & 0x7F < w[0] & 0x7F:
+                pool[same] = w
+    for h in range(len(pool)):                                   # sub_80FA46C
+        for i in range(h + 1, len(pool)):
+            if _trend_before(pool[i], pool[h]):
+                pool[i], pool[h] = pool[h], pool[i]
+    out = [struct.pack("<HHHH", *w) for w in pool[:5]]
+    return out + [bytes(8)] * (5 - len(out))
+
+
+def reset_old_man(o):                                # sub_80F7F30
+    o = bytearray(o)
+    if o[0] == 0:
+        o[0x29] = 0
+    elif o[0] == 1:
+        o[1] = 0
+    elif o[0] == 2:
+        o[49] = 0
+    elif o[0] == 3:
+        o[0], o[1] = 3, 0
+    return bytes(o)
+
+
+def mix_mail(records, player0_id):
+    """ReceiveDaycareMailData for two players: their 120-byte day-care mail sections (by player
+    number); returns them after the swap."""
+    recs = [bytearray(r) for r in records]
+    rng = GameRng(player0_id & 0xFFFF)
+    eligible, picks = [], []
+    for i, r in enumerate(recs):
+        count = struct.unpack_from("<I", r, 112)[0]
+        e = [False, False]
+        for j in range(min(count, 2) if count else 0):
+            if not r[116 + 2 * j]:
+                e[j] = True
+        eligible.append(e)
+    for i, r in enumerate(recs):
+        e = eligible[i]
+        if e[0] and not e[1]:
+            picks.append((i, 0))
+        elif e[1] and not e[0]:
+            picks.append((i, 1))
+        elif e[0] and e[1]:
+            m0, m1 = struct.unpack_from("<H", r, 0x20)[0], struct.unpack_from("<H", r, 56 + 0x20)[0]
+            if not m0 and m1:
+                picks.append((i, 1))
+            elif (m0 and m1) or (not m0 and not m1):
+                picks.append((i, rng.next() % 2))
+            else:
+                picks.append((i, 0))
+    if len(picks) == 2:
+        (a, sa), (b, sb) = picks
+        x, y = bytes(recs[a][56 * sa:56 * sa + 56]), bytes(recs[b][56 * sb:56 * sb + 56])
+        recs[a][56 * sa:56 * sa + 56], recs[b][56 * sb:56 * sb + 56] = y, x
+    return [bytes(r) for r in recs]
+
+
+def mix_tower(records, new, rng):
+    """sub_8134AC0: the partner's Battle Tower record into the game's five (bytearrays); returns
+    the slot it went to."""
+    for i, r in enumerate(records):                  # the same trainer: ID, and the name compared
+        if r[12:16] == new[12:16] and r[8] == new[8]:   # as the game does (name[j] with j == 4)
+            records[i][:] = new
+            return i
+    for i, r in enumerate(records):
+        if struct.unpack_from("<H", r, 2)[0] == 0:
+            records[i][:] = new
+            return i
+    streaks = [struct.unpack_from("<H", r, 2)[0] for r in records]
+    lowest = [i for i, v in enumerate(streaks) if v == min(streaks)]
+    i = lowest[rng.next() % len(lowest)]
+    records[i][:] = new
+    return i
+
+
 class RubyRecordCorner(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, bases=None, player=None, tail=None, gift=0,
                  secret_power=True, leaves_first=False, has_items=(), pace=300, frame_blocks=25 * 228, version=2,
-                 in_the_way=None):
+                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1):
         """bases: the game's own 20 Secret Bases (160 bytes each); player: its (gender, trainer ID
         bytes, name bytes); tail: the rest of its record (0x5B0 bytes: TV shows to the filler);
         gift: the Record Mixing gift it holds (it gives it only as player 0)."""
@@ -265,6 +509,18 @@ class RubyRecordCorner(RubyTrade):
         assert len(self.tail) == RECORD_SIZE - TV_AT
         self.gift = gift
         self.secret_power = secret_power
+        # the save's own copies of the record's other parts (what it sends is made from them)
+        t = self.tail
+        self.save = dict(tv=[bytearray(t[SHOW * i:SHOW * (i + 1)]) for i in range(SHOWS)],
+                         news=[list(struct.unpack_from("<BBH", t, NEWS_AT - TV_AT + 4 * i)) for i in range(NEWS)],
+                         old_man=bytes(t[OLDMAN_AT - TV_AT:OLDMAN_AT - TV_AT + 64]),
+                         trends=[bytes(t[TRENDS_AT - TV_AT + 8 * i:TRENDS_AT - TV_AT + 8 * (i + 1)]) for i in range(5)],
+                         mail=bytes(t[MAIL_AT - TV_AT:MAIL_AT - TV_AT + 120]),
+                         tower_records=[bytearray(r) for r in (tower_records or [bytes(TOWER)] * 5)])
+        self.seen = seen or (lambda species: True)
+        self.game_clear = game_clear
+        self.rng = GameRng(seed)
+        self.sent = None
         self.has_items = set(has_items)
         self.result.update(partner_record=None, bases_before=[bytes(b) for b in self.bases], bases_after=None,
                            saved_indexes=None, gift_received=None, mixed=False, keys_while_mixing=0)
@@ -277,9 +533,37 @@ class RubyRecordCorner(RubyTrade):
         block[16 + 0x10] = gender
 
     def own_record(self):
+        """RecordMixing_PrepareExchangePacket: the record as this game sends it (once sent, that)."""
+        if self.sent is not None:
+            return self.sent
+        for i in range(5):                            # sub_80C045C: its own interviews go off the air
+            if _tv_channel(self.save["tv"][i][0]) == 2:
+                self.save["tv"][i][1] = 0
         rec = bytearray(b"".join(self.bases) + self.tail)
+        rec[TV_AT:TV_AT + SHOW * SHOWS] = b"".join(self.save["tv"])
         struct.pack_into("<H", rec, GIFT_AT, self.gift if self.my_id == 0 else 0)
         return bytes(rec)
+
+    def merge_rest(self, partner):
+        """RecordMixing_ReceiveExchangePacket after the bases: TV, news, old man, trends, day-care
+        mail, Battle Tower. Fills result["after"]."""
+        me, other = self.my_id, self.other
+        ids = {me: int.from_bytes(bytes(self.player[1]), "little") & 0xFFFF,
+               other: self.link_players.get(other, {}).get("trainer_id", 0) & 0xFFFF}
+        recs = {me: self.sent, other: partner}
+        tv = {me: self.save["tv"], other: [bytearray(partner[TV_AT + SHOW * i:TV_AT + SHOW * (i + 1)]) for i in range(SHOWS)]}
+        mix_tv([tv[0], tv[1]], [ids[0], ids[1]], me, self.seen, self.game_clear)
+        news = {me: self.save["news"], other: [list(struct.unpack_from("<BBH", partner, NEWS_AT + 4 * i)) for i in range(NEWS)]}
+        mix_news([news[0], news[1]], me, self.game_clear)
+        self.save["old_man"] = reset_old_man(partner[OLDMAN_AT:OLDMAN_AT + 64])
+        self.save["trends"] = mix_trends([[recs[p][TRENDS_AT + 8 * i:TRENDS_AT + 8 * (i + 1)] for i in range(5)] for p in (0, 1)])
+        mail = mix_mail([recs[0][MAIL_AT:MAIL_AT + 120], recs[1][MAIL_AT:MAIL_AT + 120]], ids[0])
+        self.save["mail"] = mail[me]
+        slot = mix_tower(self.save["tower_records"], bytearray(partner[BT_AT:BT_AT + TOWER]), self.rng)
+        self.result["after"] = dict(tv=[bytes(x) for x in self.save["tv"]], news=[tuple(x) for x in self.save["news"]],
+                                    old_man=self.save["old_man"], trends=list(self.save["trends"]),
+                                    daycare_mail=self.save["mail"][:112], tower=[bytes(r) for r in self.save["tower_records"]],
+                                    tower_slot=slot)
 
     def run(self):
         yield ("until_ready",)
@@ -341,7 +625,7 @@ class RubyRecordCorner(RubyTrade):
             if s.cmd is not None and s.cmd[0][self.other] == 0xCAFE:
                 self.result["keys_while_mixing"] += 1
             yield
-        mine_rec = self.own_record()
+        mine_rec = self.sent = self.own_record()
         got = {}
         for r in range(ROUNDS):
             s.stage = f"mixing: round {r + 1} of {ROUNDS}"
@@ -370,6 +654,7 @@ class RubyRecordCorner(RubyTrade):
         self.result["saved_indexes"] = mix_bases(self.bases, [records[0], records[1]], self.my_id, 2, self.player,
                                                  self.secret_power)
         self.result["bases_after"] = [bytes(b) for b in self.bases]
+        self.merge_rest(partner)
         gift = struct.unpack_from("<H", (partner if self.other == 0 else self.own_record()), GIFT_AT)[0]
         if self.my_id != 0 and gift:                  # ReceiveGiftItem
             if gift in KEY_ITEMS:

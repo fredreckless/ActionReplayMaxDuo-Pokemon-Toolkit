@@ -64,6 +64,24 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **6 November, late: hardware results and the record work (the user's three steps).**
+  - **Hardware (lab, the user's cmd output):** Record Mixing with English Ruby **works**: the room
+    fades in, both bases rounds go across, WILLOW's base was kept, and the DUO walks round a
+    blocking player. Two runs hung after "done" while copying the game's bases (800 polls); Ctrl+C
+    then left the mix program running, and the next run failed its hello. Fixed: the copy shows
+    progress and logs its timings, Ctrl+C always ends cleanly (and stops a running program), and
+    `connect` ends a left-over program. The hang's cause isn't known yet: the next log will say
+    how long each poll took.
+  - **Logs:** every tool run now writes `logs\YYYY-MM-DD HHMMSS tool command.log` beside the tools
+    (`runlog.py`; `logs\latest.log` the newest). Read them through the device bridge
+    (`C:\Users\fredr\ActionReplay\logs`) instead of asking for pasted output.
+  - **Done:** Ruby's merges in the model and `records.py predict`; the DUO sends whole records
+    (`mix --record/--tv/--news/--old-man/--trend/--mail/--tower`) and brings the game's whole
+    record back; the Record Workshop's old man, trends and whole-record tabs. All in
+    RECORD_WORKSHOP.md's status.
+  - **Next on hardware:** a sitting with an old man (a Bard's song) and a trend, then listen to the
+    Bard in Mauville and ask in Dewford; and the game's `records\*.rm3` checked with
+    `records.py show`.
 - **6 November, evening: every part of a record (asked for by the user).** The Secret Base
   Workshop is to grow into a Record Workshop with a tool for each part of a Record Mixing record.
   Formats: docs/RECORD_FORMATS.md (draft 1: `.rm3` whole records and a file per part, `.tv3`,
@@ -106,7 +124,7 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   - **Not yet:** Emerald Record Mixing (the DUO saying "Ruby"); the targeted ROM reader for
     Japanese and European cartridges (no pret addresses: a GBA-side search would do it, so the
     user's Japanese Emerald needs `--whole` for now); the battle partner (docs/BATTLE.md, step 1).
-  - **Space:** `mix` is exactly at its limit (11,760 bytes, 0 spare) after the room walk; `trade`
+  - **Space:** `mix` had 0 bytes spare after the room walk (since 6 November its record lives at 0x02010030: 3 KB spare); `trade`
     has about 500 bytes. Before adding to `mix`, find room (its screen lines, or share more buffers).
   - The user's Aura Mew trade on LeafGreen (session 31) wasn't kept in `received\`: Ctrl+C skipped
     the saving then (fixed since).
@@ -295,7 +313,7 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   `git push origin v42-local && git push origin v42-local:main`.
 - **Programs** (`firmware/programs/*.c`, clang 18 + lld; `firmware/programs.py`):
   - `adapter` (everyday Mystery Gift), `adapter_lab` (`-DLAB`), `adapter_probe` (`-DPROBE`),
-    `ereader`, `trade`, `mix` (Record Corner; about 9.9 KB, buffers included).
+    `ereader`, `trade`, `mix` (Record Corner; 8.6 KB since its record moved to 0x02010030).
   - Everything, variables included, must end below `0x0203AE00` (`programs.py` asserts it). Above
     that are the firmware's messages, and from `0x0203AF00` its transfer state.
   - There's no hardware divide: no `/` or `%` on variables.

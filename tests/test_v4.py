@@ -1932,14 +1932,15 @@ def game_tail(seed=5):
     return bytes(tail)
 
 
-def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_first=False, strict=False, **game_kw):
+def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_first=False, strict=False, extra=None, **game_kw):
     game = game or MG.RubyRecordCorner(master=master, bases=game_kw.pop("own", None) or game_bases(), player=GAME_PLAYER,
                                        tail=game_tail(), leaves_first=leaves_first, **game_kw)
     hw, duo = run42()
     hw.attach_mp_game(game.run(), game_master=game.master)
     paths = [event_file(b, f"{k} - TEST.sb3") for k, b in enumerate(bases)]
     W.BASES_DIR = os.path.join(tempfile.mkdtemp(), "bases")
-    r = quiet(W.mix_session, duo, types.SimpleNamespace(base=paths, gift=gift, seconds=seconds, strict=strict),
+    W.RECORDS_DIR = os.path.join(os.path.dirname(W.BASES_DIR), "records")
+    r = quiet(W.mix_session, duo, types.SimpleNamespace(base=paths, gift=gift, seconds=seconds, strict=strict, **(extra or {})),
               poll_s=0.2, stop_when=lambda: hw.lg_done)
     hw.text = r[1]
     assert duo.hello() == 0x104
@@ -1973,6 +1974,45 @@ def _():
     assert open(report["files"][0], "rb").read()[0] == 222
     for line in ("Playing: Record Corner", "Bringing 2 Secret Bases", "Mixed and saved", "Done: the link is closed"):
         assert line in hw.log, (line, hw.log)
+
+
+@test("Record Mixing with a whole record (6 November): the DUO brings its old man, a trend, a TV show and a Battle Tower trainer; the game merges them by Ruby's rules exactly as the tool predicts, keeps its other parts, and the DUO brings the game's whole record back")
+def _():
+    import records as R
+    sc = record_scenario(7)
+    ours = R.split(sc["ours"])
+    bard = bytearray(64); struct.pack_into("<6H", bard, 2, 11, 12, 13, 14, 15, 16); bard[0x1A:0x22] = SB.encode_name("WILLOW", 2).ljust(8, b"\xff")
+    trend = struct.pack("<HHHH", 125 | 127 << 7, 5, 0x0101, 0x0202)
+    show = bytearray(36); show[0], show[1] = 21, 0; struct.pack_into("<H", show, 0x10, 25); show[0x22:0x24] = b"\x44\x44"
+    tower = bytearray(164); struct.pack_into("<H", tower, 2, 14); tower[4:12] = SB.encode_name("ODA", 2).ljust(8, b"\xff")
+    tmp = tempfile.mkdtemp()
+    files = {}
+    for name, data, ext in (("old_man", bard, ".om3"), ("trend", trend, ".dt3"), ("tv", show, ".tv3"), ("tower", tower, ".bt3")):
+        files[name] = os.path.join(tmp, "x" + ext); open(files[name], "wb").write(data)
+    base = test_base()
+    game = MG.RubyRecordCorner(master=True, bases=game_bases(), player=GAME_PLAYER, tail=sc["game_rec"][MG.TV_AT:],
+                               tower_records=sc["tower"], seen=lambda sp: True, game_clear=True)
+    sent_before = game.own_record()
+    hw, game, report = mix_run(game=game, bases=[base], extra=dict(old_man=[files["old_man"]], trend=[files["trend"]],
+                                                                   tv=[files["tv"]], tower=[files["tower"]]))
+    assert hw.lg_error is None and game.result["mixed"], (repr(hw.lg_error), hw.text[-1500:])
+    partner = game.result["partner_record"]
+    got = R.split(partner)
+    assert got["old_man"][0] == bytes(bard) and got["trends"][0] == trend and got["tv"][0] == bytes(show)
+    assert got["tower"][0] == R.with_tower_checksum(tower), "the tool writes the Battle Tower checksum"
+    assert got["news"][0] == sent_before[MG.NEWS_AT:MG.NEWS_AT + 64] and got["mail"][0] == sent_before[MG.MAIL_AT:MG.MAIL_AT + 120], \
+        "the parts we didn't bring are the game's own, handed back"
+    after = game.result["after"]
+    our_tid = int.from_bytes(base[9:13], "little")
+    state = dict(record=sent_before, tid=int.from_bytes(GAME_PLAYER[1], "little"), tower=sc["tower"], seen=lambda sp: True, game_clear=True)
+    mine = R.predict(state, partner, our_tid, game_is_player0=True)
+    assert mine["old_man"] == after["old_man"] and mine["trends"] == after["trends"] and mine["tv"][:24] == after["tv"][:24]
+    assert after["trends"][0] == trend and after["old_man"][2:14] == bytes(bard[2:14])
+    assert any(t[0] == 21 and t[1] == 1 and t[0x10] == 25 for t in after["tv"]), "our show is on the game's TV"
+    assert after["tower_slot"] in mine["tower_slots"]
+    assert report["game_record"] == sent_before, "the DUO didn't bring the game's whole record back exactly"
+    assert open(report["record_file"], "rb").read() == sent_before
+    shutil.rmtree(tmp)
 
 
 @test("Record Mixing, the DUO as master (player 0): it paces the 24 rounds itself, gives the Eon Ticket, reads the game's bases exactly; the player leaves first and the DUO follows")
@@ -2226,10 +2266,26 @@ def secret_base_rom(code=b"AXVE", revision=1, seed=5):
         tiles = new(struct.pack("<9H", first, *[rng.randrange(512) for _ in range(8)]))
         rec = bytes([k]) + bytes(16) + bytes([rng.randrange(5), rng.randrange(10), rng.randrange(8)]) + bytes(8) + struct.pack("<I", tiles)
         put(where["decorations"] + 32 * k, rec)
+    if "easy_chat" in where:                            # made-up Easy Chat words: "W2X0", "W2X1"... (text groups)
+        words_at, table_at = where["easy_chat"]
+        ptrs, at = [], words_at
+        for k in range(22):
+            ptrs.append(at)
+            if k in (0, 18, 19):
+                data = b"".join(struct.pack("<H", 1 + (k * 7 + i) % 350) for i in range(12))
+            elif k == 21:
+                data = b"".join(struct.pack("<H", 1 + i % 386) for i in range((table_at - at) // 2))
+            else:
+                data = b"".join(gen3(f"W{k}X{i}").rstrip(b"\xff") + b"\xff" for i in range(9))
+            put(at, data)
+            at += len(data)
+            if k in (17, 18, 20):
+                at += at & 1                            # (the id groups start on an even address)
+        put(table_at, struct.pack("<22I", *ptrs))
     return bytes(g)
 
 
-@test("ROM copy for the workshop (duo_rom.py): only the parts the Secret Base Workshop draws with, found by pret's addresses and checked; the workshop draws every room, decoration and doll from them exactly as from the whole ROM")
+@test("ROM copy for the workshop (duo_rom.py): only the parts the Secret Base Workshop draws with, found by pret's addresses and checked; the workshop draws every room, decoration and doll, and reads every Easy Chat word, from them exactly as from the whole ROM")
 def _():
     import duo_rom
     g = secret_base_rom()
@@ -2259,6 +2315,7 @@ def _():
                 const r = readRom(rom), out = [];
                 for (const id of [1, 61, 103, 162, 183, 233]) out.push(r.picture(id, [{d: 3, x: 1, y: 3}, {d: 77, x: 2, y: 2}, {d: 66, x: 2, y: 0}]));
                 for (let d = 1; d <= 120; d++) out.push(r.preview(d));
+                out.push(JSON.stringify(readEasyChat(rom).groups));
                 return out; }"""
             import base64
             a = pg.evaluate(draw, base64.b64encode(g).decode())
@@ -2346,6 +2403,88 @@ def _():
             browser.close()
 
 
+@test("Record Workshop (secret_base_workshop.html): the old man, trends and whole-record tabs make the same bytes as records.py - the Easy Chat words read from the ROM, a Bard's .om3, .dt3 trends in the game's order, a Ruby save's record, an .rm3 with parts added")
+def _():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise Skip("needs Python's playwright to run the page")
+    import records as R
+    rom = secret_base_rom()
+    tmp = tempfile.mkdtemp()
+    rom_path = os.path.join(tmp, "rom.gba"); open(rom_path, "wb").write(rom)
+    bard = bytearray(64); struct.pack_into("<6H", bard, 2, 3 << 9 | 1, 3 << 9 | 2, 5 << 9 | 0, 0 << 9 | 1, 18 << 9 | 127, 7 << 9 | 8)
+    trend = struct.pack("<HHHH", 30 | 80 << 7, 7, 3 << 9 | 4, 4 << 9 | 5)
+    save = save_with_sb([(R.SB1_AT["old_man"], bytes(bard)), (R.SB1_AT["trends"], trend + bytes(32))])
+    save_path = os.path.join(tmp, "AXVE.sav"); open(save_path, "wb").write(save)
+    page_path = os.path.join(paths.ROOT, "secret_base_workshop.html")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            pg = browser.new_page(accept_downloads=True)
+            errors = []
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.route("**/fonts.googleapis.com/**", lambda r: r.abort())
+            pg.goto("file://" + page_path)
+            pg.wait_for_function("typeof T !== 'undefined' && T && typeof S !== 'undefined' && S")
+            pg.set_input_files("#romFile", rom_path)
+            pg.wait_for_function("EC !== null", timeout=60000)
+            assert pg.evaluate("EC.groups[3][1]") == "W3X1" and pg.evaluate("wordText(3 << 9 | 2)") == "W3X2"
+            mon, move = pg.evaluate("wordText(0 << 9 | 1)"), pg.evaluate("wordText(18 << 9 | 127)")
+            assert mon == "Bulbasaur" and move == SB.move_name(127).title(), (mon, move)
+            # the Bard
+            pg.click("#tab-oldman"); pg.select_option("#omKind", "0")
+            for i, w in enumerate(["W3X1", "W3X2", "W5X0", mon, move, "7:8"]):
+                pg.fill(f"[data-word='song{i}']", w); pg.press(f"[data-word='song{i}']", "Tab")
+            pg.fill("#omAuthor", "WILLOW"); pg.press("#omAuthor", "Tab")
+            pg.fill("#omAuthorId", "1234"); pg.press("#omAuthorId", "Tab")
+            with pg.expect_download() as dl:
+                pg.click("#omSave")
+            om = open(dl.value.path(), "rb").read()
+            assert dl.value.suggested_filename == "BARD - song by WILLOW (ENG).om3", dl.value.suggested_filename
+            f = R.parse_old_man(om)
+            assert f["song"] == list(struct.unpack_from("<6H", bard, 2)) and f["new_song"] == f["song"], f
+            assert R.text(f["player"]) == "WILLOW" and struct.unpack("<I", f["player_id"])[0] == 1234 and R.check_part("old_man", om) == ([], [])
+            assert "W3X1 W3X2 W5X0" in pg.inner_text("#omPreview")
+            # trends: two, saved together (a zip), in Ruby's order
+            pg.click("#tab-trends"); pg.click("#trAdd"); pg.click("#trAdd")
+            pg.fill("[data-word='t0w0']", "W3X4"); pg.press("[data-word='t0w0']", "Tab")
+            pg.fill("[data-word='t0w1']", "W4X5"); pg.press("[data-word='t0w1']", "Tab")
+            pg.fill("[data-word='t1w0']", "W9X1"); pg.press("[data-word='t1w0']", "Tab")
+            pg.fill("[data-word='t1w1']", "W9X2"); pg.press("[data-word='t1w1']", "Tab")
+            pg.fill(".trend[data-t='1'] [data-tf='trend']", "88"); pg.press(".trend[data-t='1'] [data-tf='trend']", "Tab")
+            pg.fill(".trend[data-t='1'] [data-tf='max']", "99"); pg.press(".trend[data-t='1'] [data-tf='max']", "Tab")
+            assert pg.inner_text("#trOrder").startswith("W9X1 W9X2"), pg.inner_text("#trOrder")
+            with pg.expect_download() as dl:
+                pg.click("#trSave")
+            import zipfile
+            z = zipfile.ZipFile(dl.value.path())
+            dts = [z.read(n) for n in sorted(z.namelist())]
+            parsed = [R.parse_trend(d) for d in dts]
+            assert parsed[0]["words"] == [3 << 9 | 4, 4 << 9 | 5] and (parsed[0]["trendiness"], parsed[0]["max_trendiness"]) == (60, 90)
+            assert parsed[1]["words"] == [9 << 9 | 1, 9 << 9 | 2] and (parsed[1]["trendiness"], parsed[1]["max_trendiness"]) == (88, 99)
+            # the whole record: a Ruby save's own, then our old man and trends in it
+            pg.click("#tab-record")
+            pg.set_input_files("#recFile", save_path)
+            pg.wait_for_function("REC.from === 'AXVE'")
+            got = bytes(pg.evaluate("Array.from(joinRecord())"))
+            assert got == R.record_from_save(save), [i for i in range(len(got)) if got[i] != R.record_from_save(save)[i]][:10]
+            pg.click("#tab-oldman"); pg.click("#omToRecord")
+            pg.click("#tab-trends"); pg.click("#trToRecord")
+            pg.click("#tab-record"); pg.select_option("#recGift", str(0x113))
+            with pg.expect_download() as dl:
+                pg.click("#recSave")
+            rm3 = open(dl.value.path(), "rb").read()
+            want = R.split(R.record_from_save(save))
+            want["old_man"], want["trends"], want["gift"] = [om], dts + [bytes(8)] * 3, 0x113
+            assert rm3 == R.join(want), "the workshop's .rm3 isn't records.py's"
+            assert "mix --record" in pg.inner_text("#recCmd")
+            assert not errors, errors
+        finally:
+            browser.close()
+            shutil.rmtree(tmp)
+
+
 @test("Record Mixing: a session stopped early (Ctrl+C) leaves the DUO's program running; the next run ends it and connects at once (6 November, hardware), and the copy of the game's bases shows its progress")
 def _():
     game = MG.RubyRecordCorner(master=True, bases=game_bases(), player=GAME_PLAYER, tail=game_tail())
@@ -2359,8 +2498,8 @@ def _():
     W.run_program(duo, "mix")                                     # and it runs a program again after that
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        bases = W.copy_game_bases(duo)
-    assert len(bases) == 20 and "Copying the game's bases [########################] 100%" in out.getvalue()
+        bases, _ = W.copy_game_record(duo, whole=False)
+    assert len(bases) == 20 and "Copying the game's record [########################] 100%" in out.getvalue()
     assert W.stop_program_quietly(duo) is not None and duo.hello() == 0x104
     hw.stop(); clean(hw)
 
@@ -3072,11 +3211,106 @@ def _():
         with contextlib.redirect_stdout(io.StringIO()):
             assert R.main(["join", *[f for f in files[1:]], "--out", os.path.join(tmp, "back.rm3")]) == 0
             assert R.main(["show", os.path.join(tmp, "back.rm3")]) == 0
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert R.main(["predict", path, os.path.join(tmp, "back.rm3"), "--partner-id", "4321"]) == 0
+        assert "What the game keeps" in out.getvalue() and "Battle Tower:" in out.getvalue(), out.getvalue()
         back = R.split(open(os.path.join(tmp, "back.rm3"), "rb").read())
         for name in ("old_man", "trends", "tower", "news"):
             assert back[name][0] == parts[name][0], name
     finally:
         shutil.rmtree(tmp)
+
+
+def record_scenario(seed):
+    """A Ruby save and a partner's record with something in every part that the merge decides on:
+    shows that travel and shows that don't, news, trends that tie and beat, an old man, letters,
+    Battle Tower trainers. Random but repeatable."""
+    import records as R
+    r = random.Random(seed)
+    game_tid, our_tid = 0x1234 + seed, 0x9876 - seed
+    def show(kind, made_by, active, species=0):
+        b = bytearray(r.getrandbits(8) for _ in range(36))
+        b[0], b[1] = kind, active
+        b[0x22], b[0x23] = made_by & 0xFF, made_by >> 8
+        for at in R.SPECIES_FIELDS.get(kind, ()):
+            struct.pack_into("<H", b, at, species or r.choice([1, 25, 280, 300, 400]))
+        return bytes(b)
+    kinds = list(R.TV_KINDS) + [9]
+    def shows(owner, other):
+        out = [show(r.choice(kinds), r.choice([owner, other, 0x4444]), r.randrange(2)) for _ in range(r.randrange(3, 24))]
+        return out + [bytes(36)] * (25 - len(out))
+    def news():
+        out = b""
+        for kind in r.sample([1, 2, 3, 4], r.randrange(4)):
+            out += struct.pack("<BBH", kind, r.randrange(3), r.randrange(1, 5))
+        return out.ljust(64, b"\0")
+    def trends(pool):
+        return [struct.pack("<HHHH", (lambda t, m: t | m << 7 | r.randrange(2) << 14)(*sorted([r.randrange(30, 128), r.randrange(30, 128)])),
+                            r.getrandbits(16), *r.choice(pool)) for _ in range(5)]
+    phrases = [(r.getrandbits(12), r.getrandbits(12)) for _ in range(6)]
+    def mail():
+        m = bytearray(r.getrandbits(8) for _ in range(112)) + bytes(8)
+        for j in range(2):
+            if r.random() < 0.3:
+                struct.pack_into("<H", m, 56 * j + 0x20, 0)
+        struct.pack_into("<I", m, 112, r.randrange(3))
+        m[116], m[118] = r.randrange(2), r.randrange(2)
+        return bytes(m)
+    def tower(streak):
+        t = bytearray(r.getrandbits(8) for _ in range(164))
+        struct.pack_into("<H", t, 2, streak)
+        return R.with_tower_checksum(t)
+    old = bytearray(r.getrandbits(8) for _ in range(64)); old[0] = r.randrange(5)
+    game_old = bytearray(64)
+    tower_records = [tower(r.choice([0, 7, 7, 14, 21])) for _ in range(5)]
+    seen_species = {s_ for s_ in range(1, 412) if r.random() < 0.7}
+    game_rec = R.join({"tv": [bytes(x) for x in shows(game_tid, our_tid)], "news": [news()], "old_man": [bytes(game_old)],
+                       "trends": trends(phrases), "mail": [mail()], "tower": [tower(9)]})
+    ours = R.join({"tv": [bytes(x) for x in shows(our_tid, game_tid)], "news": [news()], "old_man": [bytes(old)],
+                   "trends": trends(phrases), "mail": [mail()], "tower": [tower(r.choice([0, 7, 30]))]})
+    return dict(game_rec=game_rec, ours=ours, game_tid=game_tid, our_tid=our_tid, tower=tower_records,
+                seen=lambda sp: sp in seen_species, game_clear=r.random() < 0.5)
+
+
+@test("Record files: what Ruby keeps from a partner's whole record - TV shows, news, old man, trends, day-care letters, Battle Tower - the tool's prediction (records.py) agrees with the game model's own port, in 60 random cases each way round, and in hand-made ones")
+def _():
+    import records as R
+    for seed in range(60):
+        sc = record_scenario(seed)
+        for game_first in (True, False):
+            game = MG.RubyRecordCorner(master=game_first, tail=sc["game_rec"][MG.TV_AT:], player=(0, sc["game_tid"].to_bytes(4, "little"), b"\xff" * 7),
+                                       tower_records=sc["tower"], seen=sc["seen"], game_clear=sc["game_clear"])
+            game.link_players = {game.other: dict(trainer_id=sc["our_tid"])}
+            game.sent = game.own_record()
+            game.merge_rest(sc["ours"])
+            model = game.result["after"]
+            state = dict(record=game.sent, tid=sc["game_tid"], tower=sc["tower"], seen=sc["seen"], game_clear=sc["game_clear"])
+            mine = R.predict(state, sc["ours"], sc["our_tid"], game_is_player0=game_first)
+            where = f"seed {seed}, game {'first' if game_first else 'second'}"
+            assert mine["tv"][:24] == model["tv"][:24], (where, [(k, a.hex(), b.hex()) for k, (a, b) in enumerate(zip(mine["tv"], model["tv"])) if a != b][:2])
+            assert mine["news"] == model["news"], (where, mine["news"], model["news"])
+            assert mine["old_man"] == model["old_man"] and mine["trends"] == model["trends"], where
+            assert mine["daycare_mail"] == model["daycare_mail"], where
+            assert model["tower_slot"] in mine["tower_slots"], where
+            if len(mine["tower_slots"]) == 1:
+                assert mine["tower"] == model["tower"], where
+    # by hand: our off-air show that someone else made arrives on the air; one the player made doesn't
+    rec = R.join({})
+    ours = R.split(R.join({}))
+    show = bytearray(36); show[0], show[1] = 21, 0; struct.pack_into("<H", show, 0x10, 25); show[0x22:0x24] = b"\x44\x44"
+    mine_made = bytearray(show); mine_made[0x22:0x24] = (0x1234).to_bytes(2, "little"); mine_made[0x20:0x22] = b"\x55\x55"
+    ours["tv"][0], ours["tv"][1] = bytes(show), bytes(mine_made)
+    trend = struct.pack("<HHHH", 120 | 125 << 7, 0, 7, 8)
+    ours["trends"][0] = trend
+    bard = bytearray(64); bard[0x29] = 1
+    ours["old_man"][0] = bytes(bard)
+    state = dict(record=rec, tid=0x1234, tower=[bytes(164)] * 5, seen=lambda sp: True, game_clear=True)
+    after = R.predict(state, R.join(ours), 0x9999)
+    assert after["tv"][5][:2] == bytes([21, 1]) and after["tv"][6][0] == 0, "show made by the player came back to them"
+    assert after["trends"][0] == trend and after["old_man"][0x29] == 0
+    assert R.predict(dict(state, seen=lambda sp: sp != 25), R.join(ours), 0x9999)["tv"][5][1] == 0, "an unseen Pokémon's show stays off"
+    assert after["tower_slots"] == [0]
 
 
 # ===================================================================== battle partner (PC side)
