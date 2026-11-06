@@ -2964,6 +2964,78 @@ def _():
     crc, payload = M.check_update_file(paths.build_file("duo_1.06_reckless_v4.2.bin"))
     assert payload == FW42 and "v4.2" in M.KNOWN_FIRMWARE.get(crc, "")
 
+# ===================================================================== record files (records.py)
+def save_with_sb(edits, seed=3):
+    """A synthetic save with bytes written into the newest copy's SaveBlock 1 (offset >= 0) or
+    SaveBlock 2 (('sb2', offset)), checksums kept right."""
+    d = bytearray(fixtures.make_gen3_save(seed=seed))
+    newest = max(struct.unpack_from("<I", d, slot * 0xE000 + 0xFF8 + 4)[0] for slot in range(2))
+    for where, data in edits:
+        sec, off = (0, where[1]) if isinstance(where, tuple) else (1 + where // 3968, where % 3968)
+        assert off + len(data) <= 3968, "keep an edit inside one section"
+        for slot in range(2):
+            for k in range(14):
+                o = slot * 0xE000 + k * 0x1000
+                s_, _, _, idx = struct.unpack_from("<HHII", d, o + 0xFF4)
+                if s_ != sec or idx != newest:
+                    continue
+                body = bytearray(d[o:o + 0xFF4]); body[off:off + len(data)] = data
+                n = {0: 3884, 13: 2000}.get(sec, 3968)
+                c = sum(struct.unpack_from(f"<{n // 4}I", body, 0)) & 0xFFFFFFFF
+                d[o:o + 0xFF4] = body
+                struct.pack_into("<H", d, o + 0xFF6, ((c >> 16) + c) & 0xFFFF)
+    return bytes(d)
+
+
+@test("Record files (records.py): a Ruby save's own record as the game would send it (bases, TV shows with its own interviews taken off, news, old man, trends, day-care letters, Battle Tower trainer); split into part files and joined back byte for byte; the checks")
+def _():
+    import records as R
+    bard = bytearray(64); struct.pack_into("<6H", bard, 2, 1, 2, 3, 4, 5, 6); bard[0x1A:0x22] = SB.encode_name("WILLOW", 2).ljust(8, b"\xff")
+    trend = struct.pack("<HHHH", 30 | 80 << 7, 7, 0x0201, 0x0402)
+    tv = bytearray(36 * 3)
+    tv[0], tv[1] = 1, 1                                       # a local interview, on the air: sent off the air
+    tv[36], tv[37] = 21, 1                                    # a "records" show: sent as it is
+    struct.pack_into("<HHII", tv, 72 + 2, 0, 0, 0, 0)
+    tower = bytearray(164); tower[0], tower[1] = 0, 5; struct.pack_into("<H", tower, 2, 21); tower[4:12] = SB.encode_name("ODA", 2).ljust(8, b"\xff")
+    struct.pack_into("<HH4H", tower, 0x1C, SB._lookup("SWAMPERT", SB.tables().species, "x"), 0, 89, 0, 0, 0); tower[0x1C + 12] = 50
+    tower = R.with_tower_checksum(tower)
+    save = save_with_sb([(R.SB1_AT["old_man"], bytes(bard)), (R.SB1_AT["trends"], trend + bytes(32)),
+                         (R.SB1_AT["tv"], bytes(tv)), (("sb2", R.SB2_TOWER_AT), tower)])
+    rec = R.record_from_save(save)
+    parts = R.split(rec)
+    assert len(rec) == R.RS_SIZE and R.join(parts) == rec
+    assert parts["old_man"][0] == bytes(bard), parts["old_man"][0].hex()
+    assert parts["trends"][0] == trend, parts["trends"][0].hex()
+    assert parts["tower"][0] == tower, (parts["tower"][0].hex(), tower.hex())
+    assert parts["tv"][0][:2] == bytes([1, 0]) and parts["tv"][1][:2] == bytes([21, 1]), "sub_80C045C: own interviews go off the air"
+    assert "WILLOW" in R.describe("old_man", parts["old_man"][0]) and "trendiness 30 of 80" in R.describe("trends", trend)
+    assert "ODA" in R.describe("tower", tower) and "SWAMPERT" in R.describe("tower", tower).upper()
+    assert R.check_part("tower", tower) == ([], [])
+    bad = bytearray(tower); bad[2] ^= 1
+    assert "checksum" in R.check_part("tower", bytes(bad))[0][0]
+    assert "kind 9" in R.check_part("tv", bytes([9, 1]) + bytes(34))[0][0]
+    assert R.check_part("old_man", bytes([7]) + bytes(63))[0]
+    # the command line: split a save into files, join them back, show them
+    tmp = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmp, "AXVE POKEMON RUBY", "test.sav"); os.makedirs(os.path.dirname(path)); open(path, "wb").write(save)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert R.main(["split", path, "--out", os.path.join(tmp, "parts")]) == 0
+        files = out.getvalue().split("\n")[:-1]
+        assert files[0].endswith("test.rm3") and open(files[0], "rb").read() == rec
+        exts = sorted({os.path.splitext(f)[1] for f in files})
+        assert {".om3", ".dt3", ".bt3", ".tv3"} <= set(exts), exts
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert R.main(["join", *[f for f in files[1:]], "--out", os.path.join(tmp, "back.rm3")]) == 0
+            assert R.main(["show", os.path.join(tmp, "back.rm3")]) == 0
+        back = R.split(open(os.path.join(tmp, "back.rm3"), "rb").read())
+        for name in ("old_man", "trends", "tower", "news"):
+            assert back[name][0] == parts[name][0], name
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ===================================================================== battle partner (PC side)
 def battle_mon(name, level=50, moves=(), item="", **kw):
     import duo_battle as B

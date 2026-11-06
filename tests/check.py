@@ -47,6 +47,7 @@ AREAS = [
     ("secret_base_workshop.html", ["Secret Base Workshop"]),
     ("duo_wireless.py", ["two tools"]),
     ("lab_runner.py", ["lab_runner"]),
+    ("records.py", ["Record files"]),
     ("duo_battle.py", ["battle:"]), ("battle_data.py", ["battle:"]), ("tools/make_battle_data.py", ["battle:"]),
     ("tests/rfu_game_model.py", MYSTERY_GIFT),
     ("tests/link_game_model.py", EREADER),
@@ -68,7 +69,7 @@ BUG_KINDS = [
     ("firmware/build_v42.py", ["fw42"]),
     ("firmware/build_v4.py", ["fw", "fw42"]),
     ("firmware/build_*.py", ["fw", "fw42"]),
-    ("duo_events.py", ["pc"]), ("maxduo_saves.py", ["pc"]), ("secret_bases.py", ["pc"]), ("secret_base_workshop.html", []),
+    ("duo_events.py", ["pc"]), ("maxduo_saves.py", ["pc"]), ("secret_bases.py", ["pc"]), ("records.py", []), ("secret_base_workshop.html", []),
     ("tests/rfu_game_model.py", ["prog"]),
     ("tests/link_game_model.py", ["ereader"]), ("tests/mevent_model.py", ["ereader", "pc"]),
     ("tests/ecard_fixtures.py", ["pc"]),
@@ -103,6 +104,7 @@ QUICK = [
     "Record Mixing, the game as master",
     "Secret Base files",
     "battle: damage",
+    "Record files",
 ]
 
 

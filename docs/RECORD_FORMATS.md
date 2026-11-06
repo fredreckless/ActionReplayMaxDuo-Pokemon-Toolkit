@@ -1,6 +1,6 @@
 # Record files: every part of a Record Mixing record
 
-**Status (6 November 2026): specification, draft 1, for agreement before any code.** It extends
+**Status (6 November 2026): specification, draft 1; the user's decisions are at the end.** It extends
 `.sb3` (docs/SB3_FORMAT.md) to everything else a Record Mixing record carries. The tool and the web
 page that will use it are planned in docs/RECORD_WORKSHOP.md.
 
@@ -190,10 +190,42 @@ already sends it (`mix --gift`).
 - **Versioning:** each file format is version 1 as specified here; a later version may only add
   meaning to bytes this version requires to be 0.
 
-## Open questions (for the user)
+## Ruby and Sapphire: what the research found (step 1, begun 6 November)
 
-1. One whole-record file (`.rm3`) plus a file per part, as above, or only the part files?
-2. Ruby/Sapphire's layout first (the DUO can mix with all three games that way), and the Emerald-only
-   parts (lady, apprentices, halls) once the DUO can mix as an Emerald?
-3. The TV shows and the old man's speech: shown in the workshop in our own words, or in the game's
-   own lines read from your cartridge (as the pictures are)? The game's text can't go in the repo.
+Read in pokeruby (`record_mixing.c`, `tv.c`, `mauville_man.c`, `battle_tower.c`, `daycare.c`):
+
+- **Order:** bases, TV shows, news, old man, trends, day-care letters, Battle Tower, gift
+  (`RecordMixing_ReceiveExchangePacket`).
+- **TV shows:** Ruby and Sapphire know only 12 kinds: 1-6 (interviews: Fan Club letter and
+  opinions, Recent happenings, Name Rater, two Bravo Trainer profiles), 21-25 (Pokémon Today
+  caught and failed, Smart Shopper, Fishing advice, World of Masters) and 41 (mass outbreak).
+  Before sending, a game takes its own interviews in the first five slots off the air
+  (`sub_80C045C`). On receipt, a show is passed on only if it didn't come from the receiver (the
+  trainer IDs in bytes 0x1C-0x23 are checked and shifted along, `sub_80C004C`/`sub_80C00B4`); shows
+  about a Pokémon the player hasn't registered, and Battle Tower and outbreak shows before the
+  player has beaten the game, are taken off the air; other kinds are always taken off.
+- **The old man** (Ruby's layout has no language byte): swapped whole with the paired player's
+  (`ReceiveOldManData`), then his "already" flag reset, so he talks afresh.
+- **Battle Tower:** the paired player's trainer replaces one of the five the game keeps (the same
+  trainer's earlier record, an empty slot, or one of the lowest streaks at random,
+  `sub_8134AC0`). The game only puts that trainer in front of the player when **their win streaks
+  match** at the same level, and drops any record whose checksum is wrong
+  (`ValidateBattleTowerRecordChecksums`).
+- **Day-care letters:** Pokémon in the day care that hold no item can swap letters (one left there
+  holding Mail counts: the game takes the letter off it and keeps it beside the Pokémon). When the
+  player takes the Pokémon back, the swapped letter comes with it (`daycare.c`).
+- **Gift item:** Ruby and Sapphire accept **any item** from player 0, not only Key Items (Emerald
+  accepts only Key Items); a Key Item they already have is refused.
+
+`records.py` (6 November) reads a Ruby or Sapphire save's own record exactly as the game would
+send it, splits and joins `.rm3` files, and checks each part. Still to do in step 1: the TV and
+news merging, the trends' merging and the old man's per-character resets in the game model, so
+the tool can say beforehand what the game will keep.
+
+## Decisions (the user, 6 November)
+
+1. **Both:** a whole-record file (`.rm3`) and a file per part.
+2. **Ruby first:** the Ruby/Sapphire layout (which mixes with all three games); the Emerald-only
+   parts (lady, apprentices, Ranking Hall) once the DUO can mix as an Emerald.
+3. **The game's own lines, one for one,** read from the user's own cartridge copy (as the pictures
+   are), never stored in the repository.
