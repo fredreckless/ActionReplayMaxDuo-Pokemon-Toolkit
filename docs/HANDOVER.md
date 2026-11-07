@@ -82,6 +82,16 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
     packet; the program still servicing the link after DONE; the PC's 1 s sleep. Reproduce in
     hwsim with a PC packet arriving during the log call, and consider copying the log/record
     before the session ends (or during it), so a late hang loses nothing.
+  - **Update from the user (22:03): the "hang" was them switching the DUO's GBA off too early**,
+    straight after the game's side finished and before the PC had copied the record ("sorry I keep
+    shutting off the GBA before it has saved"). That explains both lost records tonight, and very
+    likely the 6 November "hangs" too, so it is probably not a firmware fault: check that first
+    before hunting a bug. What to change: the tool should say clearly, at "done", "Keep the DUO's
+    GBA switched on until this says 'Kept on this PC'" (and show the copy's progress at once);
+    better still, copy the record/log during the session (or right after the battle's/mixing's
+    end, before the walk out), so switching off at the end loses nothing; and on a timeout after
+    DONE, say "the DUO's GBA was probably switched off before the copy finished" instead of
+    reporting the state as unfinished.
   - **Whole record (`mix --record`) worked on hardware** (Arthur's Blue Cave on Route 116 made in
     the workshop appeared exactly as designed; the user's photo and the 21:34 log). The user
     considers Secret Bases and Record Mixing done for now.
