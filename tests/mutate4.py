@@ -164,17 +164,21 @@ def run(kind, name):
         src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
-        assert good_src.count(old) == 1, name
+        walk_path = os.path.join(paths.FIRMWARE, "programs", "room_walk.h")
+        in_walk = good_src.count(old) == 0 and open(walk_path).read().count(old) == 1   # (the shared walk)
+        assert in_walk or good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
         builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
                   "colosseum": ("colosseum",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
-        open(os.path.join(work, "programs", src_name), "w").write(good_src.replace(old, new))
+        open(os.path.join(work, "programs", src_name), "w").write(good_src if in_walk else good_src.replace(old, new))
         shutil.copy(os.path.join(paths.FIRMWARE, "programs", "link.ld"), os.path.join(work, "programs"))
         for h in glob.glob(os.path.join(paths.FIRMWARE, "programs", "*.h")):   # (room_walk.h, shared)
             shutil.copy(h, os.path.join(work, "programs"))
+        if in_walk:
+            open(os.path.join(work, "programs", "room_walk.h"), "w").write(open(walk_path).read().replace(old, new))
         with BUILD_LOCK:
             saved = programs._HERE
             programs._HERE = work
@@ -256,9 +260,14 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
 }
 
 MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
-    "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13;", "seat_x = is_master ? 6 : 6;", "Record Mixing, the game as master"),
+    "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13, seat_y", "seat_x = is_master ? 6 : 6, seat_y", "Record Mixing, the game as master"),
     "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
+    "walk: the first plan clears only the walkable columns (7 November, hardware: paced on the left wall)": ("        rw_cx = rw_phase ? rw_x0 : 0;", "        rw_cx = rw_x0;", "the player steps up and down in the DUO's way"),
+    "walk: plans only around where the player is this instant (back and forth)": ("    if (rw_clock - rw_moved_at > RW_FORGET) return 0;", "    return 0;", "the player steps up and down in the DUO's way"),
+    "walk: no patience - goes round the moment the player is in the way": ("        if (rw_clock - rw_wait_since < RW_PATIENCE) *k = 0;", "        if (0) *k = 0;", "the player steps up and down in the DUO's way"),
+    "walk: crosses other seats (their scripts stop it there)": ("&& (x != rw_goal_x || y != rw_goal_y)) return 1;", "&& 0) return 1;", "the player steps up and down in the DUO's way"),
+    "mix: makes for its usual seat even with the player on it": ("    if (rw[1 - me].x == seat_x && rw[1 - me].y == 6) seat_y = 4;", "", "the player sits in the DUO's seat"),
     "mix: the game's own sections not handed back": ("        if (a < b) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "        if (0) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "Record Mixing, the game as master"),
     "mix: the game's Battle Tower record handed back too": ("part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124 };", "part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x11C8 };", "Record Mixing, the game as master"),
     "mix: the game's chunk kept before ours is made from that round - our parts in it lost": ("        copy_pending = 1;                                      /* into RECORD once ours has gone */\n        if (mirror_wait", "        copy_pending = 1;                                      /* into RECORD once ours has gone */\n        memcpy(RECORD + CHUNK * r, rx_buf, CHUNK);\n        if (mirror_wait", "Record Mixing with a whole record"),

@@ -169,23 +169,25 @@ static void send_block(const u8 *src, u32 len, u32 kind)
 /* The Record Corner (layout RecordCorner, 20 x 10) as room_walk.h sees it: the table in the
  * middle, our seats at (6,6) for player 0 and (13,6) for player 1, the door at (8,9)-(11,9). */
 static const u16 corner_room[10] = { 0x0, 0x0, 0xFFF, 0xFFF, 0xE07, 0xF0F, 0xE07, 0xFFF, 0xFFF, 0xF0 };   /* bit (x - 4): open floor */
+static const u8 corner_seats[8] = { 6, 4, 13, 4, 6, 6, 13, 6 };   /* the four seats' coordinate triggers */
 static u32 sat, sat_at, asked_at;
 
 static u16 room_key(void)                 /* our key for this frame in the Record Corner */
 {
     /* after the room has settled, a shortest way to our seat around the player (a step at a time,
      * each once the last has finished; waiting while the way is blocked); on it, "seated" (22) */
-    u32 me = is_master ? 0 : 1, seat_x = is_master ? 6 : 13;
+    u32 me = is_master ? 0 : 1, seat_x = is_master ? 6 : 13, seat_y = 6;
     u32 f = walk_frame++;
-    if (f == 0) { rw_start(corner_room, 4, 20, 10, 9, 8, 11, 8, 9); sat = 0; }
+    if (f == 0) { rw_start(corner_room, 4, 20, 10, 9, 8, 11, 8, 9, corner_seats, 4); sat = 0; }
     if (sat) {
         if (f == sat_at + 10) { state = ST_SEATED; return 22; }
         return 17;
     }
     if (f < 40 || !rw_free(me)) return 17;
-    if (rw_at(me, seat_x, 6)) { sat = 1; sat_at = f; return 17; }
+    if (rw[1 - me].x == seat_x && rw[1 - me].y == 6) seat_y = 4;     /* the player took ours: the one behind */
+    if (rw_at(me, seat_x, seat_y)) { sat = 1; sat_at = f; return 17; }
     u16 k;
-    if (!rw_take(seat_x, 6, &k)) return 17;
+    if (!rw_take(seat_x, seat_y, &k)) return 17;
     rw_blocked_now = !k;
     if (!k) return 17;
     rw_await = 1;

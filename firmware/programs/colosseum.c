@@ -237,6 +237,7 @@ static u8 rw_dist_space[14 * 9];
 /* The Colosseum (layout SingleBattleColosseum, 14 x 9) as room_walk.h sees it: open floor from
  * (1,3) to (12,7) but the attendant at (9,3); the spots at (3,5) and (10,5); the door (6,8)-(7,8). */
 static const u16 colo_room[9] = { 0x0, 0x0, 0x0, 0x1DFE, 0x1FFE, 0x1FFE, 0x1FFE, 0x1FFE, 0xC0 };   /* bit x: open floor */
+static const u8 colo_spots[4] = { 3, 5, 10, 5 };
 static u32 sat, sat_at;
 
 static u16 room_key(void)                 /* our key for this frame in the Colosseum */
@@ -245,7 +246,7 @@ static u16 room_key(void)                 /* our key for this frame in the Colos
      * each once the last has finished; waiting while the way is blocked); on it, "seated" (22) */
     u32 me = is_master ? 0 : 1, other = 1 - me;
     u32 f = walk_frame++;
-    if (f == 0) { rw_start(colo_room, 0, 14, 9, 8, 6, 7, 6, 7); sat = 0; }
+    if (f == 0) { rw_start(colo_room, 0, 14, 9, 8, 6, 7, 6, 7, colo_spots, 2); sat = 0; }
     if (sat) {
         if (f == sat_at + 10) { state = ST_SEATED; log_event(E_SEATED, rw[me].x); return 22; }
         return 17;

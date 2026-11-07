@@ -1932,7 +1932,8 @@ def game_tail(seed=5):
     return bytes(tail)
 
 
-def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_first=False, strict=False, extra=None, **game_kw):
+def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_first=False, strict=False, extra=None,
+            off_at=None, **game_kw):
     game = game or MG.RubyRecordCorner(master=master, bases=game_kw.pop("own", None) or game_bases(), player=GAME_PLAYER,
                                        tail=game_tail(), leaves_first=leaves_first, **game_kw)
     hw, duo = run42()
@@ -1940,9 +1941,12 @@ def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_fir
     paths = [event_file(b, f"{k} - TEST.sb3") for k, b in enumerate(bases)]
     W.BASES_DIR = os.path.join(tempfile.mkdtemp(), "bases")
     W.RECORDS_DIR = os.path.join(os.path.dirname(W.BASES_DIR), "records")
+    back_on = switch_off_at(duo, off_at) if off_at is not None else None
     r = quiet(W.mix_session, duo, types.SimpleNamespace(base=paths, gift=gift, seconds=seconds, strict=strict, **(extra or {})),
               poll_s=0.2, stop_when=lambda: hw.lg_done)
     hw.text = r[1]
+    if back_on:
+        back_on()
     assert duo.hello() == 0x104
     hw.stop(); clean(hw)                              # nothing written to any cartridge
     return hw, game, r[0]
@@ -2013,6 +2017,18 @@ def _():
     assert report["game_record"] == sent_before, "the DUO didn't bring the game's whole record back exactly"
     assert open(report["record_file"], "rb").read() == sent_before
     shutil.rmtree(tmp)
+
+
+@test("Record Mixing: the DUO's GBA is switched off as it walks out (7 November, hardware) - the game's whole record, copied while the DUO walked, is still kept, and the tool says when it's safe to switch off")
+def _():
+    hw, game, report = mix_run(master=True, bases=[test_base()], off_at=W.MIX_ST["EXITING"])
+    text = hw.text
+    r = game.result
+    assert r["mixed"] and r["saved"], r
+    assert "Keep the DUO's GBA switched on" in text, text[-1200:]
+    assert report.get("record_file"), text[-1200:]
+    assert open(report["record_file"], "rb").read() == game.own_record(), "the kept record isn't the game's"
+    assert "safe to switch the DUO's GBA off now" in text
 
 
 @test("Record Mixing, the DUO as master (player 0): it paces the 24 rounds itself, gives the Eon Ticket, reads the game's bases exactly; the player leaves first and the DUO follows")
@@ -2505,6 +2521,51 @@ def _():
             shutil.rmtree(tmp)
 
 
+@test("Record Workshop: a designed Secret Base goes straight into the whole record with its Put it in the record button (no .sb3 download), byte for byte the .sb3 it would save; the same owner's base at the same spot is replaced, not doubled; an unfinished base isn't put in")
+def _():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise Skip("needs Python's playwright to run the page")
+    import records as R
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            pg = browser.new_page(accept_downloads=True)
+            errors = []
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.route("**/fonts.googleapis.com/**", lambda r: r.abort())
+            pg.goto("file://" + os.path.join(paths.ROOT, "secret_base_workshop.html"))
+            pg.wait_for_function("typeof T !== 'undefined' && T && typeof S !== 'undefined' && S")
+            pg.click("#tab-bases"); pg.click("#newBtn"); pg.click("#genBtn")
+            assert pg.evaluate("checkAll().bad.length") == 0, pg.evaluate("checkAll()")
+            with pg.expect_download() as dl:
+                pg.click("#saveSb3")
+            sb3 = open(dl.value.path(), "rb").read()
+            pg.click("#baseToRecord")
+            note = pg.inner_text("#saveNote")
+            assert "Put in the record" in note and "1 of 20" in note, note
+            pg.click("#tab-record")
+            with pg.expect_download() as dl:
+                pg.click("#recSave")
+            bases = R.split(open(dl.value.path(), "rb").read())["bases"]
+            assert bases[0] == sb3 and not any(any(b) for b in bases[1:]), "the record's base isn't the .sb3's bytes"
+            pg.click("#tab-bases"); pg.click("#genBtn"); pg.click("#baseToRecord")   # a new design: same owner and spot
+            second = bytes(pg.evaluate("Array.from(checkAll().bytes)"))
+            note = pg.inner_text("#saveNote")
+            assert "Updated in the record" in note and "1 of 20" in note, note
+            assert pg.evaluate("REC.parts.bases.filter(any).length") == 1
+            assert bytes(pg.evaluate("Array.from(REC.parts.bases[0])")) == second
+            pg.evaluate("S.decorations = []; S.team = []; render()")             # unfinished: no team
+            if pg.evaluate("checkAll().bad.length"):
+                pg.click("#baseToRecord")
+                assert "Not put in the record yet" in pg.inner_text("#saveNote"), pg.inner_text("#saveNote")
+                assert pg.evaluate("REC.parts.bases.filter(any).length") == 1
+            assert not errors, errors
+        finally:
+            browser.close()
+
+
 @test("Record Workshop: the TV, PokéNews, day-care letter and Battle Tower tabs make the bytes records.py reads back (a show off the air so it travels, news, a letter, a Tower trainer with its checksum), play the game's own lines from the ROM, and all of it goes into one .rm3")
 def _():
     try:
@@ -2597,8 +2658,8 @@ def _():
     W.run_program(duo, "mix")                                     # and it runs a program again after that
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        bases, _ = W.copy_game_record(duo, whole=False)
-    assert len(bases) == 20 and "Copying the game's record [########################] 100%" in out.getvalue()
+        data = W.Copier(duo, 4, "the game's bases", total=W.SB.SB3_SIZE * W.SB.BASES_IN_SAVE // 4).finish()
+    assert len(data) == 3200 and "Copying the game's bases [########################] 100%" in out.getvalue()
     assert W.stop_program_quietly(duo) is not None and duo.hello() == 0x104
     hw.stop(); clean(hw)
 
@@ -2635,6 +2696,70 @@ def _():
     r = game.result
     assert report["mixed"] and r["left_room"] and r["partner_left_by_door"] and 1 in game.room.asked_to_leave, r
     assert r["positions_at_exit"][0] == (9, 8) and r["positions_at_exit"][1][1] == 9, r["positions_at_exit"]
+
+
+def _reversals(trail):
+    """How many times a walker turned straight back on itself (a step undoing the one before)."""
+    steps = [(b[0] - a[0], b[1] - a[1]) for a, b in zip(trail, trail[1:])]
+    return sum(1 for a, b in zip(steps, steps[1:]) if a[0] == -b[0] and a[1] == -b[1])
+
+
+def _pacer(until):
+    """The game's player (0) walks to (11,8), in the DUO's way to its seat (13,6), and steps up and
+    down between (11,7) and (11,8) until frame `until`, then goes to its own seat (6,6)."""
+    def key(frame, room, me):
+        if frame >= until:
+            return MG.step_towards(room, me, (6, 6))
+        if room.pos[me] not in ((11, 7), (11, 8)):
+            return MG.step_towards(room, me, (11, 8))
+        return MG.KEY_UP if room.pos[me] == (11, 8) else MG.KEY_DOWN
+    return key
+
+
+def _shadow(until):
+    """The game's player (0) keeps stepping into the DUO's way: onto the tile next to the DUO on
+    its shortest way to (13,6), until frame `until`; then to its own seat (6,6)."""
+    def key(frame, room, me):
+        if frame >= until:
+            return MG.step_towards(room, me, (6, 6))
+        duo = 1 - me
+        k = MG.step_towards(room, duo, (13, 6))
+        if k is None:
+            return None
+        dx, dy = MG.DIRS[k]
+        target = (room.pos[duo][0] + dx, room.pos[duo][1] + dy)
+        return MG.step_towards(room, me, target)
+    return key
+
+
+@test("Record Mixing: the player steps up and down in the DUO's way to the table (7 November, hardware: it paced along the left wall) - the DUO waits a moment, then goes round the other way without turning back or crossing another seat, and sits")
+def _():
+    hw, game, report = mix_run(master=True, bases=[test_base()], to_seat=_pacer(1500))
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    r = game.result
+    trail = r["partner_trail"]
+    assert r["mixed"] and r["partner_seat"] == (13, 6), r
+    assert not set(trail[:-1]) & set(MG.SEATS), f"walked onto another seat: {trail}"
+    assert _reversals(trail) == 0, f"back and forth: {trail}"
+    assert "blocked by your character" in hw.text, "the PC wasn't told the DUO was waiting"
+
+
+@test("Record Mixing: the player sits in the DUO's seat - the DUO takes the seat behind it on its side")
+def _():
+    def key(frame, room, me):
+        return MG.step_towards(room, me, (13, 6))
+    hw, game, report = mix_run(master=True, bases=[test_base()], to_seat=key)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    r = game.result
+    assert r["mixed"] and r["partner_seat"] == (13, 4), r
+
+
+@test("Record Mixing: the player keeps stepping in front of the DUO for a while - the DUO never gives up, and sits once it can")
+def _():
+    hw, game, report = mix_run(master=True, bases=[test_base()], to_seat=_shadow(1800))
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
+    r = game.result
+    assert r["mixed"] and r["partner_seat"] == (13, 6), (r, r.get("partner_trail"))
 
 
 @test("trade into Emerald without the National Pokedex: the DUO's link player says it has one, so the player may offer a non-Hoenn Pokemon; the tool names the game; Jirachi (in the Hoenn Pokedex) is received")
@@ -3533,7 +3658,28 @@ def _():
 import battle_game_model as BG
 
 
-def colosseum_run(master=True, team=(409, 280), game_species=(25, 151), seconds=300, **game_kw):
+def switch_off_at(duo, state):
+    """From the first status poll that shows `state` (or later), the DUO answers nothing more: its
+    GBA switched off (7 November, hardware). Returns a function that switches it back on."""
+    import usb.core
+    orig, off = duo.ask, []
+
+    def ask(cmd, *a, **k):
+        if off:
+            raise usb.core.USBTimeoutError("timeout")
+        r = orig(cmd, *a, **k)
+        if cmd == W.PROG_POLL and (a[:1] or [0])[0] == 0 and (r[1] & 0x1F) >= state:
+            off.append(True)
+        return r
+    duo.ask = ask
+
+    def back_on():
+        duo.ask = orig
+        W.stop_program_quietly(duo)
+    return back_on
+
+
+def colosseum_run(master=True, team=(409, 280), game_species=(25, 151), seconds=300, off_at=None, **game_kw):
     """The DUO's colosseum program (the battle probe) against a simulated Ruby in the Colosseum."""
     pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}") for k, sp in enumerate(team)]
     party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
@@ -3542,9 +3688,12 @@ def colosseum_run(master=True, team=(409, 280), game_species=(25, 151), seconds=
     hw.attach_mp_game(game.run(), game_master=game.master)
     paths = [event_file(d, f"{k} - TEST.pk3") for k, d in enumerate(pk3s)]
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    back_on = switch_off_at(duo, off_at) if off_at is not None else None
     r = quiet(W.colosseum_session, duo, types.SimpleNamespace(pk3=paths, seconds=seconds), poll_s=0.2,
               stop_when=lambda: hw.lg_done)
     hw.text = r[1]
+    if back_on:
+        back_on()
     assert duo.hello() == 0x104
     hw.stop(); clean(hw)                              # nothing written to any cartridge
     return hw, game, r[0], pk3s
@@ -3570,6 +3719,26 @@ def _():
     for line in ("the DUO is player 1", "single battle", "swapping teams", "battling", "the battle is over (won for the game's side)",
                  "leaving the room", "done", "Kept on this PC: the battle's record"):
         assert line in hw.text, (line, hw.text[-2000:])
+
+
+@test("battle probe: the DUO's GBA is switched off as soon as the DUO walks out (7 November, hardware: the record was lost) - the record copied during the battle is kept, the battle counts as played to the end, and the tool says it was switched off too soon")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=True, off_at=W.COLOSSEUM_ST["WALKING_OUT"])
+    text = hw.text
+    assert report["cut_short"] and report.get("file"), (report.get("file"), text[-1500:])
+    assert "switched off too soon" in text and "The battle was played to the end" in text, text[-1500:]
+    assert "safe to switch off" in text                                # (said at the battle's end)
+    lines = open(report["file"] + ".txt", encoding="utf-8").read()
+    assert "cut short" in lines, lines[:400]
+    assert sum(1 for k, _, _ in report["entries"] if k == 0) >= 10, "the battle's blocks weren't kept"
+
+
+@test("battle probe: at the end the tool says it's safe to switch off only once the record is kept on this PC")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=True)
+    text = hw.text
+    assert text.index("Keep the DUO's GBA switched on") < text.index("Kept on this PC") < text.index("safe to switch the DUO's GBA off now"), text[-1200:]
+    assert not report["cut_short"]
 
 
 @test("battle probe, the DUO as master: as player 0 it sends the signature 0x0001, lower than any game's, so the game still runs the battle; the battle's link opens with its own link type; the DUO takes the left spot and walks out")

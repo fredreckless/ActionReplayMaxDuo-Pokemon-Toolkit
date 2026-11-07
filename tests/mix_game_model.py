@@ -49,6 +49,25 @@ WALK_TO_SEAT = {0: [KEY_UP, KEY_UP, KEY_LEFT, KEY_LEFT, KEY_UP], 1: [KEY_UP, KEY
 WALK_TO_DOOR = {0: [KEY_DOWN, KEY_RIGHT, KEY_RIGHT, KEY_DOWN, KEY_DOWN], 1: [KEY_DOWN] + [KEY_LEFT] * 4 + [KEY_DOWN, KEY_DOWN]}
 
 
+def step_towards(room, who, goal):
+    """The key for a shortest step from who's tile to goal around the other player (None if there or no way)."""
+    from collections import deque
+    start = room.pos[who]
+    if start == goal:
+        return None
+    seen, q = {goal: None}, deque([goal])
+    while q:
+        x, y = q.popleft()
+        for k, (dx, dy) in DIRS.items():
+            n = (x - dx, y - dy)
+            if n == start:
+                return k
+            if n not in seen and not room.blocked(who, *n):
+                seen[n] = k
+                q.append(n)
+    return None
+
+
 class CornerRoom:
     """overworld.c, as far as the lockstep sees it (the same rules as the Trade Center's)."""
     def __init__(self):
@@ -495,7 +514,7 @@ def mix_tower(records, new, rng):
 class RubyRecordCorner(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, bases=None, player=None, tail=None, gift=0,
                  secret_power=True, leaves_first=False, has_items=(), pace=300, frame_blocks=25 * 228, version=2,
-                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1):
+                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1, to_seat=None):
         """bases: the game's own 20 Secret Bases (160 bytes each); player: its (gender, trainer ID
         bytes, name bytes); tail: the rest of its record (0x5B0 bytes: TV shows to the filler);
         gift: the Record Mixing gift it holds (it gives it only as player 0)."""
@@ -518,6 +537,9 @@ class RubyRecordCorner(RubyTrade):
                          mail=bytes(t[MAIL_AT - TV_AT:MAIL_AT - TV_AT + 120]),
                          tower_records=[bytearray(r) for r in (tower_records or [bytes(TOWER)] * 5)])
         self.seen = seen or (lambda species: True)
+        # to_seat: the player's own way to the table, a function (frame, room, me) -> a key or None for
+        # its usual path (7 November, hardware: the user stood in the DUO's way on purpose)
+        self.to_seat = to_seat
         self.game_clear = game_clear
         self.rng = GameRng(seed)
         self.sent = None
@@ -599,9 +621,11 @@ class RubyRecordCorner(RubyTrade):
         mine = list(WALK_TO_SEAT[self.my_id])
         wait, sent_seated = 0, False
         s.stage = "Record Corner: walking"
-        for frame in range(3000):
+        for frame in range(6000):
             if room.status[self.my_id] == 0x81 and not sent_seated:
                 key, sent_seated = KEY_SEATED, True
+            elif self.to_seat and room.status[self.my_id] == 0x80:
+                key = KEY_NONE if room.moving[self.my_id] else (self.to_seat(frame, room, self.my_id) or KEY_NONE)
             elif wait:
                 key, wait = KEY_NONE, wait - 1
             elif mine and room.status[self.my_id] == 0x80:
@@ -612,6 +636,9 @@ class RubyRecordCorner(RubyTrade):
             keys = s.keys_this_frame()
             if keys is not None:
                 room.apply(keys)
+                trail = self.result.setdefault("partner_trail", [room.pos[self.other]])
+                if room.pos[self.other] != trail[-1]:
+                    trail.append(room.pos[self.other])
             yield
             if all(v == 0x82 for v in room.status.values()):
                 break

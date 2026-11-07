@@ -181,6 +181,7 @@ static u8 rw_dist_space[12 * 9];
 /* The Trade Center (layout TradeCenter, 12 x 9) as room_walk.h sees it: the table at (5,5)-(6,5),
  * the seats beside it at (4,5) for player 0 and (7,5) for player 1, the door at (5,8)-(6,8). */
 static const u16 trade_room[9] = { 0x0, 0x0, 0x0, 0x7FE, 0x7FE, 0x79E, 0x7FE, 0x7FE, 0x60 };   /* bit (x - 0): open floor */
+static const u8 trade_seats[4] = { 4, 5, 7, 5 };
 static u32 sat, sat_at, asked_at;
 
 static u16 room_key(void)                 /* our key for this frame in the Trade Center */
@@ -189,7 +190,7 @@ static u16 room_key(void)                 /* our key for this frame in the Trade
      * each once the last has finished; waiting while the way is blocked); on it, "seated" (22) */
     u32 me = is_master ? 0 : 1, seat_x = is_master ? 4 : 7;
     u32 f = walk_frame++;
-    if (f == 0) rw_start(trade_room, 0, 12, 9, 8, 5, 6, 5, 6);
+    if (f == 0) rw_start(trade_room, 0, 12, 9, 8, 5, 6, 5, 6, trade_seats, 2);
     if (sat) {
         if (f == sat_at + 10) { state = ST_SEATED; return 22; }
         return 17;
