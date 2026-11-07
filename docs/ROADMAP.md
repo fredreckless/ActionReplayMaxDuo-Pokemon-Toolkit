@@ -245,9 +245,10 @@ pokeruby, pokeemerald and pokefirered (`cable_club.c`, `record_mixing.c`, `berry
 `battle_tower.c`, `mystery_gift*.c`, `link_rfu*.c`); Bulbapedia's multiplayer and Wireless
 Adapter pages for the player counts.
 
-**Two ways in.** *The cable as fitted* is a two-player Game Link Cable: the DUO's GBA is one
-player, so it can join anything two players can do, but it can't fill the extra places of a
-four-player feature. *The Wireless Adapter* (Emerald, FireRed, LeafGreen only) goes through the
+**Two ways in.** *The cable as fitted* is a two-player Game Link Cable: with the serial port
+working normally the DUO's GBA is one player. To fill the extra places of a four-player feature
+on the cable it would have to drive the data line by hand and play three GBAs at once (step C
+below: possible in principle, untried). *The Wireless Adapter* (Emerald, FireRed, LeafGreen only) goes through the
 adapter the DUO already plays for Mystery Gift (docs/WIRELESS.md): there, every other player's
 traffic comes through the adapter, so in principle the DUO can be **several players at once**
 (up to the four others a wireless group allows). That is the only route to the four-player
@@ -260,7 +261,7 @@ own link traffic): step W below.
 | **Trade Center** | all five | cable; wireless (E, FRLG) | 2 | trade partner: Pokémon in, Pokémon out | **Working on hardware** (Ruby, Japanese Emerald, LeafGreen); wireless after step W |
 | **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; Emerald's own layout next (Stage 10 and the Record Workshop); 3-4 players only over wireless |
 | **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | PC side done (`duo_battle.py`); the DUO side next |
-| Colosseum: multi battle | all five | cable (4-player cable); wireless (E, FRLG) | 4 | three of the four trainers | Needs wireless (step W) and doubles in the battle model |
+| Colosseum: multi battle | all five | cable; wireless (E, FRLG) | 4 | three of the four trainers | Needs step C (cable) or step W (wireless), and doubles in the battle model |
 | **Battle Tower link multi battle** | E | cable; wireless | 2 | the player's Tower partner (two Pokémon each) | After the battle partner: doubles, and the Tower's rules and teams |
 | **Berry Blender** | R, S, E | cable; wireless (E) | 2-4 | a blending partner: presses on the beat (easy to perfect) | Not started: read `berry_blender.c`'s link traffic; a timing model |
 | **Pokémon Contests (link)** | R, S, E | cable; wireless (E) | 2-4 (NPCs fill the rest) | a contest entrant: a Pokémon, its condition, its appeals | Not started: `contest_link.c`; the appeal choices could use the battle partner's levels |
@@ -281,7 +282,7 @@ own link traffic): step W below.
 
 | Feature | Games | Why |
 |---|---|---|
-| Four-player cable features (multi battle, 3-4 player Record Mixing, Blender, Contests) over a real four-player cable | R, S, E, FRLG | One DUO is one GBA on a two-player cable. Only the wireless route can make it several players; Ruby and Sapphire have no wireless, so for them these stay two-player. |
+| Four-player cable features (multi battle, 3-4 player Record Mixing, Blender, Contests) on the cable | R, S, E, FRLG | In the GBA's multiplayer serial mode each GBA sends one word per exchange, so the way the DUO links today it is one player. But players 2 and 3 are only time slots on the cable's shared data line, which a two-player cable carries too: if the DUO drives that line itself (the serial port's general-purpose mode, bit by bit at the games' 115,200 baud, about 145 GBA cycles a bit), it could send three players' words in a row and be three GBAs. Possible in principle, not yet tried: it needs tight code (likely in the GBA's fast internal RAM) and a hardware probe first (step C below). |
 | GameCube connections: Pokémon Colosseum and XD (trading, the Jirachi bonus disc), Pokémon Box Ruby & Sapphire, Pokémon Channel (Jirachi) | R, S, E, FRLG | The GameCube is the master of the JOY Bus; a GBA can only be the follower, so the DUO's GBA can't stand in for a GameCube. Out of reach (and out of scope: Stage 0's goal). |
 | The Berry Glitch Fixing Program | R, S | Sent by the e-Reader or a cable as a program that rewrites the save's clock: it writes the save directly, which our rule forbids. Refused, unless the user decides otherwise. |
 | Wireless Record Mixing between Emerald and Ruby/Sapphire | E with R/S | The games don't do it (Ruby and Sapphire have no wireless); cable only. |
@@ -296,10 +297,12 @@ own link traffic): step W below.
 4. **Step W, the wireless session**: the adapter emulation from Mystery Gift grown into a full
    wireless group (pret's `link_rfu*.c`, then a hardware probe that only records), first as one
    player (wireless Trade Center and Colosseum), then as several.
-5. On top of step W: the Union Room (cards, chat, invitations), Mystery Gift with a friend, the
+5. **Step C, three players on the cable** (for Ruby and Sapphire especially, which have no
+   wireless): a probe that drives the data line by hand and answers in players 2 and 3's slots
+   while the game is only looking for players; then the link stages of the four-player features.
+6. On top of step W: the Union Room (cards, chat, invitations), Mystery Gift with a friend, the
    wireless minigames (Berry Crush, Pokémon Jump, Dodrio Berry Picking), and the four-player
-   features (multi battle, 3-4 player Record Mixing, Blender and Contests) for Emerald and
-   FireRed/LeafGreen.
+   features (multi battle, 3-4 player Record Mixing, Blender and Contests) over wireless.
 
 ## Tidying done on 30 October
 
