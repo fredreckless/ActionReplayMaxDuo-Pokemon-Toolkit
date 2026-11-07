@@ -104,6 +104,11 @@ this session's reading of the code, so hardware has the last word: the probe exi
 party blocks), the DUO's Pokemon on the game's screen with the right name, level and HP, the
 battle reaching its end, and the walk out. If the game stops, note what its screen shows.
 
+**First hardware run (7 November, 21:56):** English Ruby against the DUO's MEW and JIRACHI, a
+single battle: the walk, the battle's link, the teams (JIRACHI shown with the right level and HP),
+84 commands to the end, and the walk out all worked. The record was lost to a USB hang straight
+after the session (HANDOVER.md); fix that, then run it again to keep the record.
+
 ## What the DUO's program does (`battle.c`, to write)
 
 - The Cable Club and the room as now (`trade.c`/`mix.c`'s engine and `room_walk.h`), then the battle

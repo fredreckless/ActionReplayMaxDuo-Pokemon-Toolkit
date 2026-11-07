@@ -64,6 +64,30 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **7 November, 22:00: the first link battle on hardware worked; one problem to fix first.**
+  - **Battle (log `2026-11-07 215639 duo_events colosseum.log`):** the probe with the user's
+    MEW and JIRACHI against their Ruby (single battle, the DUO player 1). It walked to its spot,
+    the battle's link opened, the teams swapped (JIRACHI Lv 5, 26/26 HP, showed correctly against
+    the user's SNEASEL: photo), it played to the end (84 commands, 4 choices; Ruby's side won),
+    went back to the Colosseum and walked out. The research and the model held. **Step 2 is done
+    on hardware apart from the record itself.**
+  - **The problem: the DUO stops answering the PC straight after "done".** Here and in the
+    21:26 whole-record mix, the first poll after the session (`program_poll(duo, 3)` in the
+    `finally`) timed out (USBTimeoutError 10060), then every stop; the next runs had to be Ctrl+C'd
+    and the GBA restarted. So the battle's record (and that mix's game record) were lost, and the
+    PC wrongly said "The battle did not finish" (it reads the state from the failed stop: use the
+    last state seen instead). The 21:12 and 21:34 mixes, by contrast, copied fine (1164 polls). It is
+    the same hang as 6 November, now narrowed: it happens **at the first poll after DONE**, not in
+    the middle of a copy. Suspects: the DONE screen line (`api->log`, over a frame) racing the PC's
+    packet; the program still servicing the link after DONE; the PC's 1 s sleep. Reproduce in
+    hwsim with a PC packet arriving during the log call, and consider copying the log/record
+    before the session ends (or during it), so a late hang loses nothing.
+  - **Whole record (`mix --record`) worked on hardware** (Arthur's Blue Cave on Route 116 made in
+    the workshop appeared exactly as designed; the user's photo and the 21:34 log). The user
+    considers Secret Bases and Record Mixing done for now.
+  - **On the PC (22:00):** `duo_events.py` with the probe (copied 21:38, SHA-1 checked; the old
+    one in `old\duo_events_before_colosseum_20261107.py`), and the docs and tests brought up to
+    date with this commit.
 - **7 November, 21:20: tonight's hardware, and a request.**
   - **Record Mixing test 2 worked** (log `2026-11-07 211202`): bases, old man, trend, TV and news
     went across in one sitting, the game saved, the DUO walked out, and the game's whole record was
