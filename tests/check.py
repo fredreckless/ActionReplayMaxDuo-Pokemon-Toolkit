@@ -30,7 +30,8 @@ MYSTERY_GIFT = ["wireless adapter", "distributor", "serial sweep", "find serial"
 EREADER = ["e-Reader", "e-Card", "Mystery Event files", "Enigma Berry", "v4.2 programs", "guided start-up"]
 TRADE = ["trade", "party form", "Pokemon files", "v4.2 programs"]
 MIX = ["Record Mixing", "Secret Base", "v4.2 programs"]
-EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + ["two tools", "v4.2 run", "connect"]
+COLOSSEUM = ["battle probe", "v4.2 programs"]
+EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + ["two tools", "v4.2 run", "connect"]
 
 # Which tests a changed file needs, first match wins. ALL for anything shared; [] for documentation.
 AREAS = [
@@ -39,8 +40,10 @@ AREAS = [
     ("firmware/programs/adapter.c", MYSTERY_GIFT),
     ("firmware/programs/trade.c", TRADE),
     ("firmware/programs/mix.c", MIX),
-    ("firmware/programs/*", MYSTERY_GIFT + EREADER + TRADE + MIX),
-    ("firmware/embed_programs.py", MYSTERY_GIFT + EREADER + TRADE + MIX),
+    ("firmware/programs/colosseum.c", COLOSSEUM),
+    ("firmware/programs/room_walk.h", TRADE + MIX + COLOSSEUM),
+    ("firmware/programs/*", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM),
+    ("firmware/embed_programs.py", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM),
     ("firmware/thumbcheck.py", MYSTERY_GIFT + EREADER + ["build:"]),
     ("duo_events.py", EVENTS_TOOL),
     ("secret_bases.py", MIX),
@@ -52,7 +55,8 @@ AREAS = [
     ("tests/rfu_game_model.py", MYSTERY_GIFT),
     ("tests/link_game_model.py", EREADER),
     ("tests/mevent_model.py", EREADER),
-    ("tests/trade_game_model.py", TRADE + MIX),
+    ("tests/trade_game_model.py", TRADE + MIX + COLOSSEUM),
+    ("tests/battle_game_model.py", COLOSSEUM),
     ("tests/mix_game_model.py", MIX),
     ("tests/ecard_fixtures.py", EREADER),
     ("tests/check.py", []), ("tests/run_each.py", []), ("tests/history/*", []),
@@ -65,7 +69,9 @@ BUG_KINDS = [
     ("firmware/programs/adapter.c", ["prog"]),
     ("firmware/programs/trade.c", ["trade"]),
     ("firmware/programs/mix.c", ["mix"]),
-    ("firmware/programs/*", ["prog", "ereader", "trade", "mix"]),
+    ("firmware/programs/colosseum.c", ["colosseum"]),
+    ("firmware/programs/room_walk.h", ["trade", "mix", "colosseum"]),
+    ("firmware/programs/*", ["prog", "ereader", "trade", "mix", "colosseum"]),
     ("firmware/build_v42.py", ["fw42"]),
     ("firmware/build_v4.py", ["fw", "fw42"]),
     ("firmware/build_*.py", ["fw", "fw42"]),
@@ -73,8 +79,9 @@ BUG_KINDS = [
     ("tests/rfu_game_model.py", ["prog"]),
     ("tests/link_game_model.py", ["ereader"]), ("tests/mevent_model.py", ["ereader", "pc"]),
     ("tests/ecard_fixtures.py", ["pc"]),
-    ("tests/trade_game_model.py", ["trade", "mix"]),
+    ("tests/trade_game_model.py", ["trade", "mix", "colosseum"]),
     ("tests/mix_game_model.py", ["mix"]),
+    ("tests/battle_game_model.py", ["colosseum"]),
     ("tests/test_v4.py", ALL), ("tests/hwsim.py", ALL), ("tests/fixtures.py", ALL),
     ("tests/mutate4.py", ALL),       # a changed or new planted bug should be run
 ]
@@ -104,6 +111,7 @@ QUICK = [
     "Record Mixing, the game as master",
     "Secret Base files",
     "battle: damage",
+    "battle probe, the game as master",
     "Record files",
 ]
 

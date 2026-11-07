@@ -64,6 +64,18 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **7 November, evening: the battle partner's DUO side, step 2 (the user chose it while testing
+  Record Mixing).** `firmware/programs/colosseum.c` (9.5 KB, 2.3 KB spare): the DUO walks to a
+  Colosseum spot, battles once with the PC's `.pk3` team, playing simply (fight, first move with
+  PP, next Pokémon after a faint), and logs every block both ways into the save-transfer buffer;
+  `duo_events.py colosseum --pk3 ...` keeps it in `battles\` as `.bin` and a decoded `.txt`. The
+  research is in docs/BATTLE.md ("What the game sends, in detail"): the key finds are that the DUO
+  can always leave the battle to the game (signature 0x0001 as player 0), that GETMONDATA needs no
+  answer from the partner (the game's own copy answers it), and that singles and doubles share one
+  room. Tests "battle probe" (five, with `tests/battle_game_model.py`) and planted bugs of the new
+  kind `colosseum`. **Next on hardware:** a single battle with the probe; read the newest
+  `battles\*.txt` and `logs\latest.log` through the bridge. Then step 3: the PC choosing (the
+  `duo_battle.py` levels) instead of the probe's simple play.
 - **7 November: the Record Workshop complete for Ruby and Sapphire (the user asked for it "fully
   complete").** New tabs: TV shows (12 kinds, `TV_SPEC`), PokéNews, day-care letters, the Battle
   Tower trainer (the class follows the trainer ID; Ruby's banned species; checksum). The game's own

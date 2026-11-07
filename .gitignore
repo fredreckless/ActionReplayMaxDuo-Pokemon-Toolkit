@@ -17,6 +17,7 @@ received/
 logs/
 bases/
 records/
+battles/
 *.sb3
 roms/
 *.gba

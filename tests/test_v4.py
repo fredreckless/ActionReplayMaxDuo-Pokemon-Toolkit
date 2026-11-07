@@ -3530,6 +3530,90 @@ def _():
     assert wins >= 7, wins
 
 
+import battle_game_model as BG
+
+
+def colosseum_run(master=True, team=(409, 280), game_species=(25, 151), seconds=300, **game_kw):
+    """The DUO's colosseum program (the battle probe) against a simulated Ruby in the Colosseum."""
+    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}") for k, sp in enumerate(team)]
+    party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
+    game = BG.RubyColosseum(master=master, party=party, **game_kw)
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    paths = [event_file(d, f"{k} - TEST.pk3") for k, d in enumerate(pk3s)]
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r = quiet(W.colosseum_session, duo, types.SimpleNamespace(pk3=paths, seconds=seconds), poll_s=0.2,
+              stop_when=lambda: hw.lg_done)
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    hw.stop(); clean(hw)                              # nothing written to any cartridge
+    return hw, game, r[0], pk3s
+
+
+@test("battle probe, the game as master (the cable as fitted): the DUO walks to its spot, the battle's link opens, the headers and parties swap (the game runs the battle), every command gets its done and the DUO's choices; the DUO's last Pokemon faints, the battle ends, the DUO walks out; the record is kept and reads back")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["battle_master"] == 0 and res["battled"] and res["left_room"] and res["partner_left_by_door"], res
+    assert res["partner_spot"] == (10, 5) and res["same_partner"], res
+    assert res["partner_party"] == b"".join(W.pk3_party_form(d) for d in pk3s).ljust(600, b"\0")
+    assert res["partner_header"][:4] == bytes([1, 1, 0b0101, 0]), res["partner_header"].hex()
+    assert res["outcome"] == BG.B_OUTCOME_WON and res["partner_switches"] == [(2, 1, 1)], (res["outcome"], res["partner_switches"])
+    assert all(slot == 0 for _, _, slot, _ in res["partner_choices"]) and res["partner_dones"] == res["commands"], res
+    assert report["bad_checksums"] == 0 and report["dropped"] == 0 and report["commands"] == res["commands"], report
+    text = open(report["file"] + ".txt", encoding="utf-8").read()
+    for line in ("link opened, type 0x2233", "link opened, type 0x2211", "battle header: signature 0x0101",
+                 "party block 1: PIKACHU, MEW", "command CHOOSEMOVE", "the DUO chose Pokemon 1 to send in",
+                 "command ENDLINKBATTLE", "won for the game's side", "link opened, type 0x2233"):
+        assert line in text, (line, text[-3000:])
+    for line in ("the DUO is player 1", "single battle", "swapping teams", "battling", "the battle is over (won for the game's side)",
+                 "leaving the room", "done", "Kept on this PC: the battle's record"):
+        assert line in hw.text, (line, hw.text[-2000:])
+
+
+@test("battle probe, the DUO as master: as player 0 it sends the signature 0x0001, lower than any game's, so the game still runs the battle; the battle's link opens with its own link type; the DUO takes the left spot and walks out")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=False)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["battle_master"] == game.my_id == 1 and res["battled"] and res["left_room"] and res["partner_left_by_door"], res
+    assert res["partner_spot"] == (3, 5) and res["partner_header"][:2] == b"\x01\x00", res
+    assert res["partner_dones"] == res["commands"] and report["master"] == 1 and report["bad_checksums"] == 0, report
+    assert "the DUO is player 0" in hw.text and "battle header: signature 0x0001" in open(report["file"] + ".txt").read()
+
+
+@test("battle probe: the player stands on the DUO's usual spot, so the DUO takes the other one")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=True, spot=(10, 5), team=(409,))
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["game_spot"] == (10, 5) and res["partner_spot"] == (3, 5) and res["battled"], res
+    assert res["partner_header"][2:4] == b"\x01\x00" and res["partner_switches"] == [], res      # one Pokemon: no switch
+
+
+@test("battle probe: a double battle (the same room and link): the DUO answers for battlers 1 and 3, aims at the foe opposite, sends in its third Pokemon (not the one still on the field) and plays to the end")
+def _():
+    # (its first Pokemon a Shedinja, 1 HP: it faints while the second is still on the field)
+    hw, game, report, pk3s = colosseum_run(master=True, double=True, team=(303, 280, 25), game_species=(25, 151, 280))
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["battled"] and res["left_room"] and res["partner_dones"] == res["commands"], res
+    assert {b for _, b, _, _ in res["partner_choices"]} == {1, 3}, res["partner_choices"]
+    assert all(t == b ^ 1 for _, b, _, t in res["partner_choices"]), res["partner_choices"]
+    assert res["partner_switches"] == [(1, 1, 2)], res["partner_switches"]
+    assert "double battle" in hw.text, hw.text[-1500:]
+
+
+@test("battle probe: the DUO's side wins (the game's Pokemon faint, it sends in its next itself); the player walks out first and the DUO follows")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=False, hit_share=0.2, partner_hit_share=0.7, leaves_first=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["outcome"] == BG.B_OUTCOME_LOST and res["left_room"] and res["partner_switches"] == [], res
+    assert "lost for the game's side" in hw.text, hw.text[-1500:]
+
+
 if __name__ == "__main__":
     pick = sys.argv[1] if len(sys.argv) > 1 else ""
     passed = failed = skipped = 0

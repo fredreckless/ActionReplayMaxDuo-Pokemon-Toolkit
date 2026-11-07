@@ -220,8 +220,8 @@ The user would like the DUO to be a partner for every service on a Pokémon Cent
 |---|---|---|
 | Trade Center | all five | Working on hardware (Stage 9) |
 | Record Corner | Ruby, Sapphire, Emerald | Working on hardware with Ruby (6 November). Every part of a record, not only bases: formats docs/RECORD_FORMATS.md, plan docs/RECORD_WORKSHOP.md |
-| **Colosseum: single and double battles** | all five | **A battle partner**: the PC's thinking side done for singles (`duo_battle.py`, 6 November); the DUO side next |
-| Colosseum: multi battle | all five | Needs four players; one DUO on a two-player cable can't fill three places |
+| **Colosseum: single and double battles** | all five | **A battle partner**: the PC's thinking side done for singles (`duo_battle.py`, 6 November); the DUO side's probe (`colosseum.c`: battles simply and records everything, 7 November) ready for hardware |
+| Colosseum: multi battle | all five | Needs four players: Stage 12, step C (cable) or W (wireless) |
 | Union Room, wireless trade/battle/Record Mixing, Berry Crush and the rest | Emerald, FireRed/LeafGreen | Wireless Adapter only: all of them listed in Stage 12 |
 | Mystery Gift | Emerald, FireRed/LeafGreen | Working (Stage 1) |
 
@@ -260,7 +260,7 @@ own link traffic): step W below.
 |---|---|---|---|---|---|
 | **Trade Center** | all five | cable; wireless (E, FRLG) | 2 | trade partner: Pokémon in, Pokémon out | **Working on hardware** (Ruby, Japanese Emerald, LeafGreen); wireless after step W |
 | **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; Emerald's own layout next (Stage 10 and the Record Workshop); 3-4 players only over wireless |
-| **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | PC side done (`duo_battle.py`); the DUO side next |
+| **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | PC side done (`duo_battle.py`); the DUO's probe built (7 November), hardware next |
 | Colosseum: multi battle | all five | cable; wireless (E, FRLG) | 4 | three of the four trainers | Needs step C (cable) or step W (wireless), and doubles in the battle model |
 | **Battle Tower link multi battle** | E | cable; wireless | 2 | the player's Tower partner (two Pokémon each) | After the battle partner: doubles, and the Tower's rules and teams |
 | **Berry Blender** | R, S, E | cable; wireless (E) | 2-4 | a blending partner: presses on the beat (easy to perfect) | Not started: read `berry_blender.c`'s link traffic; a timing model |

@@ -75,6 +75,7 @@ PC_MUTANTS = {
     "records: the prediction keeps the lower trendiness": ("            elif pool[key][0] & 0x7F < w[0] & 0x7F:", "            elif pool[key][0] & 0x7F > w[0] & 0x7F:", "Record files: what Ruby keeps"),
     "trade: the trainer card without the trainer's name": ("    card[0x30:0x38] = name[:8]\n", "", "trade, the game as master"),
     "trade: the trainer card without a Pokedex or a new save's profile": ("    card[0x02] = 1                                                     # has a Pokedex\n", "", "trade, the game as master"),
+    "colosseum: the battle's record read without each entry's padding": ("        at += 4 + (n + 3 & ~3)", "        at += 4 + n", "battle probe, the game as master"),
     "event files: any size accepted": ("        if len(data) > MEV_MAX:", "        if False:", "e-Reader: with no event"),
     "a .me3 is sent as it is, unwrapped": ("    script = build_event_script(me3, language)\n", "    script = data\n", "Mystery Event files"),
     "a .me3's RAM script checksum is never checked": ("    if stored != sum(block):", "    if False:", "Mystery Event files"),
@@ -156,16 +157,17 @@ def run(kind, name):
                            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=paths.FIRMWARE))
         assert r.returncode == 0, r.stderr[-800:]
         env = dict(os.environ, V3_FW=os.path.join(work, "fw_mut.bin"))
-    elif kind in ("prog", "ereader", "trade", "mix"):
+    elif kind in ("prog", "ereader", "trade", "mix", "colosseum"):
         old, new, pick = KINDS[kind][name]
         sys.path.insert(0, paths.FIRMWARE)
         import programs
-        src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c"}[kind]
+        src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
         assert good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
-        builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",)}[kind]
+        builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
+                  "colosseum": ("colosseum",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
@@ -271,8 +273,20 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "mix: the room's \"ready\" (0x2FFE) never answered - the game stays black (lab session 31)": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Record Mixing, the game as master"),
 }
 
+COLOSSEUM_MUTANTS = {      # firmware/programs/colosseum.c: the battle probe
+    "colosseum: as player 0, sends the game's own signature - the DUO would have to run the battle": ("    if (is_master) { our_header[0] = 1; our_header[1] = 0; }", "    if (0) { our_header[0] = 1; our_header[1] = 0; }", "battle probe, the DUO as master"),
+    "colosseum: its done carries the game's player ID": ("    u8 done[4] = { is_master ? 0 : 1, 0, 0, 0 };", "    u8 done[4] = { is_master ? 1 : 0, 0, 0, 0 };", "battle probe, the game as master"),
+    "colosseum: done to CHOOSEACTION without the action": ("            r[0] = R_TWORETURNVALUES;\n            battle_block(b, 1, r, 4);\n            ours_answered++;", "            r[0] = R_TWORETURNVALUES;\n            ours_answered++;", "battle probe, the game as master"),
+    "colosseum: answers for the game's battlers too": ("ours = battler & 1,", "ours = 1,", "battle probe, the game as master"),
+    "colosseum: sends in a Pokemon still on the field (a double)": ("fainted >> i & 1 || i == on_field[0] || i == on_field[1]", "fainted >> i & 1", "battle probe: a double battle"),
+    "colosseum: never takes the other spot when the player is on ours": ("    if (rw[other].x == spot_x && rw[other].y == 5) spot_x = 13 - spot_x;", "    (void)other;", "battle probe: the player stands on the DUO's usual spot"),
+    "colosseum: the battle's close (0x5FFF) not answered": ("        queue(0x5FFF, 0, 0);\n        log_event(E_CLOSE, state);", "        log_event(E_CLOSE, state);", "battle probe, the game as master"),
+    "colosseum: as master, opens the battle's link with the room's link type": ("    return state == ST_SEATED ? LT_BATTLE : doubles ? LT_DOUBLE : LT_SINGLE;", "    return doubles ? LT_DOUBLE : LT_SINGLE;", "battle probe, the DUO as master"),
+    "colosseum: aims at its own side in a double": ("r[3] = battler ^ 1;", "r[3] = battler ^ 2;", "battle probe: a double battle"),
+}
+
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,
-         "mix": MIX_MUTANTS, "pc": PC_MUTANTS}
+         "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "pc": PC_MUTANTS}
 
 
 def runnable_kinds():

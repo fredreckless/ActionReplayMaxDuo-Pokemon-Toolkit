@@ -272,7 +272,15 @@ python duo_battle.py --pk3 "mine\*.pk3" --level elite         (your .pk3 files a
 python duo_battle.py --tournament 40 --level medium --opponent easy
 ```
 
-**Status:** the PC side (6 November 2026): Gen 3 singles with the game's damage, and the three levels tested against each other. The DUO side is next.
+**Status:** the PC side (6 November 2026): Gen 3 singles with the game's damage, and the three levels tested against each other.
+
+The DUO side has begun with a **probe** (7 November, not yet tried on hardware): the DUO battles you once in the Colosseum with your `.pk3` team, playing simply (its first move with PP each turn), and records everything the game sends, so the real partner can be built on what Ruby actually does:
+
+```
+python duo_events.py colosseum --pk3 "mine\SWAMPERT.pk3" "mine\MANECTRIC.pk3"
+```
+
+Ruby or Sapphire; talk to the Cable Club attendant for the COLOSSEUM, choose SINGLE BATTLE, and stand on a spot by the table. The record is kept in a `battles` folder beside the tools (a `.txt` you can read, and a `.bin`).
 
 ## Logs of every run
 

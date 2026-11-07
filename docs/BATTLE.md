@@ -1,4 +1,4 @@
-# A battle partner in the Colosseum (design, 5 November 2026)
+# A battle partner in the Colosseum (design, 5 November 2026; the probe, 7 November)
 
 Asked for on 5 November as part of using every service upstairs in the Pokémon Centre (ROADMAP
 Stage 11). The user's choices: the DUO's team is **a set of `.pk3` files**; it plays at **three
@@ -10,16 +10,19 @@ pret/pokeruby (`battle_main.c`, `battle_controllers.c`, `battle_controller_playe
 ## How a Gen 3 link battle works
 
 - **Starting.** At the Colosseum attendant the player chooses single or double (link types 0x2233
-  and 0x2244; multi, 0x2255, needs four players and is out of reach for one DUO on a two-player
-  cable). Both walk into the Colosseum and sit down, the same room walk as the Trade Center's
-  (now `room_walk.h`), then the battle's own link opens.
+  and 0x2244; multi, 0x2255, needs four players: ROADMAP step C). Both singles and doubles use the
+  same room, SingleBattleColosseum; the attendant heals the party first. Both walk in and stand on a
+  spot by the table, the same room walk as the Trade Center's (now `room_walk.h`); when both are
+  seated, the game closes that link and the battle opens its own (0x2211).
 - **Who runs the battle.** Each GBA sends a small header (`linkBattlerHeader`) whose version
   signature is 0x0101 from Ruby/Sapphire and 0x0300 from Emerald. `FindLinkBattleMaster`: when every
-  player sends the same signature, **player 0 is the battle master**. So the DUO sends the game's
-  own signature back, and with the cable as fitted (the game on the master end, player 0) **the
-  game runs the battle**: its battle engine, its random numbers, every calculation. The DUO only
-  ever plays the other side's controller. If the DUO comes up as player 0, the tool says to swap the
-  cable's ends, as the e-Reader route already does.
+  player sends the same signature, **player 0 is the battle master**; otherwise the highest wins
+  and, failing that, the game that sees no higher one takes it. So the DUO can always leave the
+  battle to the game: as player 1 it sends the game's own signature, and as player 0 it sends
+  0x0001, lower than any game's (pokeruby `CB2_HandleStartBattle` case 1; pokeemerald's
+  `FindLinkBattleMaster` reads the same way). The cable can go either way round. The game then runs
+  the battle: its engine, its random numbers, every calculation. The DUO only ever plays the other
+  side's controller.
 - **The parties.** Then each side sends its party, two Pokémon (2 x 100 bytes) at a time, three
   times; Emerald with Emerald also swaps a random seed for recorded battles.
 - **During the battle.** The master's engine emits a controller command for a battler (show the
@@ -30,6 +33,76 @@ pret/pokeruby (`battle_main.c`, `battle_controllers.c`, `battle_controller_playe
   is runs it and answers to the engine (`B_COMM_TO_ENGINE`: the chosen action, move and target, a
   Pokémon's data); **every** player then reports that it has finished that command
   (`B_COMM_CONTROLLER_IS_DONE`), and the engine waits for all of them before going on.
+
+## What the game sends, in detail (read 7 November)
+
+From pokeruby (`cable_club.c`, `battle_main.c`, `battle_controllers.c`,
+`battle_controller_player.c`, `battle_controller_link_opponent.c`, `link.c`); Emerald's are the
+same in shape.
+
+- **The room.** `sub_808347C` sets 0x2233 or 0x2244 and opens the Cable Club's link (link players,
+  trainer cards on 0xCCCC 2, as the Record Corner). The Colosseum is 14 x 9: open floor from (1,3)
+  to (12,7), the attendant at (9,3), the spots at (3,5) (`VAR_0x8005` = 0) and (10,5) (= 1), the
+  door at (6,8)-(7,8), and the players appear at (6,8) and (7,8). Either player may take either
+  spot. Seated is key 22, as in the other rooms. `sub_808382C` then sets 0x2211, stops the room
+  keys, fades, waits 20 frames and closes the link (0x5FFF).
+- **The battle's link.** `HandleLinkBattleSetup` opens it; link players must arrive within 300
+  frames (`sub_8083C50`), or "link error". Each GBA's link player now carries its spot as `id`.
+  `CB2_HandleStartBattle`: the header (31 bytes in Ruby: signature, two bits a Pokemon for the
+  versus screen - 1 fit, 2 asleep or an Egg, 3 fainted - and the Enigma Berry), then the party in
+  three blocks of 200 bytes (two Pokemon each, the game's own encrypted form). Each block goes once
+  `IsLinkTaskFinished`, and the next only when both players' blocks of this turn are in; the
+  receiver's flags are reset each turn, so a partner must not send ahead.
+- **Who is who.** Battlers: the master's are 0 (and 2 in a double), the follower's 1 (and 3)
+  (`InitLinkBtlControllers`).
+- **Commands.** The engine's `BtlController_Emit*` goes, in a link battle, to
+  `PrepareBufferDataTransferLink`: a block of an 8-byte header (state 0, the battler, attacker,
+  target, size, absent battlers, effect battler) and the command, its size rounded up past a
+  multiple of four (4 bytes -> 8). `Task_HandleSendLinkBuffersData` sends them one block at a time
+  to everyone (after a 100-frame wait at the start). Every GBA, the sender too, copies each into
+  its `linkRecv` ring (`sub_800C35C`, every frame) and runs it in order
+  (`Task_HandleCopyReceivedLinkBuffersData`): state 0 is a command for that battler's controller
+  (it waits while the last one for that battler is still running there), state 1 an answer into
+  `gBattleBufferB`, state 2 a "done" that clears that player's bit for that battler. The engine
+  waits for every player's bit (`sub_80155A4` sets one per player per command). So every GBA
+  answers every command with its own done (state 2, data: its multiplayer ID), and the one whose
+  battler it is answers first where the command asks for something.
+- **What asks for something.** `CHOOSEACTION` (18; answer `TWORETURNVALUES` 33: 0 fight, 1 bag,
+  2 switch, 3 run), `CHOOSEMOVE` (20; its data: the four moves, PP, max PP, species and types;
+  answer 33, 10, the slot, the target battler), `CHOOSEPOKEMON` (22; answer
+  `CHOSENMONRETURNVALUE` 34, the party slot, and three bytes of party order that only a multi
+  battle reads). `GETMONDATA` (0) asks too, but the master's own copy of the partner's party
+  answers it (`LinkOpponentHandleGetAttributes`), so the partner needn't; a partner that does
+  answer must send exactly the game's view of its Pokemon, or the battle would use its bytes.
+  The engine never sends `GETRAWMONDATA` in a battle.
+- **The end.** `ENDLINKBATTLE` (55, with the outcome) to every battler; each GBA fades and closes the
+  link (0x5FFF). The game goes back to the Colosseum (`sub_8083958`, then `sub_805465C`: everyone
+  standing on their spot, facing down) and opens the room's link again; `sub_800826C` makes sure
+  the partner is the same trainer (ID and name) as before, or "link error". Then out of the door,
+  as after a trade.
+
+## The probe (`colosseum.c`, 7 November): step 2
+
+`python duo_events.py colosseum --pk3 A.pk3 [B.pk3 ...]` (1 to 6 Pokemon). The DUO walks to a spot
+(player 0 left, player 1 right, or the other one if the player is on its own), battles once and
+walks out. It plays as simply as it can: fight, the first move that has PP, the foe opposite, and
+after a faint the next Pokemon that can battle. Every block the game sends - link players, cards,
+headers, parties, every command and its answers - and every block the DUO sends goes into a log in
+the firmware's save-transfer buffer (up to 126 KB), and afterwards the PC keeps it in `battles\`
+as `... colosseum.bin` and a readable `... colosseum.txt` (each block named and decoded). The run
+log has the rest.
+
+Tested in the simulator against a model of the game (`tests/battle_game_model.py`): either end of
+the cable, the player on the DUO's usual spot, a double battle, the DUO winning and losing, the
+player leaving first; and planted bugs (a wrong signature, a done with the wrong ID, answering for
+the game's battlers, a Pokemon already on the field sent in, and others) are caught. The model is
+this session's reading of the code, so hardware has the last word: the probe exists to check it.
+
+**On hardware (next session):** Ruby with two or three Pokemon of its own, the DUO with one or two
+`.pk3` files (a short battle), single battle first. Afterwards send the `battles\` folder's newest
+`.txt` and `logs\latest.log`. What to look for: the battle starting at all (the header and the
+party blocks), the DUO's Pokemon on the game's screen with the right name, level and HP, the
+battle reaching its end, and the walk out. If the game stops, note what its screen shows.
 
 ## What the DUO's program does (`battle.c`, to write)
 
@@ -126,8 +199,9 @@ other side's species from the start), doubles, and the DUO side (steps 1-3).
 
 1. Read the battle code fully: the link start (`CB2_HandleStartBattle` in both games), the
    controller commands and their data, `CopyPlayerMonData`/`SetPlayerMonData`, the end of the
-   battle and the way back to the room.
-2. A hardware probe: the DUO sits in the Colosseum and only records the first blocks.
+   battle and the way back to the room. **Done for Ruby (7 November).**
+2. A hardware probe: the DUO sits in the Colosseum and records everything. **Built and tested in
+   the simulator (7 November): `colosseum.c`; hardware next.**
 3. The master model and the DUO's program, with the Colosseum walk.
 4. The PC's battle model and damage calculator, then easy, medium and elite.
 5. Hardware: singles, then doubles, with English Ruby, Japanese Emerald and LeafGreen.
