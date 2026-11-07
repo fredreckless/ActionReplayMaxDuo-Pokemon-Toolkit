@@ -71,8 +71,13 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
     TV and the news show in the game.
   - **One stall first** (log `2026-11-07 210900`): the DUO sat at "walking to the table" for 90 s
     with the link busy (1 barrier answered), until Ctrl+C; the run straight after worked. Look at
-    it: the room walk never reached the seat (blocked? a missed key?). The Ctrl+C and the next run
-    behaved (test 3 passed by accident).
+    it: the room walk never reached the seat. **The user explains:** they blocked the DUO's
+    character on purpose, and it then walked up and down the left wall instead of going round
+    them or waiting. Fix in the next revision of `room_walk.h` (shared by trade, mix and
+    colosseum): the route around a blocking player oscillates; reproduce it in the model
+    (CornerRoom with the player parked in the DUO's path to the table), then make the walk wait or
+    take the other way round the table. The Ctrl+C and the next run behaved (test 3 passed).
+  - **Seen in the game by the user:** ZIGGY's Pokémon Today on the TV and WILLOW's Bard song.
   - **The user's request:** the Record Workshop should export a whole `.rm3` from the current
     settings of all its tabs in one go, with part files still an option (RECORD_WORKSHOP.md).
 - **7 November, evening: the battle partner's DUO side, step 2 (the user chose it while testing
