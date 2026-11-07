@@ -219,10 +219,10 @@ The user would like the DUO to be a partner for every service on a Pokémon Cent
 | Service | Games | Where we are |
 |---|---|---|
 | Trade Center | all five | Working on hardware (Stage 9) |
-| Record Corner | Ruby, Sapphire, Emerald | Simulator; Ruby stops at the room on hardware (Stage 10). Every part of a record, not only bases: formats docs/RECORD_FORMATS.md, plan docs/RECORD_WORKSHOP.md |
+| Record Corner | Ruby, Sapphire, Emerald | Working on hardware with Ruby (6 November). Every part of a record, not only bases: formats docs/RECORD_FORMATS.md, plan docs/RECORD_WORKSHOP.md |
 | **Colosseum: single and double battles** | all five | **A battle partner**: the PC's thinking side done for singles (`duo_battle.py`, 6 November); the DUO side next |
 | Colosseum: multi battle | all five | Needs four players; one DUO on a two-player cable can't fill three places |
-| Union Room, wireless trade/battle/Record Mixing, Berry Crush | Emerald, FireRed/LeafGreen | Wireless Adapter only; would build on the Mystery Gift adapter emulation; later, if wanted |
+| Union Room, wireless trade/battle/Record Mixing, Berry Crush and the rest | Emerald, FireRed/LeafGreen | Wireless Adapter only: all of them listed in Stage 12 |
 | Mystery Gift | Emerald, FireRed/LeafGreen | Working (Stage 1) |
 
 **The battle partner: the design is docs/BATTLE.md** (5 November): a set of `.pk3` files for its
@@ -235,6 +235,71 @@ asks the PC, which picks moves for a team given as files (`.pk3`s, a Secret Base
 e-Reader trainer). Steps: read pokeruby/pokeemerald's link battle (setup, the controller commands,
 the follower's controller); a hardware probe that only records what the game sends; a model; the
 program; then the PC's choices.
+
+## Stage 12: Every link and wireless feature, even the obscure ones (asked for on 7 November 2026)
+
+The user would like the DUO to take part in **every** multiplayer feature of Ruby, Sapphire,
+Emerald, FireRed and LeafGreen. This is the full list, with where each stands. Sources: pret's
+pokeruby, pokeemerald and pokefirered (`cable_club.c`, `record_mixing.c`, `berry_blender.c`,
+`contest_link.c`, `union_room*.c`, `berry_crush.c`, `pokemon_jump.c`, `dodrio_berry_picking.c`,
+`battle_tower.c`, `mystery_gift*.c`, `link_rfu*.c`); Bulbapedia's multiplayer and Wireless
+Adapter pages for the player counts.
+
+**Two ways in.** *The cable as fitted* is a two-player Game Link Cable: the DUO's GBA is one
+player, so it can join anything two players can do, but it can't fill the extra places of a
+four-player feature. *The Wireless Adapter* (Emerald, FireRed, LeafGreen only) goes through the
+adapter the DUO already plays for Mystery Gift (docs/WIRELESS.md): there, every other player's
+traffic comes through the adapter, so in principle the DUO can be **several players at once**
+(up to the four others a wireless group allows). That is the only route to the four-player
+features. Each wireless feature first needs the adapter emulation to grow from Mystery Gift's
+one exchange to a game's full wireless session (finding and joining a group, then the feature's
+own link traffic): step W below.
+
+| Feature | Games | Link | Players | The DUO's part | Where we are |
+|---|---|---|---|---|---|
+| **Trade Center** | all five | cable; wireless (E, FRLG) | 2 | trade partner: Pokémon in, Pokémon out | **Working on hardware** (Ruby, Japanese Emerald, LeafGreen); wireless after step W |
+| **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; Emerald's own layout next (Stage 10 and the Record Workshop); 3-4 players only over wireless |
+| **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | PC side done (`duo_battle.py`); the DUO side next |
+| Colosseum: multi battle | all five | cable (4-player cable); wireless (E, FRLG) | 4 | three of the four trainers | Needs wireless (step W) and doubles in the battle model |
+| **Battle Tower link multi battle** | E | cable; wireless | 2 | the player's Tower partner (two Pokémon each) | After the battle partner: doubles, and the Tower's rules and teams |
+| **Berry Blender** | R, S, E | cable; wireless (E) | 2-4 | a blending partner: presses on the beat (easy to perfect) | Not started: read `berry_blender.c`'s link traffic; a timing model |
+| **Pokémon Contests (link)** | R, S, E | cable; wireless (E) | 2-4 (NPCs fill the rest) | a contest entrant: a Pokémon, its condition, its appeals | Not started: `contest_link.c`; the appeal choices could use the battle partner's levels |
+| **Union Room** | E, FRLG | wireless | up to 5 | a player in the room: greetings, chat (Easy Chat words), trainer cards, invitations to trade and battle, the trade board | After step W |
+| Union Room chat | E, FRLG | wireless | up to 5 | a chatting player (fixed or scripted lines, or the PC typing) | After step W |
+| Trainer Card exchange | all five (in the Colosseum and Trade Center; Union Room) | cable; wireless | 2 | a realistic card | **Working** (the trade's card, 6 November) |
+| **Berry Crush** | E, FRLG | wireless | 2-5 | a crusher: presses with good timing | After step W: `berry_crush.c` |
+| **Pokémon Jump** | E, FRLG | wireless | 2-5 | a jumper | After step W: `pokemon_jump.c` |
+| **Dodrio Berry Picking** | E, FRLG | wireless | 2-5 | a picker | After step W: `dodrio_berry_picking.c` |
+| **Mystery Gift: a distribution** | E, FRLG | wireless | 1 + the distributor | the distributor | **Working on hardware** (Stage 1; Wonder News in the simulator, Stage 2) |
+| Mystery Gift: "Send" and "Receive" with a friend | E, FRLG | wireless | 2 | the friend: takes a game's Wonder Card or News (so the PC can keep it), or gives one | Not started: `mystery_gift_menu.c`'s Send/Receive and the Union Room's Wonder Card/News activities; small once step W is done |
+| Mystery Event (e-Reader) | R, S | cable (the e-Reader's) | 1 | the e-Reader | **Working on hardware** (Eon Ticket, berries, Battle e-Card trainers: Stages 3, 4, 6) |
+| e-Reader Trainer Hill / Trainer Tower cards | Japanese E; Japanese FRLG | cable | 1 | the e-Reader | Simulator done (Stage 8); hardware next |
+| Eon Ticket by Record Mixing (the gift item) | R, S, E | cable | 2 | player 0's gift | **Working on hardware** (Ruby) |
+| Ruby/Sapphire with FireRed/LeafGreen | R, S, E with FRLG | cable; wireless (E-FRLG) | 2 | trade and battle across the regions (FRLG need the National Pokédex for trades with Hoenn) | Trades working; battles with the battle partner |
+
+**Obscure, and why they're harder or out of reach:**
+
+| Feature | Games | Why |
+|---|---|---|
+| Four-player cable features (multi battle, 3-4 player Record Mixing, Blender, Contests) over a real four-player cable | R, S, E, FRLG | One DUO is one GBA on a two-player cable. Only the wireless route can make it several players; Ruby and Sapphire have no wireless, so for them these stay two-player. |
+| GameCube connections: Pokémon Colosseum and XD (trading, the Jirachi bonus disc), Pokémon Box Ruby & Sapphire, Pokémon Channel (Jirachi) | R, S, E, FRLG | The GameCube is the master of the JOY Bus; a GBA can only be the follower, so the DUO's GBA can't stand in for a GameCube. Out of reach (and out of scope: Stage 0's goal). |
+| The Berry Glitch Fixing Program | R, S | Sent by the e-Reader or a cable as a program that rewrites the save's clock: it writes the save directly, which our rule forbids. Refused, unless the user decides otherwise. |
+| Wireless Record Mixing between Emerald and Ruby/Sapphire | E with R/S | The games don't do it (Ruby and Sapphire have no wireless); cable only. |
+
+**Order of work** (each step through the simulator, with planted bugs, before hardware):
+
+1. Finish what's under way: Record Mixing's whole record on hardware with Ruby, then Emerald's own
+   layout and parts (the DUO saying "Emerald").
+2. The battle partner on the DUO (Colosseum singles, then doubles), which also opens the Battle
+   Tower link multi battle.
+3. The Berry Blender and link Contests (cable, Ruby/Sapphire/Emerald): one model each, from pret.
+4. **Step W, the wireless session**: the adapter emulation from Mystery Gift grown into a full
+   wireless group (pret's `link_rfu*.c`, then a hardware probe that only records), first as one
+   player (wireless Trade Center and Colosseum), then as several.
+5. On top of step W: the Union Room (cards, chat, invitations), Mystery Gift with a friend, the
+   wireless minigames (Berry Crush, Pokémon Jump, Dodrio Berry Picking), and the four-player
+   features (multi battle, 3-4 player Record Mixing, Blender and Contests) for Emerald and
+   FireRed/LeafGreen.
 
 ## Tidying done on 30 October
 
