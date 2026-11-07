@@ -118,7 +118,7 @@ On hardware (sessions 24–25):
 On hardware (session 26): the wrapped Eon Ticket went across with 0 mismatches, Ruby saved it,
 and Norman gave the ticket in Petalburg City Gym.
 
-Still to come: the Record Mixing gift on hardware, Sapphire, and other languages.
+Still to come: Sapphire and other languages. (The Eon Ticket as a Record Mixing gift works on hardware too: Stage 12's table.)
 
 - **The DUO plays the e-Reader** on the standard link (two-player mode at 115 kbit/s), as a
   separate GBA program.
@@ -196,9 +196,10 @@ hand. **Waiting:** the user's cable stays fitted for the e-Reader route for now.
 4. **Emerald and FireRed/LeafGreen: working on hardware (lab session 31).** The same protocol;
    the DUO sends the progress flags they check, and the tool warns before a trade they'd refuse.
    A Jirachi into Japanese Emerald, the Aura Mew into English LeafGreen, and two of four in one
-   LeafGreen sitting. To fix: the DUO's walk out when the player stands in its way.
+   LeafGreen sitting. The walk out when the player stands in the way was fixed afterwards, and since
+   8 November the walk waits a moment for a player in its way, then goes round, and never gives up.
 
-## Stage 10: Secret Bases by Record Mixing (simulator done, 4 November 2026; hardware next)
+## Stage 10: Secret Bases by Record Mixing (working on hardware with English Ruby, 6-7 November 2026)
 
 Not part of the original goal; asked for on 3 November. The DUO sits in the Record Corner as the
 other player and hands the game up to twenty Secret Bases (`.sb3`, docs/SB3_FORMAT.md, made from
@@ -207,9 +208,13 @@ back to the PC. `python duo_events.py mix --base FILE.sb3 ...`. Details: docs/RE
 
 - Step 1 (research) and step 2 (`secret_bases.py`, `mix.c`, the Record Corner model, six tests)
   done.
-- Step 3: hardware, English Ruby first (also the Eon Ticket as a Record Mixing gift, with the DUO
-  as player 0), then Emerald. **First try (lab session 31): Ruby's screen goes black entering the
-  Record Corner**, in either role; to diagnose.
+- Step 3: hardware. The black screen of lab session 31 (the fade-in's "ready" barrier) was fixed;
+  on 6-7 November English Ruby mixed bases, an old man, a trend, TV shows and news, and a whole
+  record made in the Record Workshop, and the game's own record came back. The user considers Secret
+  Bases and Record Mixing done for now. Emerald (its own layout) is next when wanted.
+- 7 November (hardware): the DUO paced along the left wall when the player stood in its way. The
+  cause was the route planner reading leftover bytes beside the room; fixed on 8 November, with a
+  walk that waits, then goes round, and never crosses another seat.
 
 ## Stage 11: Everything upstairs in the Pokémon Centre (asked for on 5 November 2026; to plan first)
 
@@ -220,7 +225,7 @@ The user would like the DUO to be a partner for every service on a Pokémon Cent
 |---|---|---|
 | Trade Center | all five | Working on hardware (Stage 9) |
 | Record Corner | Ruby, Sapphire, Emerald | Working on hardware with Ruby (6 November). Every part of a record, not only bases: formats docs/RECORD_FORMATS.md, plan docs/RECORD_WORKSHOP.md |
-| **Colosseum: single and double battles** | all five | **A battle partner**: the PC's thinking side done for singles (`duo_battle.py`, 6 November); the DUO side's probe (`colosseum.c`: battles simply and records everything, 7 November) ready for hardware |
+| **Colosseum: single and double battles** | all five | **A battle partner**: the probe's battle worked on hardware with English Ruby (7 November); since 8 November the PC chooses the DUO's moves (easy, medium, elite, impossible), singles and doubles, in the simulator; hardware next. Ruby and Sapphire so far |
 | Colosseum: multi battle | all five | Needs four players: Stage 12, step C (cable) or W (wireless) |
 | Union Room, wireless trade/battle/Record Mixing, Berry Crush and the rest | Emerald, FireRed/LeafGreen | Wireless Adapter only: all of them listed in Stage 12 |
 | Mystery Gift | Emerald, FireRed/LeafGreen | Working (Stage 1) |
@@ -260,7 +265,7 @@ own link traffic): step W below.
 |---|---|---|---|---|---|
 | **Trade Center** | all five | cable; wireless (E, FRLG) | 2 | trade partner: Pokémon in, Pokémon out | **Working on hardware** (Ruby, Japanese Emerald, LeafGreen); wireless after step W |
 | **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; Emerald's own layout next (Stage 10 and the Record Workshop); 3-4 players only over wireless |
-| **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | PC side done (`duo_battle.py`); the DUO's probe built (7 November), hardware next |
+| **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | The battle link worked on hardware (7 November); the PC choosing, singles and doubles, four levels (8 November): hardware next. Emerald and FRLG next |
 | Colosseum: multi battle | all five | cable; wireless (E, FRLG) | 4 | three of the four trainers | Needs step C (cable) or step W (wireless), and doubles in the battle model |
 | **Battle Tower link multi battle** | E | cable; wireless | 2 | the player's Tower partner (two Pokémon each) | After the battle partner: doubles, and the Tower's rules and teams |
 | **Berry Blender** | R, S, E | cable; wireless (E) | 2-4 | a blending partner: presses on the beat (easy to perfect) | Not started: read `berry_blender.c`'s link traffic; a timing model |
@@ -289,10 +294,11 @@ own link traffic): step W below.
 
 **Order of work** (each step through the simulator, with planted bugs, before hardware):
 
-1. Finish what's under way: Record Mixing's whole record on hardware with Ruby, then Emerald's own
-   layout and parts (the DUO saying "Emerald").
-2. The battle partner on the DUO (Colosseum singles, then doubles), which also opens the Battle
-   Tower link multi battle.
+1. Done: Record Mixing's whole record on hardware with Ruby (7 November). Emerald's own layout
+   and parts (the DUO saying "Emerald") when the user wants them.
+2. The battle partner on the DUO: singles and doubles chosen by the PC (8 November, simulator);
+   hardware next; then Emerald and FireRed/LeafGreen's Colosseums, elite in doubles, and the Battle
+   Tower's link multi battle.
 3. The Berry Blender and link Contests (cable, Ruby/Sapphire/Emerald): one model each, from pret.
 4. **Step W, the wireless session**: the adapter emulation from Mystery Gift grown into a full
    wireless group (pret's `link_rfu*.c`, then a hardware probe that only records), first as one

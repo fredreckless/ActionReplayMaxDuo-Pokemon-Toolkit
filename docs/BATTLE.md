@@ -1,4 +1,4 @@
-# A battle partner in the Colosseum (design, 5 November 2026; the probe, 7 November)
+# A battle partner in the Colosseum (design, 5 November 2026; the probe, 7 November; the PC choosing, 8 November)
 
 Asked for on 5 November as part of using every service upstairs in the Pokémon Centre (ROADMAP
 Stage 11). The user's choices: the DUO's team is **a set of `.pk3` files**; it plays at **three
@@ -105,11 +105,86 @@ party blocks), the DUO's Pokemon on the game's screen with the right name, level
 battle reaching its end, and the walk out. If the game stops, note what its screen shows.
 
 **First hardware run (7 November, 21:56):** English Ruby against the DUO's MEW and JIRACHI, a
-single battle: the walk, the battle's link, the teams (JIRACHI shown with the right level and HP),
-84 commands to the end, and the walk out all worked. The record was lost to a USB hang straight
-after the session (HANDOVER.md); fix that, then run it again to keep the record.
+single battle: the walk, the battle's link, the teams, 84 commands to the end, and the walk out all
+worked. The record was lost because the DUO's GBA was switched off before the PC had copied it (not
+a fault); since 8 November the record is copied during the battle, and the tool says when it's safe
+to switch off.
 
-## What the DUO's program does (`battle.c`, to write)
+## The battle partner (8 November): step 3
+
+`python duo_events.py colosseum --pk3 ... --level easy|medium|elite|impossible|simple` (medium by
+default). The program is still `colosseum.c` (the probe grew into it); `--level simple` is the probe.
+
+**How a choice goes.** When the game asks one of the DUO's battlers for something (`CHOOSEACTION`,
+`CHOOSEMOVE`, `CHOOSEPOKEMON`), the DUO works out its own simple answer, keeps it as a fallback, and
+holds the question for the PC instead of answering. It sends nothing for that command yet, not even
+"done", which is exactly what a human player thinking would look like to the game. The PC:
+
+- polls **12** each loop: what's waiting (per side: waiting, the kind, the question's number; the
+  party slots out and the fainted ones). This also tells the DUO the PC is there;
+- copies the battle's record up to the question and updates its picture of the battle
+  (`duo_battle.LinkBattle`): the game's party from the opening blocks; which Pokemon each battler
+  has out (`SWITCHINANIM`); HP (`SETMONDATA` request 42, `REQUEST_HP_BATTLE`, sent by
+  `Cmd_datahpupdate` after every hit), status (request 40 and `STATUSICONUPDATE`), PP (requests
+  8-12), the full `BattlePokemon` (request 0, with stat stages), faints, the moves each Pokemon has
+  shown (`MOVEANIMATION`), the weather, and the DUO's own moves and PP from each `CHOOSEMOVE`;
+- chooses at its level and answers with poll **13**: side, value (an action, a move slot or a party
+  slot), target battler, the question's number.
+
+The DUO checks the answer against the game's rules: fight, or switch only if a Pokemon can come in; a
+move slot that has a move with PP, aimed at the other side; a party slot that can battle and isn't
+out. A good answer goes to the game with "done"; one that breaks a rule is replaced by the DUO's own
+choice. If the PC says nothing for `--fallback` seconds (15 by default), the DUO answers by itself,
+so a battle never hangs on the PC. The record notes each question (event 9) and each choice the DUO
+made itself (event 10).
+
+**Singles.** The PC builds a `duo_battle.Battle` from its picture (the DUO's battler's Pokemon against
+the game's) and asks the level's player. A switch is answered as action 2, then the game's
+`CHOOSEPOKEMON` gets the planned Pokemon; after a faint, the player's `replace`.
+
+**Doubles.** `duo_battle`'s engine is singles only, so a double battle has its own chooser
+(`LinkBattle._double_move`): for each move with PP and each foe, the expected damage (from
+`expected_hit` on a one-against-one copy) plus a bonus for a likely knock-out; spread moves at half
+power on each foe; not both on a foe the partner is expected to knock out; status moves only when
+they'd work. After a faint, the bench Pokemon with the best match-up against both foes. Easy adds
+some randomness. The levels above easy share this chooser in doubles for now (elite's playouts need a
+doubles engine).
+
+**The impossible level** (the user's request, 8 November). Every GBA receives every player's answers
+in a link battle (`PrepareBufferDataTransfer` sends `B_COMM_TO_ENGINE` over the link when
+`BATTLE_TYPE_LINK`, pokeruby `battle_controllers.c`), and the game sends its whole party at the
+start. So the impossible level sees the player's team in full (moves, item, ability, IVs, EVs,
+nature) and, each turn, **waits for the player's choice before making its own**: the game's battler's
+`CHOOSEACTION` answer and then its move or switch. It then plays each of its own choices out against
+the player's real one (`duo_battle.Impossible`, elite with full information, more and longer
+playouts, trusting them fully). In doubles it never aims at a foe that protects this turn, and aims
+at the Pokemon coming in where the player switches. It never breaks the game's mechanics: it only
+picks what the game itself allows, and the game still runs the whole battle. If the player's choice
+doesn't come (a Pokemon locked into its move, Encore, a recharge: the game asks nothing), it decides
+without it after 60 seconds at most; the DUO's fallback timer doesn't run while the PC is polling.
+The real engine lets each battler choose independently (`HandleTurnActionSelectionState`), so the
+player's move is asked for straight after their action, whatever the DUO is doing: no deadlock.
+
+**Fair play.** Before a battle each `.pk3` is checked (`duo_battle.check_legal`): effort values over
+510, the same move twice, more PP than the move can have, a level or stats (in a 100-byte file) that
+its experience, species, IVs, EVs and nature don't give, an item that doesn't exist, an Egg. Any of
+these refuses the team unless `--allow-unchecked`. A move the species can't learn by level, TM, HM
+or tutor is only noted (event Pokemon have special moves).
+
+**Tested in the simulator** (`tests/battle_game_model.py`, now closer to the real engine: the
+player's own `CHOOSEMOVE` straight after their action, `HEALTHBARUPDATE` with the damage and
+`SETMONDATA` with the new HP, `MOVEANIMATION` with the move, the partner's voluntary switches, and a
+player who takes a while to choose): medium uses Shadow Ball on a Gengar, never Tackle; impossible
+answers only after the player each turn; the PC failing (the DUO falls back after its time); the PC
+answering against the rules (the DUO uses its own); a double battle (Tackle never at the Gengar, the
+replacement one that can battle); an impossible Pokemon refused. Planted bugs for each.
+
+**On hardware next:** a single battle at medium, then impossible, then a double battle (Ruby with
+three or four Pokemon). Afterwards the newest `battles\*.txt` and `logs\latest.log`. To confirm: the
+game's answers for its own battlers really appear in the record (state 1 blocks for battler 0 and
+2), and `SETMONDATA` 42 follows each hit.
+
+## The first design for the DUO's program (5 November; built as `colosseum.c`, above)
 
 - The Cable Club and the room as now (`trade.c`/`mix.c`'s engine and `room_walk.h`), then the battle
   link: the header (the game's signature), the party blocks (the DUO's team in the game's form,
@@ -126,7 +201,7 @@ after the session (HANDOVER.md); fix that, then run it again to keep the record.
   game. The command handling is a table; the DUO keeps only its own six Pokémon and a short
   receive buffer, and the PC does the thinking.
 
-## How the PC plays (`duo_events.py battle --pk3 ... --level easy|medium|elite`)
+## How the PC plays (`duo_events.py colosseum --pk3 ... --level ...`; `impossible` above)
 
 The PC keeps its own model of the battle from what the commands reveal, and chooses with a full
 Gen 3 damage calculator (base stats, natures, IVs and EVs of its own Pokémon; the game's as far as
@@ -200,6 +275,22 @@ and the levels in order of strength.
 Next: what a human sees of the other side's party in a link battle (now each level knows the
 other side's species from the start), doubles, and the DUO side (steps 1-3).
 
+## Still to do
+
+- **Emerald and FireRed/LeafGreen.** Read 8 November, pokeemerald `battle_main.c`
+  `CB2_HandleStartBattle`: the same header (`struct LinkBattlerHeader`, signature 0x0300), the same
+  three party blocks, then **one more step when both link players are Emerald** (states 15-17): each
+  side sends `gRecordedBattleRngSeed` (4 bytes), and only the follower reads the master's. As the DUO
+  copies the game's version into its link player, with Emerald it must send a 4-byte block after its
+  party (zeros will do: the game, as master, ignores it) and count the game's seed as a fifth opening
+  block. Still to read: Emerald's and FireRed/LeafGreen's Colosseum maps (the room walk's layout,
+  the spots and the door), their Cable Club scripts, and whether their controller commands' numbers
+  match Ruby's.
+- **Elite in doubles**: a doubles engine in `duo_battle.py` (two battlers a side, targets, spread
+  moves, partner effects) for playouts.
+- **Multi battles** (four players) and the **Battle Tower's link multi battle** (Emerald): ROADMAP
+  Stage 12, steps C and W.
+
 ## Steps
 
 1. Read the battle code fully: the link start (`CB2_HandleStartBattle` in both games), the
@@ -207,6 +298,7 @@ other side's species from the start), doubles, and the DUO side (steps 1-3).
    battle and the way back to the room. **Done for Ruby (7 November).**
 2. A hardware probe: the DUO sits in the Colosseum and records everything. **Built and tested in
    the simulator (7 November): `colosseum.c`; hardware next.**
-3. The master model and the DUO's program, with the Colosseum walk.
+3. The master model and the DUO's program, with the Colosseum walk. **Done (8 November): the PC
+   chooses for the DUO, singles and doubles, four levels; hardware next.**
 4. The PC's battle model and damage calculator, then easy, medium and elite.
 5. Hardware: singles, then doubles, with English Ruby, Japanese Emerald and LeafGreen.

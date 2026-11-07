@@ -205,6 +205,65 @@ def mon_from_pk3(data):
                nickname=f["nickname"] or None)
 
 
+def check_legal(data):
+    """Whether a .pk3 is a Pokemon the games could really have (8 November: before the DUO battles
+    with it, so even the impossible level never plays with something the game's rules don't allow).
+    Returns (problems, notes): problems would let it battle beyond the rules (refused unless the user
+    allows it); notes are unusual but possible (an event's special move, say)."""
+    import duo_events as E
+    f, problems = E.parse_pk3(data)
+    problems, notes = list(problems), []
+    if problems:
+        return problems, notes
+    if f["egg"]:
+        problems.append("it's an Egg")
+    if not (0 < f["species"] < len(SPECIES) and any(SPECIES[f["species"]][:6])):
+        problems.append(f"species {f['species']} isn't a real Pokemon")
+        return problems, notes
+    party = E.pk3_party_fields(f)
+    level = party[4]
+    evs = f["evs"]
+    if sum(evs) > 510:
+        problems.append(f"its effort values add up to {sum(evs)}, more than the 510 any Pokemon can earn")
+    moves = f["moves"]
+    if not moves:
+        problems.append("it knows no moves")
+    real = lambda m: 0 < m < len(MOVES)
+    for m in moves:
+        if not real(m):
+            problems.append(f"move {m} isn't a real move")
+    if len(set(moves)) != len(moves):
+        problems.append("it knows the same move twice")
+    g, a = f["blocks"][0:12], f["blocks"][12:24]
+    ups = g[8]
+    for i, m in enumerate(struct.unpack_from("<4H", a, 0)):
+        if m and real(m):
+            most = MOVES[m][4] * (5 + (ups >> (2 * i) & 3)) // 5
+            if a[8 + i] > most:
+                problems.append(f"{move_name(m).title()} has {a[8 + i]} PP, more than its {most} can be")
+    if f["item"]:
+        import secret_bases as SB
+        if f["item"] >= len(SB.tables().items) or not SB.tables().items[f["item"]][0]:
+            problems.append(f"it holds item {f['item']}, which doesn't exist")
+    if len(data) == 100 and any(data[84:100]):          # the file's own stats, which the game would use
+        stored = list(struct.unpack_from("<6H", data, 0x58))   # max HP, Attack, Defense, Speed, Sp. Atk, Sp. Def
+        want = list(struct.unpack_from("<6H", bytes(party), 8))
+        if data[0x54] != level:
+            problems.append(f"its level says {data[0x54]}, but its experience makes it level {level}")
+        if stored != want:
+            problems.append(f"its stats ({'/'.join(map(str, stored))}) aren't what its species, level, IVs, EVs and "
+                            f"nature give ({'/'.join(map(str, want))})")
+        if struct.unpack_from("<H", data, 0x56)[0] > stored[0]:
+            problems.append("its HP is more than its maximum")
+    can = learnable(f["species"], level)
+    odd = [move_name(m).title() for m in moves if real(m) and m not in can]
+    if odd:
+        notes.append(f"{', '.join(odd)}: not learnt by levelling up, TM, HM or tutor"
+                     + (" (fine for an event Pokemon's special move)" if f["fateful"] else
+                        " - an Egg move or an event's special move, or not possible"))
+    return problems, notes
+
+
 def default_moves(species, level):
     """The moves a Pokemon of this species knows at this level from levelling up (the game's own
     default for a newly met one): the last four learnt."""
@@ -1058,7 +1117,10 @@ class Battle:
                     self.switch(s, players[s].replace(self, s), forced=True)
             if self.check_end():
                 break
-            actions = [players[s].choose(self, s) for s in (0, 1)]
+            actions = [None if getattr(players[s], "sees_choices", False) else players[s].choose(self, s) for s in (0, 1)]
+            for s in (0, 1):                          # (one that sees choices chooses last, knowing the other's)
+                if actions[s] is None:
+                    actions[s] = players[s].choose(self, s, foe_action=actions[1 - s])
             self.play_turn(actions)
         if self.winner is None:
             hp = [sum(m.hp / m.maxhp for m in side.team) for side in self.sides]
@@ -1782,7 +1844,356 @@ class Elite(Player):
         return max(bench, key=lambda k: v[k])
 
 
-PLAYERS = {"random": Player, "easy": Easy, "medium": Medium, "elite": Elite}
+class Impossible(Elite):
+    """The elite player with nothing hidden from it (8 November, asked for by the user): it sees the
+    other side's whole team - every move, item, ability, IV, EV and nature, which the game sends at
+    the start of a link battle anyway - and, when it can, the other side's choice for this turn
+    before making its own (in a link battle every GBA receives each player's answers, so the DUO
+    can wait for yours). It still only ever chooses what the game allows: a move it has with PP, a
+    Pokemon on its bench; nothing about the battle itself is changed. Its playouts are longer and
+    more numerous, and it trusts them fully (its picture of the battle is exact, bar the dice)."""
+    level = "impossible"
+    sees_choices = True
+
+    def __init__(self, seed=None, sees_all=True, samples=12, playout=60, margin=0.0):
+        super().__init__(seed, True, samples, playout, margin)
+
+    def choose(self, battle, s, foe_action=None):
+        acts = battle.legal_actions(s)
+        if len(acts) == 1:
+            return acts[0]
+        if foe_action is None:
+            v = self.values(battle, s, acts)
+        else:
+            def first(c, a):
+                turn = [None, None]
+                turn[s], turn[1 - s] = a, foe_action
+                c.play_turn(turn)
+            v = self.values(battle, s, acts, first=first)
+        return max(acts, key=lambda a: v[a])
+
+
+PLAYERS = {"random": Player, "easy": Easy, "medium": Medium, "elite": Elite, "impossible": Impossible}
+
+
+# ================================================================================ a link battle
+# 8 November: the PC chooses for the DUO in a real link battle. The game runs the battle (docs/BATTLE.md)
+# and every controller command reaches the DUO, which records them; the PC reads that record as it
+# grows and keeps its own picture of the battle, then answers each choice the DUO holds for it.
+
+C_GETMONDATA, C_SETMONDATA, C_SWITCHINANIM, C_FAINTANIMATION, C_MOVEANIMATION = 0, 2, 5, 10, 15
+C_CHOOSEACTION, C_CHOOSEMOVE, C_CHOOSEPOKEMON, C_STATUSICONUPDATE, C_ENDLINKBATTLE = 18, 20, 22, 26, 55
+REQ_ALL, REQ_PP_DATA, REQ_PPMOVE1, REQ_STATUS, REQ_HP = 0, 8, 9, 40, 42     # battle_controllers.h REQUEST_*
+PROTECTS = {"PROTECT"}                       # (Protect and Detect share the effect)
+
+
+def status_from_word(st):
+    """struct Pokemon's status word as this module's status (and sleep turns)."""
+    if st & 7:
+        return "SLP", st & 7
+    for bit, name in ((0x80, "TOX"), (0x08, "PSN"), (0x10, "BRN"), (0x20, "FRZ"), (0x40, "PAR")):
+        if st & bit:
+            return name, 0
+    return 0, 0
+
+
+class LinkBattle:
+    """The PC's picture of a link battle from the DUO's record, and its choices for the DUO's side.
+    `ours` are the DUO's .pk3 files (its party, in order); the game's party comes from the record's
+    opening blocks. Battlers: the game's are 0 and 2, the DUO's 1 and 3 (InitLinkBtlControllers);
+    each one's Pokemon is a party slot. `level` is easy, medium, elite or impossible."""
+
+    def __init__(self, ours, level="medium", double=False, seed=None):
+        self.ours = [mon_from_pk3(p) for p in ours]
+        self.theirs, self._party_blocks = None, []
+        self.double, self.level = double, level
+        self.player = PLAYERS[level](seed)
+        self.rng = random.Random(seed)
+        self.active = {0: 0, 1: 0, 2: 1, 3: 1}
+        self.weather = None
+        self.session, self.opening, self.used = None, 0, 0
+        self.n = 0                                   # record entries read
+        self.plan = {}                               # our battler -> the choice made at CHOOSEACTION
+        self.chosen = {}                             # our battler -> its move this turn (a double's teamwork)
+        self.last_choose = {}                        # battler -> the entry number of its last CHOOSEACTION
+        self.turn_mark = {}                          # our battler -> where its previous turn's ask was
+        self.pending = {}                            # battler -> the last choice command sent to it (cmd, data)
+        self.player_choice = {}                      # game battler -> ("move", slot, target) / ("switch", slot), this turn
+        self.player_action = {}
+        self.log = []                                # what the PC worked out, for the record's .txt
+
+    # ------------------------------------------------------------ reading the record
+    def side_team(self, battler):
+        return self.ours if battler & 1 else self.theirs
+
+    def mon(self, battler):
+        team = self.side_team(battler)
+        k = self.active.get(battler)
+        return team[k] if team is not None and k is not None and k < len(team) else None
+
+    def feed(self, entries):
+        """Reads the record's entries (kind, seq, bytes) from where it left off."""
+        import duo_events as E
+        for kind, seq, b in entries[self.n:]:
+            self.n += 1
+            if kind == 2:
+                code, arg = b[0] | b[1] << 8, b[2] | b[3] << 8
+                if code == 1:
+                    self.session, self.opening = arg, 0
+                continue
+            if self.session != 0x2211:
+                continue
+            if kind == 0 and self.opening < 4:
+                if self.opening >= 1:
+                    self._party_blocks.append(b)
+                    if self.opening == 3:
+                        self._game_party(E)
+                self.opening += 1
+                continue
+            if len(b) < 8 or kind == 1:
+                continue
+            state, battler, attacker = b[0], b[1], b[2]
+            size = b[4] | b[5] << 8
+            d = b[8:8 + size]
+            if state == 0 and d:
+                self._command(battler, attacker, d)
+            elif state == 1 and not battler & 1 and d:
+                self._answer(battler, d)
+
+    def _game_party(self, E):
+        raw = b"".join(self._party_blocks)
+        team = []
+        for k in range(6):
+            m = raw[100 * k:100 * k + 100]
+            if len(m) < 100 or not any(m[:32]):
+                break
+            try:
+                mon = mon_from_pk3(E.pk3_from_game_form(m))
+            except (ValueError, KeyError, IndexError):
+                break
+            hp = struct.unpack_from("<H", m, 0x56)[0]
+            mon.hp = min(hp, mon.maxhp) if hp or any(m[0x54:0x58]) else mon.maxhp
+            mon.status, mon.sleep = status_from_word(struct.unpack_from("<I", m, 0x50)[0])
+            team.append(mon)
+        self.theirs = team or None
+
+    def _targets(self, battler, mask):
+        team = self.side_team(battler) or []
+        if mask == 0:
+            return [self.mon(battler)] if self.mon(battler) else []
+        return [team[i] for i in range(min(6, len(team))) if mask >> i & 1]
+
+    def _command(self, battler, attacker, d):
+        cmd = d[0]
+        if cmd == C_SWITCHINANIM and len(d) > 1:
+            self.active[battler] = d[1]
+            m = self.mon(battler)
+            if m:
+                m.reset_volatile()
+        elif cmd == C_SETMONDATA and len(d) > 3:
+            req, vals = d[1], d[3:]
+            for m in self._targets(battler, d[2]):
+                if req == REQ_HP and len(vals) >= 2:
+                    m.hp = min(struct.unpack_from("<H", vals, 0)[0], m.maxhp)
+                elif req == REQ_STATUS and len(vals) >= 4:
+                    m.status, m.sleep = status_from_word(struct.unpack_from("<I", vals, 0)[0])
+                elif REQ_PPMOVE1 <= req < REQ_PPMOVE1 + 4 and vals and req - REQ_PPMOVE1 < len(m.pp):
+                    m.pp[req - REQ_PPMOVE1] = vals[0]
+                elif req == REQ_PP_DATA and len(vals) >= 4:
+                    m.pp = [vals[i] for i in range(len(m.pp))]
+                elif req == REQ_ALL and len(vals) >= 80:   # struct BattlePokemon
+                    m.hp = min(struct.unpack_from("<H", vals, 40)[0], m.maxhp)
+                    m.pp = [vals[36 + i] for i in range(len(m.pp))]
+                    m.stages = [max(0, min(12, v)) for v in vals[24:31]]
+                    m.status, m.sleep = status_from_word(struct.unpack_from("<I", vals, 76)[0])
+        elif cmd == C_FAINTANIMATION:
+            m = self.mon(battler)
+            if m:
+                m.hp = 0
+        elif cmd == C_STATUSICONUPDATE and len(d) >= 5:
+            m = self.mon(battler)
+            if m:
+                m.status, m.sleep = status_from_word(struct.unpack_from("<I", d, 1)[0])
+        elif cmd == C_MOVEANIMATION and len(d) >= 3:
+            m = self.mon(attacker)
+            move = d[1] | d[2] << 8
+            if m and move in m.moves:
+                m.known_moves.add(move)
+            if len(d) > 12:
+                self.weather = {1: "RAIN", 2: "RAIN", 4: "RAIN", 8: "SAND", 16: "SAND", 32: "SUN", 64: "SUN"}.get(
+                    next((bit for bit in (1, 2, 4, 8, 16, 32, 64) if d[12] & bit), 0))
+        elif cmd == C_CHOOSEMOVE and battler & 1 and len(d) >= 16:
+            m = self.mon(battler)
+            if m:
+                moves = [struct.unpack_from("<H", d, 4 + 2 * i)[0] for i in range(4)]
+                m.moves = [x for x in moves if x][:4]
+                m.pp = [d[12 + i] for i in range(len(m.moves))]
+        if cmd in (C_CHOOSEACTION, C_CHOOSEMOVE, C_CHOOSEPOKEMON):
+            self.pending[battler] = (cmd, bytes(d))
+            if cmd == C_CHOOSEACTION:
+                if battler & 1:                      # (our turn starts: the last one ended at our last ask)
+                    self.turn_mark[battler] = self.last_choose.get(battler, 0)
+                    self.chosen.pop(battler, None)
+                else:
+                    self.player_choice.pop(battler, None)
+                    self.player_action.pop(battler, None)
+                self.last_choose[battler] = self.n
+
+    def _answer(self, battler, d):
+        """The player's own answer (the game's battlers' answers reach every GBA)."""
+        cmd = self.pending.get(battler, (None,))[0]
+        if cmd == C_CHOOSEACTION and d[0] == 33 and len(d) > 1:
+            self.player_action[battler] = d[1]
+            if d[1] not in (0, 2):                   # (the bag, running: nothing to wait for)
+                self.player_choice[battler] = ("other",)
+        elif cmd == C_CHOOSEMOVE and d[0] == 33 and len(d) > 3 and d[1] == 10:
+            self.player_choice[battler] = ("move", d[2], d[3])
+        elif cmd == C_CHOOSEPOKEMON and d[0] == 34 and len(d) > 1 and self.player_action.get(battler) == 2:
+            self.player_choice[battler] = ("switch", d[1])
+
+    # ------------------------------------------------------------ choosing
+    def player_known(self, our_battler):
+        """The player's choices this turn (for the impossible level): {battler: choice} once every
+        battler of theirs that was asked this turn has answered; None while one hasn't yet; False if
+        none was asked (a Pokemon locked into its move, or recharging)."""
+        mark = self.turn_mark.get(our_battler, 0)
+        foes = [b for b in (0, 2) if self.last_choose.get(b, -1) > mark]
+        if not foes:
+            return False
+        if all(b in self.player_choice for b in foes):
+            return {b: self.player_choice[b] for b in foes}
+        return None
+
+    def _battle_for(self, battler, foe_battler=None):
+        """A single battle as duo_battle sees it: our battler's Pokemon against one of the game's."""
+        foe_battler = (battler ^ 1) if foe_battler is None else foe_battler
+        c = Battle.__new__(Battle)
+        c.sides = [Side([m.clone() for m in self.ours], "DUO"), Side([m.clone() for m in self.theirs], "game")]
+        c.sides[0].active = self.active.get(battler, 0) if self.active.get(battler, 6) < len(self.ours) else 0
+        c.sides[1].active = self.active.get(foe_battler, 0) if self.active.get(foe_battler, 6) < len(self.theirs) else 0
+        if self.double:                              # (the partner on the field isn't on our bench)
+            partner = self.active.get(battler ^ 2)
+            if partner is not None and partner < len(self.ours) and partner != c.sides[0].active:
+                c.sides[0].team[partner].hp = 0
+        c.rng = random.Random(self.rng.random())
+        c.weather, c.weather_turns, c.turn, c.log, c.winner = self.weather, 0, 1, None, None
+        return c
+
+    def choose(self, battler):
+        """The answer to the choice the DUO holds for our battler: (value, target) - an action
+        (0 fight, 2 switch), a move slot with its target battler, or a party slot."""
+        cmd, d = self.pending[battler]
+        if self.theirs is None:
+            raise ValueError("the game's party isn't in the record yet")
+        if cmd == C_CHOOSEACTION:
+            if self.double:
+                self.plan[battler] = self._double_move(battler)
+                return 0, 0
+            a = self._single(battler)
+            self.plan[battler] = a
+            return (2, 0) if a[0] == "switch" else (0, 0)
+        if cmd == C_CHOOSEMOVE:
+            usable = [i for i in range(4) if len(d) >= 16 and (d[4 + 2 * i] | d[5 + 2 * i]) and d[12 + i]]
+            plan = self.plan.pop(battler, None)
+            if self.double:
+                plan = plan if plan and plan[0] == "move" else self._double_move(battler)
+                slot, target = plan[1], plan[2]
+                self.chosen[battler] = plan          # (the partner, choosing next, works with it)
+            else:
+                plan = plan if plan and plan[0] == "move" else self._single(battler)
+                slot, target = (plan[1] if plan[0] == "move" else -1), battler ^ 1
+            if slot not in usable:
+                slot = usable[0] if usable else 0
+            return slot, target
+        # CHOOSEPOKEMON: after our own switch, the planned Pokemon; after a faint, the best one
+        plan = self.plan.pop(battler, None)
+        team = self.ours
+        out = {self.active.get(b) for b in (1, 3)} if self.double else {self.active.get(battler)}
+        bench = [k for k, m in enumerate(team) if not m.fainted and k not in out]
+        if plan and plan[0] == "switch" and plan[1] in bench:
+            return plan[1], 0
+        if not bench:
+            return 6, 0
+        if self.double:
+            return self._double_replacement(battler, bench), 0
+        b = self._battle_for(battler)                # (its bench: the fit ones, bar the one out now)
+        k = self.player.replace(b, 0) if b.sides[0].bench() else bench[0]
+        return (k if k in bench else bench[0]), 0
+
+    def _single(self, battler):
+        b = self._battle_for(battler)
+        if isinstance(self.player, Impossible):
+            known = self.player_known(battler)
+            foe = (known or {}).get(battler ^ 1) if known else None
+            act = None
+            if foe and foe[0] == "move":
+                moves = b.sides[1].mon.moves
+                act = ("move", foe[1]) if foe[1] < len(moves) else None
+            elif foe and foe[0] == "switch" and foe[1] < len(b.sides[1].team):
+                act = ("switch", foe[1])
+            a = self.player.choose(b, 0, foe_action=act)
+            self.log.append(f"impossible: the player chose {foe or 'nothing yet'}; the DUO answers {a}")
+        else:
+            a = self.player.choose(b, 0)
+        return a
+
+    def _double_move(self, battler):
+        """A double battle's move and target: the most damage (a knock-out first), working with the
+        partner (not both on a foe the partner will knock out), spread moves at half power on each
+        foe, and - impossible - never at a foe that protects this turn, and at the Pokemon coming in
+        where the player switches."""
+        me = self.mon(battler)
+        foes = [f for f in (0, 2) if self.mon(f) and not self.mon(f).fainted]
+        known = self.player_known(battler) if isinstance(self.player, Impossible) else None
+        known = known or {}
+        partner_plan = self.chosen.get(battler ^ 2)
+        best, best_v = None, -1.0
+        for i, move in enumerate(me.moves):
+            if i >= len(me.pp) or me.pp[i] <= 0:
+                continue
+            spread = MOVES[move][6] in (0x08, 0x20)
+            for f in foes:
+                v = 0.0
+                for t in (foes if spread else [f]):
+                    b = self._battle_for(battler, t)
+                    choice = known.get(t)
+                    if choice and choice[0] == "switch" and choice[1] < len(b.sides[1].team):
+                        b.sides[1].active = choice[1]
+                    if choice and choice[0] == "move":
+                        fm = b.sides[1].mon.moves
+                        if choice[1] < len(fm) and effect_of(fm[choice[1]]) in PROTECTS:
+                            continue
+                    dmg, ko = expected_hit(b, 0, move)
+                    if not MOVES[move][1] and not useless(b, 0, move):
+                        dmg = 0.12
+                    # (a knock-out is worth a whole Pokemon - its next moves never come - as in evaluate)
+                    part = (0.5 if spread and len(foes) > 1 else 1.0) * 1.6 * dmg + 2.0 * ko
+                    if partner_plan and partner_plan[0] == "move" and partner_plan[2] == t and partner_plan[3] >= 0.75:
+                        part *= 0.3                  # (the partner should knock that one out)
+                    v += part
+                if self.level == "easy":
+                    v *= self.rng.uniform(0.75, 1.25)
+                if v > best_v:
+                    best_v, best = v, ("move", i, f, ko_of(self, battler, move, f))
+        if best is None:
+            return ("move", 0, foes[0] if foes else battler ^ 1, 0.0)
+        return best
+
+    def _double_replacement(self, battler, bench):
+        foes = [f for f in (0, 2) if self.mon(f) and not self.mon(f).fainted] or [battler ^ 1]
+        def score(k):
+            total = 0.0
+            for f in foes:
+                b = self._battle_for(battler, f)
+                total += matchup(b, 0, k)
+            return total
+        return max(bench, key=score)
+
+
+def ko_of(lb, battler, move, foe_battler):
+    """The chance this move knocks the foe out now (doubles' coordination)."""
+    b = lb._battle_for(battler, foe_battler)
+    return expected_hit(b, 0, move)[1]
 
 
 # ======================================================================================== teams

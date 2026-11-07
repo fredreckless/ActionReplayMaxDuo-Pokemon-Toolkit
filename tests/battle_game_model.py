@@ -46,7 +46,8 @@ SPAWN = {0: (6, 8), 1: (7, 8)}
 DOOR = {(6, 8), (7, 8)}
 
 # controller commands (battle_controllers.h)
-GETMONDATA, SWITCHINANIM, DRAWTRAINERPIC, FAINTANIMATION, MOVEANIMATION, PRINTSTRING = 0, 5, 7, 10, 15, 16
+GETMONDATA, SETMONDATA, SWITCHINANIM, DRAWTRAINERPIC, FAINTANIMATION, MOVEANIMATION, PRINTSTRING = 0, 2, 5, 7, 10, 15, 16
+REQUEST_HP_BATTLE = 42
 CHOOSEACTION, CHOOSEMOVE, CHOOSEPOKEMON, HEALTHBARUPDATE = 18, 20, 22, 24
 TWORETURNVALUES, CHOSENMONRETURNVALUE = 33, 34
 INTROSLIDE, INTROTRAINERBALLTHROW, ENDLINKBATTLE = 46, 47, 55
@@ -152,7 +153,7 @@ class ColosseumRoom(Room):
 class RubyColosseum(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, party=None, double=False, spot=None, duo_wins=False,
                  hit_share=0.6, partner_hit_share=0.35, leaves_first=False, pace=300, frame_blocks=25 * 228, version=2,
-                 player=None):
+                 player=None, game_move=None, answer_delay=0):
         """party: the game's party (100-byte Pokemon, game form); double: a double battle; spot:
         where the player sits ((3,5) or (10,5); default: player 0 left, player 1 right); hit_share:
         the share of a Pokemon's max HP each hit takes from the partner's side, partner_hit_share
@@ -165,7 +166,12 @@ class RubyColosseum(RubyTrade):
         self.hit_share, self.partner_hit_share = hit_share, partner_hit_share
         self.player = player or (0, b"\x39\x30\x12\x34", b"\xc7\xbb\xd3\xff\xff\xff\xff")
         self.first_players = None
-        self.result.update(partner_header=None, partner_party=None, battle_master=None, commands=0,
+        # game_move(turn, battler) -> the move slot the player chooses (default 0); answer_delay: frames
+        # the player takes to choose each time (8 November: the impossible level waits for it)
+        self.game_move = game_move or (lambda turn, b: 0)
+        self.answer_delay = answer_delay
+        self.result.update(partner_voluntary=[], answer_frames=[],
+                           partner_header=None, partner_party=None, battle_master=None, commands=0,
                            partner_choices=[], partner_switches=[], partner_dones=0, outcome=None,
                            battled=False, partner_spot=None, game_spot=None, same_partner=None)
 
@@ -349,20 +355,48 @@ class RubyColosseum(RubyTrade):
                 raise LinkError("the battle went on for 60 turns")
             s.stage = f"battle: turn {turn}, choosing"
             acting = [b for b in battlers if live(b)]
+            self.turn = turn
+            # the player's own battlers: CHOOSEACTION, then at once CHOOSEMOVE (each battler goes on by
+            # itself in HandleTurnActionSelectionState; the partner's choices don't hold it up)
+            self._own_moves = {}
+            for b in acting:
+                if self._battler_side(b) == me:
+                    f = party[me][active[b]]
+                    self._own_moves[b] = [CHOOSEMOVE, 0, 0, 0] + list(struct.pack("<4H", *f["moves"])) + f["pp"] + \
+                        [35] * 4 + list(struct.pack("<H", f["species"])) + [0, 0]
             answers = yield from self._emit(s, [(b, [CHOOSEACTION, 0, 0, 0]) for b in acting])
             moves = {}
             ask = []
+            switching = []
             for b in acting:
                 if self._battler_side(b) == me:
-                    moves[b] = (0, b ^ 1)
                     continue
                 r = answers.get(b)
-                if r is None or r[0] != TWORETURNVALUES or r[1] != 0:
-                    raise LinkError(f"battler {b}: the partner's action was {r!r}, not 'fight'")
+                if r is None or r[0] != TWORETURNVALUES or r[1] not in (0, 2):
+                    raise LinkError(f"battler {b}: the partner's action was {r!r}, not 'fight' or 'switch'")
+                if r[1] == 2:
+                    switching.append(b)
+                    continue
                 f = party[other][active[b]]
                 ask.append((b, [CHOOSEMOVE, 0, 0, 0] + list(struct.pack("<4H", *f["moves"])) + f["pp"] +
                             [35] * 4 + list(struct.pack("<H", f["species"])) + [0, 0]))
-            answers = yield from self._emit(s, ask)
+            for b in switching:                           # (a switch: which Pokemon, B_ACTION_SWITCH)
+                ask.append((b, [CHOOSEPOKEMON, 0, 6, 0, 0, 0, 0, 0]))
+            for b in self._own_moves:
+                moves[b] = (self.game_move(turn, b), b ^ 1)
+            self._own_moves = {}
+            answers = yield from self._emit(s, ask) if ask else {}
+            for b in switching:
+                r = answers.get(b)
+                side = other
+                on_field = {active[x] for x in battlers if self._battler_side(x) == side}
+                bench = [i for i, f in enumerate(party[side]) if f and hp[side][i] > 0 and i not in on_field]
+                if r is None or r[0] != CHOSENMONRETURNVALUE or r[1] not in bench:
+                    raise LinkError(f"battler {b}: the partner switched to {r!r}, not one of {bench}")
+                active[b] = r[1]
+                self.result["partner_voluntary"].append((turn, b, r[1]))
+                yield from self._emit(s, [(b, [SWITCHINANIM, r[1], 0, 5])])
+            ask = [(b, d) for b, d in ask if d[0] == CHOOSEMOVE]
             for b, _ in ask:
                 r = answers.get(b)
                 if r is None or r[0] != TWORETURNVALUES or r[1] != 10:
@@ -385,12 +419,18 @@ class RubyColosseum(RubyTrade):
                     target = next((t for t in battlers if self._battler_side(t) != self._battler_side(b) and live(t)), None)
                     if target is None:
                         continue
-                yield from self._emit(s, [(b, [MOVEANIMATION, 1, 0, 0])], attacker=b, target=target)
+                move = party[self._battler_side(b)][active[b]]["moves"][slot]
+                yield from self._emit(s, [(b, [MOVEANIMATION] + list(struct.pack("<H", move)) + [1, 0, 0])],
+                                      attacker=b, target=target)
                 side, idx = self._battler_side(target), active[target]
                 share = self.hit_share if side == other else self.partner_hit_share
                 f = party[side][idx]
-                hp[side][idx] = max(0, hp[side][idx] - max(1, int(f["max_hp"] * share + 0.999)))
-                yield from self._emit(s, [(target, [HEALTHBARUPDATE, 0] + list(struct.pack("<H", hp[side][idx])))],
+                dmg = min(hp[side][idx], max(1, int(f["max_hp"] * share + 0.999)))
+                hp[side][idx] -= dmg
+                # Cmd_healthbarupdate (the damage), then Cmd_datahpupdate (the new HP, REQUEST_HP_BATTLE)
+                yield from self._emit(s, [(target, [HEALTHBARUPDATE, 0] + list(struct.pack("<h", dmg)))],
+                                      attacker=b, target=target)
+                yield from self._emit(s, [(target, [SETMONDATA, REQUEST_HP_BATTLE, 0] + list(struct.pack("<H", hp[side][idx])))],
                                       attacker=b, target=target)
                 yield from self._emit(s, [(b, [PRINTSTRING, 0, 0, 0])], attacker=b, target=target)
                 if hp[side][idx] == 0:
@@ -433,15 +473,38 @@ class RubyColosseum(RubyTrade):
         """Send these commands (as the engine does, each marked for every player) and wait until
         every GBA has reported each done; the answers (state 1) from the partner, by battler."""
         me, other = self.my_id, self.other
-        pending = {}
+        pending, own = {}, []
         for b, data in cmds:
             s.link.send_block(battle_block(0, b, bytes(data), attacker, target))
-            pending[b] = dict(cmd=data[0], answer=None, done=False)
+            pending[b] = dict(cmd=data[0], answer=None, done=False, need=1, dones=0)
             self.result["commands"] += 1
-            if self._battler_side(b) == me and data[0] in ASKS:   # the game's own controller answers
-                s.link.send_block(battle_block(1, b, bytes([TWORETURNVALUES, 0, 0, 0])))
-            s.link.send_block(battle_block(2, b, bytes([me, 0, 0, 0])))
-        for _ in range(frames):
+            if self._battler_side(b) == me and data[0] in ASKS:   # the game's own controller answers (the player)
+                if data[0] == CHOOSEMOVE:
+                    ans = [TWORETURNVALUES, 10, self.game_move(getattr(self, "turn", 0), b), b ^ 1]
+                elif data[0] == CHOOSEPOKEMON:
+                    ans = [CHOSENMONRETURNVALUE, 0, 0, 0, 0]
+                else:
+                    ans = [TWORETURNVALUES, 0, 0, 0]
+                own.append((b, ans))
+            else:
+                s.link.send_block(battle_block(2, b, bytes([me, 0, 0, 0])))
+        for k in range(frames + 2 * self.answer_delay):
+            if own and k >= (self.answer_delay if any(pending[b]["cmd"] in (CHOOSEACTION, CHOOSEMOVE) for b, _ in own) else 0):
+                for b, ans in own:                       # (the player has chosen)
+                    s.link.send_block(battle_block(1, b, bytes(ans)))
+                    s.link.send_block(battle_block(2, b, bytes([me, 0, 0, 0])))
+                    self.result["answer_frames"].append(("game", b, pending[b]["cmd"], self.result["commands"], k))
+                    move_cmd = getattr(self, "_own_moves", {}).get(b) if pending[b]["cmd"] == CHOOSEACTION else None
+                    if move_cmd:                         # (fight: its move next, straight away)
+                        pending[b]["need"] += 1          # (everyone reports done to that one too)
+                        pending[b]["done"] = False
+                        s.link.send_block(battle_block(0, b, bytes(move_cmd)))
+                        self.result["commands"] += 1
+                        slot = self.game_move(getattr(self, "turn", 0), b)
+                        s.link.send_block(battle_block(1, b, bytes([TWORETURNVALUES, 10, slot, b ^ 1])))
+                        s.link.send_block(battle_block(2, b, bytes([me, 0, 0, 0])))
+                        self.result["answer_frames"].append(("game", b, CHOOSEMOVE, self.result["commands"], k))
+                own = []
             blk = s.blocks_in.pop(other, None)
             s.blocks_in.pop(me, None)
             if blk is not None:
@@ -464,16 +527,18 @@ class RubyColosseum(RubyTrade):
                     if p["answer"] is not None:
                         raise LinkError(f"two answers for battler {b}'s command {p['cmd']}")
                     p["answer"] = list(blk[8:8 + size])
+                    self.result["answer_frames"].append(("partner", b, p["cmd"], self.result["commands"], k))
                 elif state == 2:
                     if blk[8] != other:
                         raise LinkError(f"the partner's done carried player {blk[8]}, not its own ({other})")
                     if self._battler_side(b) == other and p["cmd"] in ASKS and p["answer"] is None:
                         raise LinkError(f"the partner said done to command {p['cmd']} (battler {b}) without answering")
-                    p["done"] = True
+                    p["dones"] += 1
+                    p["done"] = p["dones"] >= p["need"]
                     self.result["partner_dones"] += 1
                 else:
                     raise LinkError(f"a battle block with state {state}")
-            if all(p["done"] for p in pending.values()):
+            if not own and all(p["done"] for p in pending.values()):
                 return {b: p["answer"] for b, p in pending.items()}
             yield
         raise LinkError(f"waiting for the partner's done ({s.stage}: {pending})")

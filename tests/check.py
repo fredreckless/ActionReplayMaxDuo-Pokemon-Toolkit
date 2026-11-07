@@ -30,7 +30,7 @@ MYSTERY_GIFT = ["wireless adapter", "distributor", "serial sweep", "find serial"
 EREADER = ["e-Reader", "e-Card", "Mystery Event files", "Enigma Berry", "v4.2 programs", "guided start-up"]
 TRADE = ["trade", "party form", "Pokemon files", "v4.2 programs"]
 MIX = ["Record Mixing", "Secret Base", "v4.2 programs"]
-COLOSSEUM = ["battle probe", "v4.2 programs"]
+COLOSSEUM = ["battle probe", "battle partner", "v4.2 programs"]
 EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + ["two tools", "v4.2 run", "connect"]
 
 # Which tests a changed file needs, first match wins. ALL for anything shared; [] for documentation.
@@ -51,7 +51,7 @@ AREAS = [
     ("duo_wireless.py", ["two tools"]),
     ("lab_runner.py", ["lab_runner"]),
     ("records.py", ["Record files"]),
-    ("duo_battle.py", ["battle:"]), ("battle_data.py", ["battle:"]), ("tools/make_battle_data.py", ["battle:"]),
+    ("duo_battle.py", ["battle:", "battle partner"]), ("battle_data.py", ["battle:", "battle partner"]), ("tools/make_battle_data.py", ["battle:"]),
     ("tests/rfu_game_model.py", MYSTERY_GIFT),
     ("tests/link_game_model.py", EREADER),
     ("tests/mevent_model.py", EREADER),

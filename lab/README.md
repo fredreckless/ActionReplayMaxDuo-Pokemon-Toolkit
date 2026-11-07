@@ -11,6 +11,7 @@ python lab_runner.py                                                     # run t
 - **`RESULTS.txt`** is the test summary for v4.1, with the real-hardware confirmations.
 - **`early/`** holds the first experiments, run with the lab edition firmware.
 - **`sessions/`** holds one folder per session: the job list (`lab_job.json`) and its scripts.
+- **`handover_history_to_2026-11-07.md`** is the hand-over as it grew from 29 October to 7 November, moved out of docs/HANDOVER.md on 8 November to keep that short.
 
 ## Sessions
 

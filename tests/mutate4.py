@@ -75,6 +75,14 @@ PC_MUTANTS = {
     "records: the prediction keeps the lower trendiness": ("            elif pool[key][0] & 0x7F < w[0] & 0x7F:", "            elif pool[key][0] & 0x7F > w[0] & 0x7F:", "Record files: what Ruby keeps"),
     "trade: the trainer card without the trainer's name": ("    card[0x30:0x38] = name[:8]\n", "", "trade, the game as master"),
     "trade: the trainer card without a Pokedex or a new save's profile": ("    card[0x02] = 1                                                     # has a Pokedex\n", "", "trade, the game as master"),
+    "battle partner: the impossible level answers without waiting for the player's choice": ("                            continue                          # (waiting for the player's own choice)", "                            pass", "the impossible level waits"),
+    "battle partner: the team isn't checked against the game's rules": ("            unruly = unruly or bool(rules)", "            unruly = False", "a Pokemon that couldn't exist"),
+    "battle partner: the PC's move choice ignored (the first move used)": ("                slot, target = (plan[1] if plan[0] == \"move\" else -1), battler ^ 1", "                slot, target = 0, battler ^ 1", "the PC chooses the DUO's moves at the medium level"),
+    "battle partner: a double battle's target is simply the first foe": ("                if v > best_v:\n                    best_v, best = v,", "                if best is None:\n                    best_v, best = v,", "a double battle chosen by the PC"),
+    "battle partner: a double battle's partners don't work together": ("                self.chosen[battler] = plan          # (the partner, choosing next, works with it)", "", "a double battle's teamwork"),
+    "battle partner: a double battle taken for a single": ("                    double = v & 0xFFFF == 0x2244", "                    double = False", "a double battle chosen by the PC"),
+    "battle: the impossible level doesn't use the other side's choice": ("            v = self.values(battle, s, acts, first=first)", "            v = self.values(battle, s, acts)", "the impossible level sees the other side's choice"),
+    "battle: a team's effort values aren't checked": ("    if sum(evs) > 510:", "    if False:", "a team's .pk3 files are checked"),
     "colosseum: the battle's record read without each entry's padding": ("        at += 4 + (n + 3 & ~3)", "        at += 4 + n", "battle probe, the game as master"),
     "event files: any size accepted": ("        if len(data) > MEV_MAX:", "        if False:", "e-Reader: with no event"),
     "a .me3 is sent as it is, unwrapped": ("    script = build_event_script(me3, language)\n", "    script = data\n", "Mystery Event files"),
@@ -123,7 +131,7 @@ PC_MUTANTS = {
     "Secret Bases: the player's own base keeps its out-of-date team": ("        if i == 0:                                     # SetPlayerSecretBaseParty", "        if False:", "Secret Bases from a save backup"),
     "Secret Bases: dolls allowed on the floor": ("        if (big and tile != \"L\") or (not big and tile not in (\"s\", \"L\")):", "        if big and tile != \"L\":", "Secret Base files"),
     "Secret Bases: two bases in one spot allowed": ("        if f[\"location\"] in places:", "        if False:", "Secret Base files"),
-    "Secret Bases: the game's bases read back one word out": ("        words.append(program_poll(duo, 4 | k << 8))", "        words.append(program_poll(duo, 4 | (k + 1) << 8))", "Record Mixing, the DUO as master"),
+    "Secret Bases: the game's bases read back one word out": ("        self.words.append(program_poll(self.duo, self.sel | len(self.words) << 8))", "        self.words.append(program_poll(self.duo, self.sel | (len(self.words) + 1) << 8))", "Record Mixing, the DUO as master"),
     "every Pokemon's original route called a trade": ('    if route == "trade":\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', '    if True:\n        return f"Originally: {event}, {PK3_ROUTE_TEXT[\'trade\']}. This trade is the original route."', "how each event was originally given out"),
     "party stats left empty in a traded Pokemon": ("    return box + pk3_party_fields(f)", "    return box + bytes(20)", "party form"),
     "known game table ignored": ("    known = KNOWN_SAVE_GAMES.get(info[\"code\"][:3])\n    if forced:", "    known = None\n    if forced:", "known games"),
@@ -205,8 +213,9 @@ def run(kind, name):
         env = dict(os.environ, MAXDUO_TOOL_DIR=work)
     else:
         old, new, pick = PC_MUTANTS[name]
-        tools = {f: open(os.path.join(paths.ROOT, f)).read() for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py",
-                                                                      "records.py", "runlog.py")}
+        tools = {f: open(os.path.join(paths.ROOT, f), encoding="utf-8").read()
+                 for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py", "records.py", "runlog.py", "duo_battle.py")}
+        shutil.copy(os.path.join(paths.ROOT, "battle_data.py"), work)
         if old == "ADAPTER_IMAGE":                     # rebuild the embedded program with a wrong ID (valid CRC)
             sys.path.insert(0, paths.FIRMWARE)
             import programs
@@ -226,7 +235,7 @@ def run(kind, name):
         if "crct" in new:   # let the bug through the tool's own guard too, so only the tests can catch it
             mutated = mutated.replace('if name == "crct" and 0x0E000000 <= addr < 0x0F000000:', 'if False:')
         for f, t in tools.items():
-            open(os.path.join(work, f), "w").write(mutated if f == target else t)
+            open(os.path.join(work, f), "w", encoding="utf-8").write(mutated if f == target else t)
         env = dict(os.environ, MAXDUO_TOOL_DIR=work)
     for attempt in range(3):               # the emulator itself can segfault under load: run again
         r = subprocess.run([sys.executable, "test_v4.py", pick], cwd=paths.HERE, capture_output=True, text=True, env=env, timeout=1800)
@@ -285,7 +294,11 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
 COLOSSEUM_MUTANTS = {      # firmware/programs/colosseum.c: the battle probe
     "colosseum: as player 0, sends the game's own signature - the DUO would have to run the battle": ("    if (is_master) { our_header[0] = 1; our_header[1] = 0; }", "    if (0) { our_header[0] = 1; our_header[1] = 0; }", "battle probe, the DUO as master"),
     "colosseum: its done carries the game's player ID": ("    u8 done[4] = { is_master ? 0 : 1, 0, 0, 0 };", "    u8 done[4] = { is_master ? 1 : 0, 0, 0, 0 };", "battle probe, the game as master"),
-    "colosseum: done to CHOOSEACTION without the action": ("            r[0] = R_TWORETURNVALUES;\n            battle_block(b, 1, r, 4);\n            ours_answered++;", "            r[0] = R_TWORETURNVALUES;\n            ours_answered++;", "battle probe, the game as master"),
+    "colosseum: done to a choice without its answer": ("    battle_block(hdr, 1, r, kind == 2 ? 5 : 4);", "", "battle probe, the game as master"),
+    "colosseum: never chooses by itself when the PC is silent": ("        if (t - since < wait) continue;", "        if (t - since < wait || 1) continue;", "when the PC stops choosing"),
+    "colosseum: the PC's polls don't hold off its own choice": ("        u32 since = pc_alive_at - pend_since[side] < 0x80000000u ? pc_alive_at : pend_since[side];", "        u32 since = pend_since[side];", "the impossible level waits"),
+    "colosseum: the PC's move answer not checked for PP": ("        if (value > 3 || !(pend_moves[side] >> value & 1) ||", "        if (value > 3 ||", "the PC's answer breaks the rules"),
+    "colosseum: an answer against the rules is sent anyway": ("    answer_choice(pend_hdr[side], kind, ok ? r : pend_fb[side]);", "    answer_choice(pend_hdr[side], kind, r);", "the PC's answer breaks the rules"),
     "colosseum: answers for the game's battlers too": ("ours = battler & 1,", "ours = 1,", "battle probe, the game as master"),
     "colosseum: sends in a Pokemon still on the field (a double)": ("fainted >> i & 1 || i == on_field[0] || i == on_field[1]", "fainted >> i & 1", "battle probe: a double battle"),
     "colosseum: never takes the other spot when the player is on ours": ("    if (rw[other].x == spot_x && rw[other].y == 5) spot_x = 13 - spot_x;", "    (void)other;", "battle probe: the player stands on the DUO's usual spot"),

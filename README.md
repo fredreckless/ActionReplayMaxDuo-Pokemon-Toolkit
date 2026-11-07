@@ -262,9 +262,28 @@ The tool checks everything the game needs, and warns about anything a real playe
 
 **Status:** done in the simulator (4 November 2026), against a model of Ruby's Record Corner and its filing rules ported from pokeruby. Hardware next: Ruby, then Emerald. See [docs/RECORD_MIXING.md](docs/RECORD_MIXING.md) and [docs/SB3_FORMAT.md](docs/SB3_FORMAT.md).
 
-## A battle partner (in progress)
+## A battle partner
 
-The plan is for the DUO to sit in the Colosseum as a link-battle opponent or partner, its team a set of your `.pk3` files, playing at easy, medium or elite level ([docs/BATTLE.md](docs/BATTLE.md)). The thinking half runs on the PC and can already battle on its own:
+The DUO sits in the Cable Club Colosseum as your link-battle opponent, its team a set of your `.pk3` files, and the PC chooses its moves ([docs/BATTLE.md](docs/BATTLE.md)). Single and double battles, with English Ruby or Sapphire:
+
+```
+python duo_events.py colosseum --pk3 "mine\SWAMPERT.pk3" "mine\MANECTRIC.pk3"                    (medium)
+python duo_events.py colosseum --pk3 "mine\SWAMPERT.pk3" "mine\MANECTRIC.pk3" --level impossible
+```
+
+Talk to the Cable Club attendant for the COLOSSEUM, choose SINGLE BATTLE or DOUBLE BATTLE, and stand on a spot by the table. Levels:
+
+- **easy**: a sensible young trainer; never a move that can't work, not stupidly easy;
+- **medium** (the default): a good player; expected damage, knock-outs, switching out of a bad match-up;
+- **elite**: plays each choice out to the end in imagined copies of the battle, with guesses for what it can't see;
+- **impossible**: sees your whole team (the game sends both parties at the start of a link battle) and waits for your choice each turn, which also reaches the DUO over the link, before making its own. It still only ever does what the game allows: a move it has, with PP, at a foe; a Pokemon on its bench. Nothing about the battle itself changes;
+- **simple**: the first move with PP each turn (the original probe).
+
+Before a battle, each `.pk3` is checked against the game's rules (effort values, PP, stats that match its species, level and nature, a real item and moves). One that couldn't exist is refused, so even the impossible level plays fair; `--allow-unchecked` battles with it anyway. If the PC ever goes quiet, the DUO chooses by itself after 15 seconds (`--fallback S`), so a battle never hangs.
+
+Everything the game sends is recorded and kept in a `battles` folder beside the tools (a `.txt` you can read, and a `.bin`). **Keep the DUO's GBA switched on until the tool says it's safe to switch off.** The record is copied during the battle, so switching off early loses little, but the end needs a moment.
+
+The thinking half can also battle on its own, on the PC:
 
 ```
 python duo_battle.py --demo                                  (a battle between two made-up teams, turn by turn)
@@ -272,15 +291,7 @@ python duo_battle.py --pk3 "mine\*.pk3" --level elite         (your .pk3 files a
 python duo_battle.py --tournament 40 --level medium --opponent easy
 ```
 
-**Status:** the PC side (6 November 2026): Gen 3 singles with the game's damage, and the three levels tested against each other.
-
-The DUO side has begun with a **probe** (7 November, not yet tried on hardware): the DUO battles you once in the Colosseum with your `.pk3` team, playing simply (its first move with PP each turn), and records everything the game sends, so the real partner can be built on what Ruby actually does:
-
-```
-python duo_events.py colosseum --pk3 "mine\SWAMPERT.pk3" "mine\MANECTRIC.pk3"
-```
-
-Ruby or Sapphire; talk to the Cable Club attendant for the COLOSSEUM, choose SINGLE BATTLE, and stand on a spot by the table. The record is kept in a `battles` folder beside the tools (a `.txt` you can read, and a `.bin`).
+**Status (8 November 2026):** the battle link worked on hardware with the probe on 7 November (a single battle against English Ruby, to the end and out of the room). The PC's choosing, the impossible level and double battles are tested in the simulator against a model of Ruby; hardware next. Not yet: Emerald and FireRed/LeafGreen's Colosseums, multi battles (four players), and the Battle Tower's link multi battle.
 
 ## Logs of every run
 

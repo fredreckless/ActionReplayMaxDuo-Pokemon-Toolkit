@@ -526,11 +526,11 @@ static void on_transfer(void)
  * with no link session - before the first, between sessions while the game reopens the link, or
  * once done - and then shows where things have got to. */
 static const char *const SAY[] = {
-    "Trade: waiting for game", "Trade: handshaking", "Trade: linked", "Cable Club: link players",
-    "Walking to the table", "Seated at the table", "Trade screen: parties", "At the trade menu",
-    "Offered the event Pokemon", "Both said yes: trading", "Trade scene", "The game is saving",
-    "Traded and saved", "Leaving the trade screen", "No trade this time", "Back to the Trade Center",
-    "Back in the room", "Walking out to the door", "Leaving the room", "Done: the link is closed",
+    "Trade: waiting", "Trade: handshake", "Trade: linked", "Link players",
+    "Walking to table", "Seated", "Parties", "Trade menu",
+    "Offered", "Trading", "Trade scene", "Game saving",
+    "Traded, saved", "Leaving trade", "No trade", "Back to room",
+    "In the room", "Walking out", "Leaving room", "Done: link closed",
 };
 static u32 shown = 0xFF, label_shown;
 

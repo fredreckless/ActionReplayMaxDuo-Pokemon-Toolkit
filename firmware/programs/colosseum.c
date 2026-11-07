@@ -108,6 +108,8 @@ static u32 put_at, blob_ready;
 #define BLOB        ((u8 *)BLOB_AT)
 #define TEAM_COUNT  BLOB[0]             /* 1 to 6 */
 #define OUR_GENDER  BLOB[1]             /* our trainer: 0 boy, 1 girl */
+#define ASK_PC      BLOB[2]             /* 1: the PC makes our choices (8 November); 0: we play simply */
+#define FALLBACK_S  BLOB[3]             /* seconds without a word from the PC before we choose ourselves */
 #define OUR_NAME    (BLOB + 4)          /* 8 bytes, game charset */
 #define OUR_TID     (BLOB + 12)         /* 4 bytes */
 #define LABEL       ((const char *)BLOB + 20)   /* 28: a line for the screen */
@@ -120,7 +122,7 @@ static u32 put_at, blob_ready;
 static u32 log_len, log_full, log_seq, log_lost;
 static u8 scratch[64];                    /* where a block goes once the log is full */
 enum { K_GAME, K_OURS, K_EVENT };
-enum { E_SESSION = 1, E_CLOSE, E_READY, E_SEATED, E_CHOICE, E_END, E_TRUNCATED, E_DROPPED };
+enum { E_SESSION = 1, E_CLOSE, E_READY, E_SEATED, E_CHOICE, E_END, E_TRUNCATED, E_DROPPED, E_ASKED, E_FALLBACK };
 
 static u8 *log_room(u32 len)              /* where an entry's bytes go (after its 4-byte head), or 0 */
 {
@@ -167,6 +169,9 @@ static u32 barriers;
 static u32 start_in, start_out;           /* the battle's opening blocks: the game's, ours (header, 3 x party) */
 static u32 commands, ours_answered, outcome, choices;
 static u32 fainted, on_field[2], last_pick;
+/* a choice waiting for the PC, one per battler of ours (side 0: battler 1, side 1: battler 3) */
+static u8 pend_on[2], pend_kind[2], pend_seq[2], pend_moves[2], pend_hdr[2][8], pend_fb[2][4];
+static u32 pend_since[2], pc_alive_at, ask_seq;
 
 /* ------------------------------------------------------------------ the link layer */
 static u32 send_idx, recv_idx, checksum, checksum_ready, nonzero;
@@ -373,6 +378,19 @@ static u32 pick_next(void)               /* a Pokemon to send in after a faint: 
     return 6;                                                  /* (PARTY_SIZE: none) */
 }
 
+static void answer_choice(const u8 *hdr, u32 kind, const u8 *r)   /* our answer to a choice, then "done" */
+{
+    battle_block(hdr, 1, r, kind == 2 ? 5 : 4);
+    if (kind) {
+        log_event(E_CHOICE, kind == 2 ? 0x100 | r[1] : r[2]);
+        if (kind == 2 && r[1] < 6) last_pick = r[1];
+        choices++;
+    }
+    ours_answered++;
+    u8 done[4] = { is_master ? 0 : 1 };              /* (then "done", as below) */
+    battle_block(hdr, 2, done, 4);
+}
+
 static void battle_command(const u8 *b, u32 len)   /* one of the game's battle blocks */
 {
     if (len < 9) return;
@@ -380,33 +398,29 @@ static void battle_command(const u8 *b, u32 len)   /* one of the game's battle b
     commands++;
     u32 battler = b[1], cmd = b[8], ours = battler & 1, side = battler >> 1;
     const u8 *d = b + 8;
-    u8 r[5] = { 0, 0, 0, 0, 0 };
+    u8 r[4] = { 0, 0, 0, 0 };
+    if (ours && (cmd == C_CHOOSEACTION || cmd == C_CHOOSEMOVE || cmd == C_CHOOSEPOKEMON)) {
+        /* our own simple choice: fight; the first move with PP at the foe opposite; the next fit
+         * Pokemon. Kept as the fallback when the PC chooses (and doesn't answer in time). */
+        u32 kind = cmd == C_CHOOSEACTION ? 0 : cmd == C_CHOOSEMOVE ? 1 : 2, moves = 0;
+        r[0] = R_TWORETURNVALUES;
+        if (kind == 1) {
+            for (u32 i = 0; i < 4; i++)
+                if (len >= 8 + 16 && (d[4 + 2 * i] | d[5 + 2 * i]) && d[12 + i]) moves |= 1u << i;
+            u32 slot = 0;
+            while (slot < 3 && moves && !(moves >> slot & 1)) slot++;
+            r[1] = 10; r[2] = slot; r[3] = battler ^ 1;
+        }
+        if (kind == 2) { r[0] = R_CHOSENMON; r[1] = pick_next(); }
+        if (!ASK_PC) { answer_choice(b, kind, r); return; }
+        pend_on[side] = 1; pend_kind[side] = kind; pend_seq[side] = ++ask_seq & 31; pend_moves[side] = moves;
+        memcpy(pend_hdr[side], b, 8); memcpy(pend_fb[side], r, 4);
+        pend_since[side] = now();
+        log_event(E_ASKED, battler | kind << 8);
+        return;                                     /* (answered, and "done", once the PC has chosen) */
+    }
     if (ours) {
         switch (cmd) {
-        case C_CHOOSEACTION:                        /* fight (B_ACTION_USE_MOVE) */
-            r[0] = R_TWORETURNVALUES;
-            battle_block(b, 1, r, 4);
-            ours_answered++;
-            break;
-        case C_CHOOSEMOVE: {                        /* the first move with PP; the foe opposite */
-            u32 slot = 0;
-            for (u32 i = 0; i < 4; i++)
-                if (len >= 8 + 16 && (d[4 + 2 * i] | d[5 + 2 * i]) && d[12 + i]) { slot = i; break; }
-            r[0] = R_TWORETURNVALUES; r[1] = 10; r[2] = slot; r[3] = battler ^ 1;
-            battle_block(b, 1, r, 4);
-            log_event(E_CHOICE, slot);
-            ours_answered++; choices++;
-            break;
-        }
-        case C_CHOOSEPOKEMON: {
-            u32 i = pick_next();
-            r[0] = R_CHOSENMON; r[1] = i;
-            battle_block(b, 1, r, 5);
-            log_event(E_CHOICE, 0x100 | i);
-            if (i < 6) { last_pick = i; }
-            ours_answered++; choices++;
-            break;
-        }
         case C_SWITCHINANIM:
             if (len >= 10) on_field[side] = d[1];
             break;
@@ -622,6 +636,46 @@ static void screen(api_t *api, int linked)
     if (state < sizeof SAY / sizeof SAY[0]) api->log(SAY[state]);
 }
 
+/* ------------------------------------------------------------------ the PC's choices (8 November)
+ * Poll 12 says what's waiting (and tells us the PC is there); poll 13 answers one: the side (bit 0),
+ * the value (bits 1-8: an action, a move slot or a party slot), the target battler (bits 9-10) and the
+ * choice's number (bits 11-15). We check it against the rules (a move with PP, a Pokemon that can
+ * battle and isn't out) and send it; without a word from the PC for FALLBACK_S seconds, we choose
+ * ourselves. */
+static u32 pc_answer(u32 a)
+{
+    u32 side = a & 1, value = a >> 1 & 0xFF, target = a >> 9 & 3, seq = a >> 11 & 31;
+    if (!pend_on[side] || pend_seq[side] != seq) return 0;
+    u32 kind = pend_kind[side], ok = 1;
+    u8 r[4] = { R_TWORETURNVALUES, value, 0, 0 };
+    if (kind == 0 && value != 0 && !(value == 2 && pick_next() < 6)) ok = 0;    /* fight, or switch if one can */
+    if (kind == 1) {
+        if (value > 3 || !(pend_moves[side] >> value & 1) || !(target & 1) == !(pend_hdr[side][1] & 1)) ok = 0;
+        r[1] = 10; r[2] = value; r[3] = target;
+    }
+    if (kind == 2) {
+        if (value >= TEAM_COUNT || fainted >> value & 1 || value == on_field[0] || value == on_field[1]) ok = 0;
+        r[0] = R_CHOSENMON;
+    }
+    pend_on[side] = 0;
+    if (!ok) log_event(E_FALLBACK, pend_hdr[side][1]);           /* against the rules: our own choice instead */
+    answer_choice(pend_hdr[side], kind, ok ? r : pend_fb[side]);
+    return ok ? 1 : 2;
+}
+
+static void choose_late(void)                /* the PC has gone quiet: our own choice */
+{
+    u32 t = now(), wait = (FALLBACK_S ? FALLBACK_S : 15) * 60 * LINES_PER_FRAME;
+    for (u32 side = 0; side < 2; side++) {
+        if (!pend_on[side]) continue;
+        u32 since = pc_alive_at - pend_since[side] < 0x80000000u ? pc_alive_at : pend_since[side];
+        if (t - since < wait) continue;
+        pend_on[side] = 0;
+        log_event(E_FALLBACK, pend_hdr[side][1]);
+        answer_choice(pend_hdr[side], pend_kind[side], pend_fb[side]);
+    }
+}
+
 /* ------------------------------------------------------------------ the PC */
 static u8 pkt[8];
 static int pc_service(api_t *api)
@@ -658,10 +712,17 @@ static int pc_service(api_t *api)
     case 9: v = game_player[16 + 0x10]; break;                  /* the game's player's gender */
     case 10: v = rw_blocked_now; break;                        /* the way to the spot or door is blocked */
     case 11: v = fainted | choices << 8 | (tq_dropped & 0xFF) << 16 | (log_lost & 0xFF) << 24; break;
+    case 12: pc_alive_at = now();                               /* what's waiting for the PC */
+             v = 0;
+             for (u32 k = 0; k < 2; k++)
+                 if (pend_on[k]) v |= (1u | pend_kind[k] << 1 | pend_seq[k] << 3) << (8 * k);
+             v |= (on_field[0] & 7) << 16 | (on_field[1] & 7) << 19 | fainted << 22;
+             break;
+    case 13: pc_alive_at = now(); v = pc_answer(idx); break;
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && TEAM_COUNT >= 1 && TEAM_COUNT <= 6;
-             if (blob_ready) { log_len = log_full = log_seq = 0; on_field[0] = 0; on_field[1] = 6; }
+             if (blob_ready) { log_len = log_full = log_seq = 0; on_field[0] = 0; on_field[1] = 6; pend_on[0] = pend_on[1] = 0; }
              break;
     default: v = 0xFFFFFFFF; break;
     }
@@ -714,6 +775,8 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))
             pc_service(api);
+        if ((pend_on[0] | pend_on[1]) && !(REG_IF & IF_SERIAL))
+            choose_late();
         if (rw_need && send_idx == 0 && recv_idx == 0 && !in_flight)
             rw_plan_run(is_master ? 0 : 1);       /* (between two frames' cycles; it gives way to transfers) */
         /* the end: done once our own 0x5FFF has gone out and the game has had time to close */

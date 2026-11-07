@@ -1628,11 +1628,17 @@ def _():
 
 
 def test_pk3(species=409, pid=0x12345678, otid=0x0000_4E44, game=2, met=0xFF, fateful=True, lang=2,
-             nickname="TESTMON", ot="TESTER", encrypted=False, party=False):
+             nickname="TESTMON", ot="TESTER", encrypted=False, party=False, moves=None, exp=1000):
     """A made-up Gen 3 Pokemon. PKHeX's form (decrypted, blocks in G-A-E-M order) unless
-    `encrypted`, which gives the game's own form. Nothing here is a real event's data."""
-    g = struct.pack("<HHIBBH", species, 0, 1000, 0, 70, 0)
-    a = struct.pack("<4H4B", 1, 2, 0, 0, 35, 25, 0, 0)
+    `encrypted`, which gives the game's own form. Nothing here is a real event's data. `moves`: up
+    to four move IDs (default Pound and Karate Chop), each with its full PP."""
+    g = struct.pack("<HHIBBH", species, 0, exp, 0, 70, 0)
+    if moves is None:
+        a = struct.pack("<4H4B", 1, 2, 0, 0, 35, 25, 0, 0)
+    else:
+        import duo_battle as B
+        ms = list(moves)[:4] + [0] * (4 - len(list(moves)[:4]))
+        a = struct.pack("<4H4B", *ms, *[B.MOVES[m][4] if m else 0 for m in ms])
     e = bytes(12)
     m = struct.pack("<BBHII", 0, met, 5 | game << 7 | 4 << 11, 0x3FFFFFFF & 0x1F7BDEF7, (1 << 31) if fateful else 0)
     blocks = {"G": g, "A": a, "E": e, "M": m}
@@ -1878,7 +1884,7 @@ def _():
     assert struct.unpack_from("<H", card, 0x54)[0] == W.parse_pk3(event)[0]["species"], card.hex()
     assert card[0] == 0 and card[0x38] == 2 and game.link_players[1]["name"][:7] == gen3("TESTER"), game.link_players[1]
     # the DUO's own screen: what it plays and where it has got to, shown only between link sessions
-    for line in ("Playing: trade partner", "Offering JIRACHI", "Seated at the table", "Traded and saved", "Done: the link is closed"):
+    for line in ("Playing: trade partner", "Offering JIRACHI", "Seated", "Traded, saved", "Done: link closed"):
         assert line in hw.log, (line, hw.log)
     # back in the room (lab session 29: the game froze here), the DUO walks to the door and leaves
     assert res["left_room"] and res["partner_left_by_door"], (res, game.log)
@@ -3638,6 +3644,77 @@ def _():
             assert kind == "move" and B.move_name(b.sides[0].mon.moves[i]) in ("PSYCHIC", "THUNDERBOLT"), (level, kind, i)
 
 
+@test("battle: the impossible level sees the other side's choice before its own (as the DUO can in a link battle) and answers it - Swampert's Earthquake: switch to Skarmory (immune); its Ice Beam: switch to Walrein (resists) - and only ever picks what the game allows")
+def _():
+    import duo_battle as B
+    for foe_move, want in (("EARTHQUAKE", 1), ("ICE BEAM", 2)):
+        picks = []
+        for k in range(4):
+            b = B.Battle([battle_mon("MANECTRIC", moves=["THUNDERBOLT", "CRUNCH"]), battle_mon("SKARMORY", moves=["DRILL PECK", "STEEL WING"]),
+                          battle_mon("WALREIN", moves=["SURF", "ICE BEAM"])], [battle_mon("SWAMPERT", moves=["EARTHQUAKE", "ICE BEAM"])], seed=k)
+            foe = ("move", b.sides[1].mon.moves.index(B.move_id(foe_move)))
+            pick = B.Impossible(k, samples=6, playout=30).choose(b, 0, foe_action=foe)
+            assert pick in b.legal_actions(0), pick
+            picks.append(pick)
+        assert picks.count(("switch", want)) >= 3, (foe_move, picks)
+    # in a whole battle it chooses last, knowing the other side's choice
+    seen = []
+    class Spy(B.Impossible):
+        def choose(self, battle, s, foe_action=None):
+            seen.append(foe_action)
+            return super().choose(battle, s, foe_action)
+    b = B.Battle(B.random_team(random.Random(1)), B.random_team(random.Random(2)), seed=3)
+    b.run([Spy(1, samples=2, playout=8), B.Medium(2)], max_turns=4)
+    assert seen and all(a is not None for a in seen), seen
+
+
+@test("battle partner: a double battle's teamwork - the first of the DUO's Pokemon finishes off the foe on 10 HP, and its partner, choosing next, hits the other foe rather than the same one")
+def _():
+    import duo_battle as B
+    lb = B.LinkBattle([test_pk3(species=409, pid=0x2000, otid=0x4E44)], level="medium", double=True, seed=1)
+    lb.ours = [battle_mon("MACHAMP", moves=["CROSS CHOP"]), battle_mon("HITMONLEE", moves=["HI JUMP KICK"])]
+    weak = battle_mon("SNORLAX", moves=["BODY SLAM"]); weak.hp = 10
+    lb.theirs = [weak, battle_mon("SNORLAX", moves=["BODY SLAM"])]
+    lb.pending = {1: (B.C_CHOOSEMOVE, bytes(24)), 3: (B.C_CHOOSEMOVE, bytes(24))}
+    first = lb._double_move(1)
+    lb.chosen[1] = first
+    assert first[2] == 0, first                         # (battler 0: the Snorlax on 10 HP)
+    assert lb._double_move(3)[2] == 2, lb._double_move(3)
+    # through choose(), as the DUO asks: battler 1's move, then battler 3's
+    d = bytes([B.C_CHOOSEMOVE, 0, 0, 0]) + struct.pack("<4H", B.move_id("CROSS CHOP"), 0, 0, 0) + bytes([5, 0, 0, 0]) + bytes(8)
+    lb.chosen, lb.plan = {}, {}
+    lb.ours[0].pp = [5]; lb.ours[1].pp = [5]
+    lb.pending = {1: (B.C_CHOOSEMOVE, d), 3: (B.C_CHOOSEMOVE, d)}
+    assert lb.choose(1) == (0, 0) and lb.choose(3) == (0, 2), (lb.chosen,)
+
+
+@test("battle: a team's .pk3 files are checked before a battle - effort values over 510, a move twice, too many PP, stats or a level that don't match its species and experience are refused (even the impossible level plays by the game's rules); an event's special move is only noted")
+def _():
+    import duo_battle as B
+    good = test_pk3(species=409, pid=0x2000, otid=0x4E44, nickname="DUO0")
+    problems, notes = B.check_legal(good)
+    assert problems == [] and notes and "event" in notes[0], (problems, notes)
+    assert B.check_legal(W.pk3_party_form(good))[0] == []
+    def edit(data, fn):
+        f, _ = W.parse_pk3(data)
+        blocks = bytearray(f["blocks"])
+        fn(blocks)
+        plain = bytes(data[:0x20]) + bytes(blocks)              # (PKHeX's decrypted form, G-A-E-M)
+        return plain[:0x1C] + struct.pack("<H", sum(struct.unpack("<24H", bytes(blocks))) & 0xFFFF) + plain[0x1E:]
+    many = edit(good, lambda b: b.__setitem__(slice(24, 30), bytes([255, 255, 100, 0, 0, 0])))
+    assert any("510" in p for p in B.check_legal(many)[0]), B.check_legal(many)
+    twice = edit(good, lambda b: struct.pack_into("<2H", b, 12, 1, 1))
+    assert any("same move twice" in p for p in B.check_legal(twice)[0]), B.check_legal(twice)
+    pp = edit(good, lambda b: b.__setitem__(20, 99))
+    assert any("PP" in p for p in B.check_legal(pp)[0]), B.check_legal(pp)
+    boosted = bytearray(good.ljust(80, b"\0")) + bytearray(W.pk3_party_fields(W.parse_pk3(good)[0]))
+    struct.pack_into("<H", boosted, 0x5A, 999)                    # Attack 999
+    assert any("stats" in p for p in B.check_legal(bytes(boosted))[0]), B.check_legal(bytes(boosted))
+    boosted = bytearray(good.ljust(80, b"\0")) + bytearray(W.pk3_party_fields(W.parse_pk3(good)[0]))
+    boosted[0x54] = 100
+    assert any("level" in p for p in B.check_legal(bytes(boosted))[0])
+
+
 @test("battle: easy, medium and elite in order of strength - easy wins most battles against random choices (it isn't stupid), medium beats easy, elite beats easy (played both ways round on the same teams)")
 def _():
     import duo_battle as B
@@ -3679,18 +3756,23 @@ def switch_off_at(duo, state):
     return back_on
 
 
-def colosseum_run(master=True, team=(409, 280), game_species=(25, 151), seconds=300, off_at=None, **game_kw):
-    """The DUO's colosseum program (the battle probe) against a simulated Ruby in the Colosseum."""
-    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}") for k, sp in enumerate(team)]
-    party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in game_species]
+def colosseum_run(master=True, team=(409, 280), game_species=(25, 151), seconds=300, off_at=None, level="simple",
+                  moves=None, game_moves=None, fallback=15, pc_wait=None, **game_kw):
+    """The DUO's colosseum program against a simulated Ruby in the Colosseum; `level` is how the PC
+    chooses for it ("simple": the DUO plays by itself, the probe). moves / game_moves: each side's
+    moves (lists of move IDs, one list per Pokemon)."""
+    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}",
+                     **({"moves": moves[k]} if moves else {})) for k, sp in enumerate(team)]
+    party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222,
+                                       **({"moves": game_moves[k]} if game_moves else {}))) for k, sp in enumerate(game_species)]
     game = BG.RubyColosseum(master=master, party=party, **game_kw)
     hw, duo = run42()
     hw.attach_mp_game(game.run(), game_master=game.master)
     paths = [event_file(d, f"{k} - TEST.pk3") for k, d in enumerate(pk3s)]
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
     back_on = switch_off_at(duo, off_at) if off_at is not None else None
-    r = quiet(W.colosseum_session, duo, types.SimpleNamespace(pk3=paths, seconds=seconds), poll_s=0.2,
-              stop_when=lambda: hw.lg_done)
+    r = quiet(W.colosseum_session, duo, types.SimpleNamespace(pk3=paths, seconds=seconds, level=level, fallback=fallback),
+              poll_s=0.2, stop_when=lambda: hw.lg_done)
     hw.text = r[1]
     if back_on:
         back_on()
@@ -3739,6 +3821,103 @@ def _():
     text = hw.text
     assert text.index("Keep the DUO's GBA switched on") < text.index("Kept on this PC") < text.index("safe to switch the DUO's GBA off now"), text[-1200:]
     assert not report["cut_short"]
+
+
+def _ids(*names, kind="move"):
+    import duo_battle as B
+    return [B.move_id(n) if kind == "move" else B.species_id(n) for n in names]
+
+
+@test("battle partner (8 November): the PC chooses the DUO's moves at the medium level - against a Gengar it uses Shadow Ball, never Tackle (slot 0, which the probe would use and which can't touch a Ghost)")
+def _():
+    gengar, = _ids("GENGAR", kind="species")
+    hw, game, report, pk3s = colosseum_run(master=True, team=_ids("ALAKAZAM", kind="species"), game_species=(gengar,),
+                                           moves=[_ids("TACKLE", "SHADOW BALL")], game_moves=[_ids("LICK")], level="medium",
+                                           duo_wins=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    choices = game.result["partner_choices"]
+    assert choices and all(slot == 1 for _, _, slot, _ in choices), choices
+    assert report["pc_answers"] >= 2 * len(choices) - 1 and report["fallbacks"] == 0, report
+    assert "made by the PC at the medium level" in hw.text
+
+
+@test("battle partner: the impossible level waits for the player's choice each turn (it reaches the DUO over the link) and only then answers, within the game's rules")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=True, level="impossible", answer_delay=300, duo_wins=True, fallback=3)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    seq = game.result["answer_frames"]
+    turns = 0
+    for i, (who, b, cmd, n, k) in enumerate(seq):
+        if who == "partner" and cmd == BG.CHOOSEACTION:
+            turns += 1
+            before = [e for e in seq[:i] if e[0] == "game" and e[2] == BG.CHOOSEMOVE]
+            last_partner = max([j for j in range(i) if seq[j][0] == "partner" and seq[j][2] == BG.CHOOSEACTION], default=-1)
+            assert before and seq.index(before[-1]) > last_partner, f"turn {turns}: answered before the player chose ({seq[:i + 1]})"
+    assert turns >= 2 and report["fallbacks"] == 0, (turns, report)
+
+
+@test("battle partner: when the PC stops choosing (an error here), the DUO waits its fallback time and then chooses by itself; the battle still plays to the end")
+def _():
+    import duo_battle as B
+    real = B.LinkBattle.choose
+    B.LinkBattle.choose = lambda self, battler: (_ for _ in ()).throw(RuntimeError("made-up failure"))
+    try:
+        hw, game, report, pk3s = colosseum_run(master=True, level="medium", fallback=2, seconds=150)
+    finally:
+        B.LinkBattle.choose = real
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert "The PC couldn't choose" in hw.text and report["fallbacks"] >= 1, (report, hw.text[-800:])
+    assert game.result["battled"] or game.result["outcome"], game.result
+
+
+@test("battle partner: the PC's answer breaks the rules (a move slot with no move) - the DUO doesn't send it, chooses by itself instead, and the battle goes on")
+def _():
+    import duo_battle as B
+    real = B.LinkBattle.choose
+    def bad(self, battler):
+        cmd = self.pending[battler][0]
+        return (3, battler ^ 1) if cmd == B.C_CHOOSEMOVE else real(self, battler)
+    B.LinkBattle.choose = bad
+    try:
+        hw, game, report, pk3s = colosseum_run(master=True, level="medium")
+    finally:
+        B.LinkBattle.choose = real
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert report["fallbacks"] >= 1 and all(slot != 3 for _, _, slot, _ in game.result["partner_choices"]), \
+        (report, game.result["partner_choices"])
+
+
+@test("battle partner: a double battle chosen by the PC - each of the DUO's two Pokemon aims at a foe it can hurt (Tackle never at the Gengar), the replacement after a faint is one that can battle, and it plays to the end")
+def _():
+    gengar, rattata = _ids("GENGAR", "RATTATA", kind="species")
+    hw, game, report, pk3s = colosseum_run(master=True, double=True, level="medium",
+                                           team=_ids("MACHAMP", "HITMONLEE", "PRIMEAPE", kind="species"),
+                                           moves=[_ids("TACKLE")] * 3, game_species=(gengar, rattata),
+                                           game_moves=[_ids("LICK"), _ids("TACKLE")], duo_wins=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    choices = game.result["partner_choices"]
+    assert choices, game.result
+    assert all(t == 2 for _, _, _, t in choices), f"Tackle aimed at the Gengar (battler 0): {choices}"
+    for turn, b, pick in game.result["partner_switches"]:                # (after a faint: one fit and not out)
+        assert pick == 2, game.result["partner_switches"]
+    assert report["pc_answers"] > 0 and report["fallbacks"] == 0, report
+
+
+@test("battle partner: a Pokemon that couldn't exist (effort values over 510) is refused before anything is sent, unless --allow-unchecked")
+def _():
+    good = test_pk3(species=409, pid=0x2000, otid=0x4E44)
+    f, _ = W.parse_pk3(good)
+    blocks = bytearray(f["blocks"]); blocks[24:30] = bytes([255, 255, 255, 0, 0, 0])
+    bad = good[:0x1C] + struct.pack("<H", sum(struct.unpack("<24H", bytes(blocks))) & 0xFFFF) + good[0x1E:0x20] + bytes(blocks)
+    path = event_file(bad, "0 - TEST.pk3")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            W.colosseum_session(None, types.SimpleNamespace(pk3=[path], level="impossible"))
+            raise AssertionError("an impossible Pokemon was accepted")
+        except ValueError as e:
+            assert "couldn't exist" in str(e) and "--allow-unchecked" in str(e), e
+    assert "510" in out.getvalue(), out.getvalue()
 
 
 @test("battle probe, the DUO as master: as player 0 it sends the signature 0x0001, lower than any game's, so the game still runs the battle; the battle's link opens with its own link type; the DUO takes the left spot and walks out")
