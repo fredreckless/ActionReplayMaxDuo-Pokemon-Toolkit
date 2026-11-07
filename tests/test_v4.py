@@ -2282,10 +2282,27 @@ def secret_base_rom(code=b"AXVE", revision=1, seed=5):
             if k in (17, 18, 20):
                 at += at & 1                            # (the id groups start on an even address)
         put(table_at, struct.pack("<22I", *ptrs))
+    for t, (addr, size, kind) in enumerate(where.get("text", [])):     # made-up lines: "T3X1 {STR_VAR_1} END"
+        text = lambda words: new(gen3(words).rstrip(b"\xff") + b"\xfd\x02\xfe" + gen3("END").rstrip(b"\xff") + b"\xff")
+        if kind == "ptrs":
+            put(addr, struct.pack(f"<{size // 4}I", *[text(f"T{t}X{i}") for i in range(size // 4)]))
+        elif kind == "places":
+            put(addr, b"".join(struct.pack("<BBBBI", 0, 0, 1, 1, new(gen3(f"PLACE {i}"))) for i in range(size // 8)))
+        elif kind == "stories":
+            put(addr, b"".join(struct.pack("<BBHIII", i + 1, 1, 0, new(gen3(f"STORY {i}")), new(gen3(f"DID {i}")),
+                                           new(b"\xfd\x04" + gen3(" ").rstrip(b"\xff") + b"\xfd\x03\xfd\x02\xff")) for i in range(size // 16)))
+        elif kind == "block" and size == 754:             # trainer class names, 13 bytes each
+            put(addr, b"".join(gen3(f"CLASS {i}").ljust(13, b"\xff") for i in range(size // 13)))
+        elif kind == "block" and size < 100:              # facility class -> name index
+            put(addr, bytes(i % 58 for i in range(size)))
+        elif kind == "block":                             # items: 44 bytes each, the price at +16
+            put(addr, b"".join(bytes(16) + struct.pack("<H", 10 * i) + bytes(26) for i in range(size // 44)))
+        elif kind == "string":
+            put(addr, gen3("LINE").rstrip(b"\xff") + b"\xfd\x02\xff")
     return bytes(g)
 
 
-@test("ROM copy for the workshop (duo_rom.py): only the parts the Secret Base Workshop draws with, found by pret's addresses and checked; the workshop draws every room, decoration and doll, and reads every Easy Chat word, from them exactly as from the whole ROM")
+@test("ROM copy for the workshop (duo_rom.py): only the parts the Secret Base Workshop draws with, found by pret's addresses and checked; the workshop draws every room, decoration and doll, and reads every Easy Chat word and the games' own lines, from them exactly as from the whole ROM")
 def _():
     import duo_rom
     g = secret_base_rom()
@@ -2316,6 +2333,8 @@ def _():
                 for (const id of [1, 61, 103, 162, 183, 233]) out.push(r.picture(id, [{d: 3, x: 1, y: 3}, {d: 77, x: 2, y: 2}, {d: 66, x: 2, y: 0}]));
                 for (let d = 1; d <= 120; d++) out.push(r.preview(d));
                 out.push(JSON.stringify(readEasyChat(rom).groups));
+                const t = readRomText(rom);
+                out.push(JSON.stringify({tv: t.tv, std: t.std, places: t.places, stories: t.stories, d: t.dewford, b: t.bard, c: t.classOf(4), p: t.price(13)}));
                 return out; }"""
             import base64
             a = pg.evaluate(draw, base64.b64encode(g).decode())
@@ -2445,7 +2464,8 @@ def _():
             f = R.parse_old_man(om)
             assert f["song"] == list(struct.unpack_from("<6H", bard, 2)) and f["new_song"] == f["song"], f
             assert R.text(f["player"]) == "WILLOW" and struct.unpack("<I", f["player_id"])[0] == 1234 and R.check_part("old_man", om) == ([], [])
-            assert "W3X1 W3X2 W5X0" in pg.inner_text("#omPreview")
+            said = pg.inner_text("#omPreview")                           # (the game's layout: two verses of word word / word)
+            assert "W3X1 W3X2\nW5X0" in said and "LINE" in said, said
             # trends: two, saved together (a zip), in Ruby's order
             pg.click("#tab-trends"); pg.click("#trAdd"); pg.click("#trAdd")
             pg.fill("[data-word='t0w0']", "W3X4"); pg.press("[data-word='t0w0']", "Tab")
@@ -2479,6 +2499,85 @@ def _():
             want["old_man"], want["trends"], want["gift"] = [om], dts + [bytes(8)] * 3, 0x113
             assert rm3 == R.join(want), "the workshop's .rm3 isn't records.py's"
             assert "mix --record" in pg.inner_text("#recCmd")
+            assert not errors, errors
+        finally:
+            browser.close()
+            shutil.rmtree(tmp)
+
+
+@test("Record Workshop: the TV, PokéNews, day-care letter and Battle Tower tabs make the bytes records.py reads back (a show off the air so it travels, news, a letter, a Tower trainer with its checksum), play the game's own lines from the ROM, and all of it goes into one .rm3")
+def _():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise Skip("needs Python's playwright to run the page")
+    import records as R, zipfile
+    tmp = tempfile.mkdtemp()
+    rom_path = os.path.join(tmp, "rom.gba"); open(rom_path, "wb").write(secret_base_rom())
+    def typed(pg, sel, value):
+        pg.fill(sel, value); pg.press(sel, "Tab")
+    def saved(pg, button):
+        with pg.expect_download() as dl:
+            pg.click(button)
+        return dl.value.suggested_filename, open(dl.value.path(), "rb").read()
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            pg = browser.new_page(accept_downloads=True)
+            errors = []
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.route("**/fonts.googleapis.com/**", lambda r: r.abort())
+            pg.goto("file://" + os.path.join(paths.ROOT, "secret_base_workshop.html"))
+            pg.wait_for_function("typeof T !== 'undefined' && T && typeof S !== 'undefined' && S")
+            pg.set_input_files("#romFile", rom_path)
+            pg.wait_for_function("EC !== null && ROMTEXT !== null", timeout=60000)
+            # a TV show: Pokémon Today, caught
+            pg.click("#tab-tv"); pg.select_option("#tvKind", "21")
+            typed(pg, "#tvBody [data-fk='0']", "Pikachu"); typed(pg, "#tvBody [data-fk='1']", "SPARKY")
+            typed(pg, "#tvBody [data-fk='2']", "Great Ball"); typed(pg, "#tvBody [data-fk='3']", "3")
+            typed(pg, "#tvBody [data-fk='4']", "WILLOW"); typed(pg, "#tvMadeBy", "4321")
+            name, tv = saved(pg, "#tvSave")
+            assert name == "TV - Pokémon Today caught - WILLOW (ENG).tv3", name
+            assert tv[0] == 21 and tv[1] == 0 and struct.unpack_from("<H", tv, 0x10)[0] == 25 and tv[0x0F] == 3 and tv[0x12] == 3, tv.hex()
+            assert R.text(tv[4:15]) == "SPARKY" and R.text(tv[0x13:0x1B]) == "WILLOW" and struct.unpack_from("<H", tv, 0x22)[0] == 4321, tv.hex()
+            assert R.check_part("tv", tv)[0] == []
+            screen = pg.inner_text("#tvScreen")
+            assert "WILLOW" in screen and "END" in screen, screen        # (the made-up lines, with the show's names in)
+            # PokéNews
+            pg.click("#tab-news"); pg.select_option("[data-ni='0'] [data-nf='kind']", "1")
+            name, news = saved(pg, "#newsSave")
+            assert news[:4] == bytes([1, 1, 3, 0]) and not any(news[4:]) and "END" in pg.inner_text("#newsSay")
+            # a day-care letter
+            pg.click("#tab-mail")
+            typed(pg, "[data-lj='0'] [data-fk='0']", "Orange Mail")
+            typed(pg, "[data-word='ml0-1']", "W3X1"); typed(pg, "[data-word='ml0-2']", "W4X2")
+            typed(pg, "[data-lj='0'] [data-fk='10']", "MAY"); typed(pg, "[data-lj='0'] [data-fk='11']", "12345")
+            pg.select_option("#mailCount", "1")
+            name, mail = saved(pg, "#mailSave")
+            m = R.parse_mail(mail)
+            assert m["letters"][0]["mail_item"] == 121 and m["letters"][0]["words"][:2] == [3 << 9 | 1, 4 << 9 | 2]
+            assert R.text(m["letters"][0]["writer"]) == "MAY" and m["letters"][0]["writer_id"] == 12345 and m["count"] == 1 and m["no_item"][0]
+            # a Battle Tower trainer
+            pg.click("#tab-tower")
+            typed(pg, "#towerHead [data-fk='1']", "ODA"); typed(pg, "#towerHead [data-fk='2']", "1234"); typed(pg, "#towerHead [data-fk='4']", "21")
+            pg.select_option("#towerClass", "4")
+            for k, (mon, move) in enumerate((("Swampert", "Earthquake"), ("Manectric", "Thunderbolt"), ("Gardevoir", "Psychic"))):
+                typed(pg, f"[data-mk='{k}'] [data-fk='0']", mon); typed(pg, f"[data-mk='{k}'] [data-fk='2']", move)
+            name, bt = saved(pg, "#towerSave")
+            f = R.parse_tower(bt)
+            assert R.check_part("tower", bt)[0] == [], R.check_part("tower", bt)
+            assert R.text(f["name"]) == "ODA" and f["tid"] == 1234 and f["streak"] == 21 and f["trainer_class"] == 4 and len(f["party"]) == 3
+            assert [x["level"] for x in f["party"]] == [50, 50, 50] and f["party"][0]["moves"][0] == SB._lookup("EARTHQUAKE", SB.tables().moves, "m")
+            assert all(x["ot_id"] == 1234 for x in f["party"])
+            assert "Class 4" in pg.inner_text("#towerPreview"), pg.inner_text("#towerPreview")   # (the class name from the ROM)
+            # all of it in one record
+            for t, b in (("tv", "#tvToRecord"), ("news", "#newsToRecord"), ("mail", "#mailToRecord"), ("tower", "#towerToRecord")):
+                pg.click(f"#tab-{t}"); pg.click(b)
+            pg.click("#tab-record")
+            name, rm3 = saved(pg, "#recSave")
+            want = R.split(R.join({}))
+            want["tv"][0], want["news"], want["mail"], want["tower"] = tv, [news], [mail], [bt]
+            assert rm3 == R.join(want), [i for i in range(len(rm3)) if rm3[i] != R.join(want)[i]][:12]
             assert not errors, errors
         finally:
             browser.close()

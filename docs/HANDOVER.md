@@ -64,6 +64,13 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **7 November: the Record Workshop complete for Ruby and Sapphire (the user asked for it "fully
+  complete").** New tabs: TV shows (12 kinds, `TV_SPEC`), PokéNews, day-care letters, the Battle
+  Tower trainer (the class follows the trainer ID; Ruby's banned species; checksum). The game's own
+  lines come from the ROM by pret's addresses (`ROM_TEXT_AT` in the page, `text=` in
+  duo_rom.WORKSHOP_PARTS): `playShow` is a port of pokeruby's twelve `DoTVShow*`. Tests: "Record
+  Workshop: the TV..." and the ROM copy test (made-up lines in the test ROM). Emerald is next once
+  the DUO can mix as one.
 - **6 November, late: hardware results and the record work (the user's three steps).**
   - **Hardware (lab, the user's cmd output):** Record Mixing with English Ruby **works**: the room
     fades in, both bases rounds go across, WILLOW's base was kept, and the DUO walks round a

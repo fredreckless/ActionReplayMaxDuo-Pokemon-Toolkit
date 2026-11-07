@@ -11,10 +11,17 @@ are in docs/RECORD_FORMATS.md.
   buffer (0x02010030, unused while a program runs), which also freed 3 KB of the program's area;
   parts we don't bring are handed back from the game's own chunks, as before; the game's whole
   record comes back to the PC (`records\` folder).
-- Step 3 (begun): the page is now the Record Workshop, with tabs: Secret Bases, the Mauville old
-  man, Dewford trends and a whole record. The Easy Chat words are read from the user's ROM (Ruby
-  and Sapphire), and `duo_rom.py` copies them too. Still to come: the TV, mail and Battle Tower
-  tabs, the game's own lines around the words (the Bard's verses, Dewford's chatter), Emerald.
+- Steps 3-5 (7 November): **every Ruby/Sapphire part has its tab**: Secret Bases, the Mauville
+  old man (all five), Dewford trends, TV shows (all twelve Ruby kinds), PokéNews, day-care
+  letters, the Battle Tower trainer, and the whole record. With the user's ROM loaded, the page
+  shows the game's own lines one for one: each TV show played as pokeruby's `DoTVShow*` plays it
+  (its random choices too: "Another take"), the Bard's verses and lines, the Storyteller's tales,
+  Dewford's trendy boy, the TV's PokéNews announcement, trainer classes and place names. The text
+  is found by pret's addresses for English Ruby (revisions 0-2) and Sapphire (revision 0), and
+  `duo_rom.py` copies it into its "workshop parts" file. Checked with a real Ruby 1.1 ROM in the
+  browser (locally; nothing of it kept).
+- Still to come: Emerald (its own layout, and the Lilycove lady, apprentices and Ranking Hall:
+  step 7, once the DUO can mix as an Emerald), Sapphire revisions 1-2 and non-English games' lines.
 
 The Secret Base Workshop (`secret_base_workshop.html`) grows into a **Record Workshop**: one page,
 still a single file that works offline and on GitHub Pages, with a tab for each part of a record,

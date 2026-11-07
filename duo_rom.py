@@ -44,15 +44,19 @@ SPRITE_DECORATIONS = range(76, 121)      # the dolls and cushions (objects, not 
 # with their sizes, and SecretBase_<Kind><n>_Layout in layout order). Code + revision.
 WORKSHOP_PARTS = {
     "AXVE0": dict(layouts=0x8304f18, decorations=0x83eb6c4, gfx=(0x836dc58, 0x368), pals=(0x837377c, 0xe0),
+                 text=[(0x81b0a91, 0, "string"), (0x81b0aed, 0, "string"), (0x81b0b2c, 0, "string"), (0x81f0208, 754, "block"), (0x81fde1d, 77, "block"), (0x83c5564, 15356, "block"), (0x83ce048, 76, "ptrs"), (0x83d1434, 16, "ptrs"), (0x83d1444, 16, "ptrs"), (0x83d1454, 16, "ptrs"), (0x83d1470, 32, "ptrs"), (0x83d1490, 24, "ptrs"), (0x83d14a8, 20, "ptrs"), (0x83d14bc, 4, "ptrs"), (0x83d14c0, 48, "ptrs"), (0x83d14f0, 52, "ptrs"), (0x83d1524, 36, "ptrs"), (0x83d1548, 60, "ptrs"), (0x83d1584, 76, "ptrs"), (0x83d15d0, 28, "ptrs"), (0x83d15ec, 8, "ptrs"), (0x83d15f4, 12, "ptrs"), (0x83e53e0, 576, "stories"), (0x83e73c4, 704, "places"), (0x816b9ce, 0, "string")],
                  easy_chat=(0x83dbf2c, 0x83de0e0),
                  rooms=(0x82e7788, 0x82e7870, 0x82e7958, 0x82e7a40, 0x82e7b28, 0x82e7c10, 0x82e7d10, 0x82e7e2c, 0x82e7f20, 0x82e803c, 0x82e813c, 0x82e8230, 0x82e8340, 0x82e84ac, 0x82e8620, 0x82e8748, 0x82e8878, 0x82e89b8, 0x82e8ae8, 0x82e8c58, 0x82e8dac, 0x82e8f38, 0x82e90e0, 0x82e9234)),
     "AXVE1": dict(layouts=0x8304f30, decorations=0x83eb6e0, gfx=(0x836dc70, 0x368), pals=(0x8373794, 0xe0),
+                 text=[(0x81b0aa7, 0, "string"), (0x81b0b03, 0, "string"), (0x81b0b42, 0, "string"), (0x81f0220, 754, "block"), (0x81fde35, 77, "block"), (0x83c5580, 15356, "block"), (0x83ce064, 76, "ptrs"), (0x83d1450, 16, "ptrs"), (0x83d1460, 16, "ptrs"), (0x83d1470, 16, "ptrs"), (0x83d148c, 32, "ptrs"), (0x83d14ac, 24, "ptrs"), (0x83d14c4, 20, "ptrs"), (0x83d14d8, 4, "ptrs"), (0x83d14dc, 48, "ptrs"), (0x83d150c, 52, "ptrs"), (0x83d1540, 36, "ptrs"), (0x83d1564, 60, "ptrs"), (0x83d15a0, 76, "ptrs"), (0x83d15ec, 28, "ptrs"), (0x83d1608, 8, "ptrs"), (0x83d1610, 12, "ptrs"), (0x83e53fc, 576, "stories"), (0x83e73e0, 704, "places"), (0x816b9ee, 0, "string")],
                  easy_chat=(0x83dbf48, 0x83de0fc),
                  rooms=(0x82e77a0, 0x82e7888, 0x82e7970, 0x82e7a58, 0x82e7b40, 0x82e7c28, 0x82e7d28, 0x82e7e44, 0x82e7f38, 0x82e8054, 0x82e8154, 0x82e8248, 0x82e8358, 0x82e84c4, 0x82e8638, 0x82e8760, 0x82e8890, 0x82e89d0, 0x82e8b00, 0x82e8c70, 0x82e8dc4, 0x82e8f50, 0x82e90f8, 0x82e924c)),
     "AXVE2": dict(layouts=0x8304f30, decorations=0x83eb6e0, gfx=(0x836dc70, 0x368), pals=(0x8373794, 0xe0),
+                 text=[(0x81b0aa7, 0, "string"), (0x81b0b03, 0, "string"), (0x81b0b42, 0, "string"), (0x81f0220, 754, "block"), (0x81fde35, 77, "block"), (0x83c5580, 15356, "block"), (0x83ce064, 76, "ptrs"), (0x83d1450, 16, "ptrs"), (0x83d1460, 16, "ptrs"), (0x83d1470, 16, "ptrs"), (0x83d148c, 32, "ptrs"), (0x83d14ac, 24, "ptrs"), (0x83d14c4, 20, "ptrs"), (0x83d14d8, 4, "ptrs"), (0x83d14dc, 48, "ptrs"), (0x83d150c, 52, "ptrs"), (0x83d1540, 36, "ptrs"), (0x83d1564, 60, "ptrs"), (0x83d15a0, 76, "ptrs"), (0x83d15ec, 28, "ptrs"), (0x83d1608, 8, "ptrs"), (0x83d1610, 12, "ptrs"), (0x83e53fc, 576, "stories"), (0x83e73e0, 704, "places"), (0x816b9ee, 0, "string")],
                  easy_chat=(0x83dbf48, 0x83de0fc),
                  rooms=(0x82e77a0, 0x82e7888, 0x82e7970, 0x82e7a58, 0x82e7b40, 0x82e7c28, 0x82e7d28, 0x82e7e44, 0x82e7f38, 0x82e8054, 0x82e8154, 0x82e8248, 0x82e8358, 0x82e84c4, 0x82e8638, 0x82e8760, 0x82e8890, 0x82e89d0, 0x82e8b00, 0x82e8c70, 0x82e8dc4, 0x82e8f50, 0x82e90f8, 0x82e924c)),
     "AXPE0": dict(layouts=0x8304ea8, decorations=0x83eb71c, gfx=(0x836dbe8, 0x368), pals=(0x837370c, 0xe0),
+                 text=[(0x81b0a21, 0, "string"), (0x81b0a7d, 0, "string"), (0x81b0abc, 0, "string"), (0x81f0198, 754, "block"), (0x81fddad, 77, "block"), (0x83c55bc, 15356, "block"), (0x83ce0a0, 76, "ptrs"), (0x83d148c, 16, "ptrs"), (0x83d149c, 16, "ptrs"), (0x83d14ac, 16, "ptrs"), (0x83d14c8, 32, "ptrs"), (0x83d14e8, 24, "ptrs"), (0x83d1500, 20, "ptrs"), (0x83d1514, 4, "ptrs"), (0x83d1518, 48, "ptrs"), (0x83d1548, 52, "ptrs"), (0x83d157c, 36, "ptrs"), (0x83d15a0, 60, "ptrs"), (0x83d15dc, 76, "ptrs"), (0x83d1628, 28, "ptrs"), (0x83d1644, 8, "ptrs"), (0x83d164c, 12, "ptrs"), (0x83e5438, 576, "stories"), (0x83e741c, 704, "places"), (0x816b95e, 0, "string")],
                  easy_chat=(0x83dbf84, 0x83de138),
                  rooms=(0x82e7718, 0x82e7800, 0x82e78e8, 0x82e79d0, 0x82e7ab8, 0x82e7ba0, 0x82e7ca0, 0x82e7dbc, 0x82e7eb0, 0x82e7fcc, 0x82e80cc, 0x82e81c0, 0x82e82d0, 0x82e843c, 0x82e85b0, 0x82e86d8, 0x82e8808, 0x82e8948, 0x82e8a78, 0x82e8be8, 0x82e8d3c, 0x82e8ec8, 0x82e9070, 0x82e91c4)),
     "BPEE0": dict(layouts=0x8481dd4, decorations=0x85a5c08, gfx=(0x8505620, 0x3bc), pals=(0x850bbc8, 0x120),
@@ -231,6 +235,26 @@ def workshop_parts(lab, mapping, info, header):
     p.read([(u32(pals, 8 * i), 32) for i in range(pal_size // 8) if ok(u32(pals, 8 * i))])
     # the Easy Chat words (Ruby and Sapphire: every group's words, then the table of 22 pointers
     # to them), for the Record Workshop's old man, trends and the rest
+    # the games' own lines for the Record Workshop (TV shows, the old man, Dewford, the Battle Tower):
+    # pret's tables, then every string they point to (up to 1 KB each; the page reads up to the end mark)
+    if "text" in where:
+        strings = []
+        tables = p.read([(a, size) for a, size, kind in where["text"] if kind != "string"])
+        k = 0
+        for a, size, kind in where["text"]:
+            if kind == "string":
+                strings.append(a)
+                continue
+            t = tables[k]
+            k += 1
+            if kind == "ptrs":
+                strings += [u32(t, 4 * i) for i in range(size // 4)]
+            elif kind == "places":
+                strings += [u32(t, 8 * i + 4) for i in range(size // 8)]
+            elif kind == "stories":
+                strings += [u32(t, 16 * i + o) for i in range(size // 16) for o in (4, 8, 12)]
+        strings = sorted({x for x in strings if ok(x)})
+        p.read([(x, min(0x400, 0x08000000 + GAME_ROM_SIZE - x)) for x in strings])
     if "easy_chat" in where:
         words_at, table_at = where["easy_chat"]
         block = p.read([(words_at, table_at + 22 * 4 - words_at)])[0]
