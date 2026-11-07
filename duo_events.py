@@ -2611,7 +2611,7 @@ def copy_probe_log(duo):
     n, full = (v & 0x7FFFFFFF) // 4, v >> 31
     words, t0 = [], time.time()
     for k in range(n):
-        words.append(program_poll(duo, 4 | k << 8))
+        words.append(program_poll(duo, 4 | (k << 8)))           # (the log, word k)
         if k % 64 == 63 or k == n - 1:
             bar = "#" * ((k + 1) * 24 // n)
             sys.stdout.write(f"\r  Copying the battle's record [{bar:<24}] {(k + 1) * 100 // n:3d}%")
