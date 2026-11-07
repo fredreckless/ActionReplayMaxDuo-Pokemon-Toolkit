@@ -76,6 +76,26 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
   kind `colosseum`. **Next on hardware:** a single battle with the probe; read the newest
   `battles\*.txt` and `logs\latest.log` through the bridge. Then step 3: the PC choosing (the
   `duo_battle.py` levels) instead of the probe's simple play.
+  - **Status at the end of the session (7 November, 20:20):** pushed (`main` = `v42-local` =
+    `6d8c3f4`). Changed tier before the push: 161 tests passed; all 137 planted bugs caught (one
+    PC bug's anchor had been doubled by the probe's log copier: reworded, re-run, caught).
+  - **Not done yet, on purpose:** the new files are **not on the user's PC**
+    (`C:\Users\fredr\ActionReplay`); the user was testing Record Mixing tonight with the old
+    tools and the `tonight` folder (TONIGHT.md: bases with Alicia, a whole sitting with WILLOW's
+    base, old man, trend, TV and news; Ctrl+C recovery; the workshop). Copy `duo_events.py` (and
+    nothing else changed for the PC) with fresh staged names and SHA-1 checks **after** reading
+    those results.
+  - **First thing next session:** read tonight's logs through the bridge
+    (`C:\Users\fredr\ActionReplay\logs`, newest first; `records\` for the game's `.rm3`), check
+    each TONIGHT.md test against what the model predicted, and fix what they show. Then copy the
+    probe across and give the user a short single-battle test: Ruby with two or three Pokémon, the
+    DUO with one or two `.pk3` files; afterwards read the newest `battles\*.txt` and
+    `logs\latest.log`.
+  - **Things the probe's hardware run should settle:** that Ruby accepts the 31-byte header and
+    our party blocks (the DUO's Pokémon shown with the right name, level and HP); that the
+    0x0001 signature hands the battle to Ruby when the DUO is player 0 (untested anywhere but the
+    model); that instant "done" replies don't upset the game; the walk out after the battle. The
+    model is this session's reading of pokeruby, not observed behaviour.
 - **7 November: the Record Workshop complete for Ruby and Sapphire (the user asked for it "fully
   complete").** New tabs: TV shows (12 kinds, `TV_SPEC`), PokéNews, day-care letters, the Battle
   Tower trainer (the class follows the trainer ID; Ruby's banned species; checksum). The game's own
