@@ -64,6 +64,17 @@ Lab notes: `lab/sessions/sessionNN/README.md`; index in `lab/README.md`.
 
 ## What to do next
 
+- **7 November, 21:20: tonight's hardware, and a request.**
+  - **Record Mixing test 2 worked** (log `2026-11-07 211202`): bases, old man, trend, TV and news
+    went across in one sitting, the game saved, the DUO walked out, and the game's whole record was
+    kept (1164 polls in 19 s: last night's hang is gone). Still to hear: what the Bard, Dewford, the
+    TV and the news show in the game.
+  - **One stall first** (log `2026-11-07 210900`): the DUO sat at "walking to the table" for 90 s
+    with the link busy (1 barrier answered), until Ctrl+C; the run straight after worked. Look at
+    it: the room walk never reached the seat (blocked? a missed key?). The Ctrl+C and the next run
+    behaved (test 3 passed by accident).
+  - **The user's request:** the Record Workshop should export a whole `.rm3` from the current
+    settings of all its tabs in one go, with part files still an option (RECORD_WORKSHOP.md).
 - **7 November, evening: the battle partner's DUO side, step 2 (the user chose it while testing
   Record Mixing).** `firmware/programs/colosseum.c` (9.5 KB, 2.3 KB spare): the DUO walks to a
   Colosseum spot, battles once with the PC's `.pk3` team, playing simply (fight, first move with

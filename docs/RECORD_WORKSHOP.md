@@ -20,6 +20,10 @@ are in docs/RECORD_FORMATS.md.
   is found by pret's addresses for English Ruby (revisions 0-2) and Sapphire (revision 0), and
   `duo_rom.py` copies it into its "workshop parts" file. Checked with a real Ruby 1.1 ROM in the
   browser (locally; nothing of it kept).
+- **Asked for by the user (7 November, after Record Mixing worked on hardware):** the page should
+  export a whole `.rm3` straight from what every tab currently holds (one button, "Save the whole
+  record"), so a record needn't be put together from many part files; saving each part on its own
+  stays as an option. To do next on the page.
 - Still to come: Emerald (its own layout, and the Lilycove lady, apprentices and Ranking Hall:
   step 7, once the DUO can mix as an Emerald), Sapphire revisions 1-2 and non-English games' lines.
 
