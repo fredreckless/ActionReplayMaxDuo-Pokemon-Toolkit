@@ -270,6 +270,8 @@ three each), all levels using only what they could see:
 | medium against easy | 72% (200) |
 | elite against medium | 56-57% (160 each, two settings) |
 | elite against medium, elite seeing everything | 59-62% |
+| elite against medium (8 November) | 55% (120) |
+| impossible against elite (8 November; it sees everything and the other side's choice) | 75% (60) |
 
 Gen 3 battles are very random, so these are clear but not crushing margins; easy is a real
 opponent (it isn't "stupidly easy"). An elite choice takes well under a second.
