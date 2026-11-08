@@ -1899,9 +1899,15 @@ def status_from_word(st):
 
 class LinkBattle:
     """The PC's picture of a link battle from the DUO's record, and its choices for the DUO's side.
+    OUR_SIDE: the battlers on the DUO's side; CONTROLLED: those it chooses for; FOES: the others.
     `ours` are the DUO's .pk3 files (its party, in order); the game's party comes from the record's
     opening blocks. Battlers: the game's are 0 and 2, the DUO's 1 and 3 (InitLinkBtlControllers);
     each one's Pokemon is a party slot. `level` is easy, medium, elite or impossible."""
+
+    OUR_SIDE, CONTROLLED, FOES = (1, 3), (1, 3), (0, 2)
+
+    def _ours_side(self, b):
+        return b in self.OUR_SIDE
 
     def __init__(self, ours, level="medium", double=False, seed=None):
         self.ours = [mon_from_pk3(p) for p in ours]
@@ -1957,7 +1963,7 @@ class LinkBattle:
             d = b[8:8 + size]
             if state == 0 and d:
                 self._command(battler, attacker, d)
-            elif state == 1 and not battler & 1 and d:
+            elif state == 1 and battler not in self.CONTROLLED and d:
                 self._answer(battler, d)
 
     def _game_party(self, E):
@@ -2022,7 +2028,7 @@ class LinkBattle:
             if len(d) > 12:
                 self.weather = {1: "RAIN", 2: "RAIN", 4: "RAIN", 8: "SAND", 16: "SAND", 32: "SUN", 64: "SUN"}.get(
                     next((bit for bit in (1, 2, 4, 8, 16, 32, 64) if d[12] & bit), 0))
-        elif cmd == C_CHOOSEMOVE and battler & 1 and len(d) >= 16:
+        elif cmd == C_CHOOSEMOVE and battler in self.CONTROLLED and len(d) >= 16:
             m = self.mon(battler)
             if m:
                 moves = [struct.unpack_from("<H", d, 4 + 2 * i)[0] for i in range(4)]
@@ -2031,7 +2037,7 @@ class LinkBattle:
         if cmd in (C_CHOOSEACTION, C_CHOOSEMOVE, C_CHOOSEPOKEMON):
             self.pending[battler] = (cmd, bytes(d))
             if cmd == C_CHOOSEACTION:
-                if battler & 1:                      # (our turn starts: the last one ended at our last ask)
+                if battler in self.CONTROLLED:       # (our turn starts: the last one ended at our last ask)
                     self.turn_mark[battler] = self.last_choose.get(battler, 0)
                     self.chosen.pop(battler, None)
                 else:
@@ -2057,7 +2063,7 @@ class LinkBattle:
         battler of theirs that was asked this turn has answered; None while one hasn't yet; False if
         none was asked (a Pokemon locked into its move, or recharging)."""
         mark = self.turn_mark.get(our_battler, 0)
-        foes = [b for b in (0, 2) if self.last_choose.get(b, -1) > mark]
+        foes = [b for b in self.FOES if self.last_choose.get(b, -1) > mark]
         if not foes:
             return False
         if all(b in self.player_choice for b in foes):
@@ -2145,7 +2151,7 @@ class LinkBattle:
         foe, and - impossible - never at a foe that protects this turn, and at the Pokemon coming in
         where the player switches."""
         me = self.mon(battler)
-        foes = [f for f in (0, 2) if self.mon(f) and not self.mon(f).fainted]
+        foes = [f for f in self.FOES if self.mon(f) and not self.mon(f).fainted]
         known = self.player_known(battler) if isinstance(self.player, Impossible) else None
         known = known or {}
         partner_plan = self.chosen.get(battler ^ 2)
@@ -2178,7 +2184,7 @@ class LinkBattle:
                 if v > best_v:
                     best_v, best = v, ("move", i, f, ko_of(self, battler, move, f))
         if best is None:
-            return ("move", 0, foes[0] if foes else battler ^ 1, 0.0)
+            return ("move", 0, foes[0] if foes else self.FOES[0], 0.0)
         return best
 
     def _double_plan(self, battler):
@@ -2190,8 +2196,8 @@ class LinkBattle:
         moves at half power (Earthquake and the like on the partner too), and Protect; the pairing
         that leaves the best position (as evaluate weighs it) wins."""
         impossible = isinstance(self.player, Impossible)
-        ours = [b for b in (1, 3) if self.mon(b) and not self.mon(b).fainted]
-        foes = [b for b in (0, 2) if self.mon(b) and not self.mon(b).fainted]
+        ours = [b for b in self.OUR_SIDE if self.mon(b) and not self.mon(b).fainted]
+        foes = [b for b in self.FOES if self.mon(b) and not self.mon(b).fainted]
         if not foes or battler not in ours:
             return self._double_move(battler)
         known = (self.player_known(battler) or {}) if impossible else {}
@@ -2200,12 +2206,12 @@ class LinkBattle:
         def hit(a, t, move):                       # (expected share of t's HP, chance it knocks t out)
             key = (a, t, move)
             if key not in cache:
-                if a & 1 and t & 1:                # (our own partner)
-                    b = self._battle_for(a, t ^ 1)
+                if self._ours_side(a) and self._ours_side(t):   # (our own partner)
+                    b = self._battle_for(a, self.FOES[0])
                     b.sides[1].team = [self.mon(t).clone()]
                     b.sides[1].active = 0
                     cache[key] = expected_hit(b, 0, move)
-                elif a & 1:
+                elif self._ours_side(a):
                     cache[key] = expected_hit(self._battle_for(a, t), 0, move)
                 else:
                     cache[key] = expected_hit(self._battle_for(t, a), 1, move)
@@ -2215,14 +2221,14 @@ class LinkBattle:
             m = self.mon(a)
             out = []
             for i, move in enumerate(moves_of(m)):
-                if a & 1 and (i >= len(m.pp) or m.pp[i] <= 0):
+                if a in self.CONTROLLED and (i >= len(m.pp) or m.pp[i] <= 0):
                     continue
                 if MOVES[move][6] in (0x08, 0x20):
                     out.append((i, move, None))    # (spread: every foe)
                 else:
-                    for t in ([f for f in (0, 2) if f in foes] if a & 1 else [o for o in ours]):
+                    for t in ([f for f in self.FOES if f in foes] if self._ours_side(a) else [o for o in ours]):
                         out.append((i, move, t))
-            return out or [(0, m.moves[0], (foes if a & 1 else ours)[0])]
+            return out or [(0, m.moves[0], (foes if self._ours_side(a) else ours)[0])]
 
         def foe_moves(m):
             if impossible:
@@ -2258,7 +2264,7 @@ class LinkBattle:
                 i, move, t = picks[a]
                 if alive[a] < 0.05 or not MOVES[move][1]:
                     continue
-                side = foes if a & 1 else ours
+                side = foes if self._ours_side(a) else ours
                 if t is None:
                     targets = list(side) + ([a ^ 2] if MOVES[move][6] == 0x20 and (a ^ 2) in alive else [])
                     mult = 0.5 if len([x for x in targets if alive[x] > 0.05]) > 1 else 1.0
@@ -2288,7 +2294,9 @@ class LinkBattle:
                 pmove = pm.moves[pc[1]]
                 fixed[partner] = (pc[1], pmove, None if MOVES[pmove][6] in (0x08, 0x20) else pc[2])
         mine = options(battler, lambda m: m.moves)
-        theirs = [fixed[partner]] if partner in fixed else (options(partner, lambda m: m.moves) if partner in ours else [None])
+        theirs = [fixed[partner]] if partner in fixed else (
+            options(partner, lambda m: m.moves) if partner in ours and partner in self.CONTROLLED else
+            [foe_pick.get(partner)] if partner in ours else [None])
         best, bv = None, None
         for mo in mine:
             for po in theirs:
@@ -2307,7 +2315,7 @@ class LinkBattle:
         return ("move", i, t, ko_of(self, battler, move, t))
 
     def _double_replacement(self, battler, bench):
-        foes = [f for f in (0, 2) if self.mon(f) and not self.mon(f).fainted] or [battler ^ 1]
+        foes = [f for f in self.FOES if self.mon(f) and not self.mon(f).fainted] or [self.FOES[0]]
         def score(k):
             total = 0.0
             for f in foes:
@@ -2315,6 +2323,118 @@ class LinkBattle:
                 total += matchup(b, 0, k)
             return total
         return max(bench, key=score)
+
+
+class TowerLink(LinkBattle):
+    """The Battle Tower's link multi battle (Emerald; docs/MULTI.md): the DUO is battler 2, the
+    player's partner; the player is battler 0; the Tower's trainers are 1 and 3. Party slots as the
+    game keeps them: the player's 0-2 and ours 3-5 on our side, trainer A's 0-2 and trainer B's 3-5 on
+    the other. The opening blocks: the header, the player's party (two Pokemon, then a third), the
+    Tower trainers' (three blocks), the seed."""
+    OUR_SIDE, CONTROLLED, FOES = (0, 2), (2,), (1, 3)
+
+    def __init__(self, ours, level="medium", seed=None):
+        super().__init__(ours, level=level, double=True, seed=seed)
+        self.mine = self.ours                          # (our own Pokemon, in order)
+        self.ally = [None] * 3
+        self.enemy = [None] * 6
+        self.active = {0: 0, 1: 0, 2: 3, 3: 3}
+        self.theirs = []                               # (filled once the Tower trainers' blocks are in)
+
+    def side_team(self, battler):
+        if battler in (0, 2):
+            return self.ally + (self.mine + [None] * 3)[:3]
+        return self.enemy
+
+    def _party(self, raw):
+        import duo_events as E
+        team = []
+        for k in range(len(raw) // 100):
+            m = raw[100 * k:100 * k + 100]
+            if not any(m[:32]):
+                team.append(None)
+                continue
+            try:
+                mon = mon_from_pk3(E.pk3_from_game_form(m))
+            except (ValueError, KeyError, IndexError):
+                team.append(None)
+                continue
+            hp = struct.unpack_from("<H", m, 0x56)[0]
+            mon.hp = min(hp, mon.maxhp) if hp else mon.maxhp
+            team.append(mon)
+        return team
+
+    def feed(self, entries):
+        for kind, seq, b in entries[self.n:]:
+            self.n += 1
+            if kind == 2:
+                code, arg = b[0] | b[1] << 8, b[2] | b[3] << 8
+                if code == 1:
+                    self.session, self.opening, self._party_blocks = arg, 0, []
+                continue
+            if self.session != 0x2288:
+                continue
+            if kind == 0 and self.opening < 7:
+                if 1 <= self.opening <= 5:
+                    self._party_blocks.append(b)
+                if self.opening == 2:                  # (the player's three)
+                    self.ally = (self._party(b"".join(self._party_blocks)) + [None] * 3)[:3]
+                if self.opening == 5:                  # (the Tower trainers' six)
+                    self.enemy = (self._party(b"".join(self._party_blocks[2:5])) + [None] * 6)[:6]
+                    self.theirs = [m for m in self.enemy if m]
+                self.opening += 1
+                continue
+            if len(b) < 8 or kind == 1:
+                continue
+            state, battler, attacker = b[0], b[1], b[2]
+            size = b[4] | b[5] << 8
+            d = b[8:8 + size]
+            if state == 0 and d:
+                self._command(battler, attacker, d)
+            elif state == 1 and battler not in self.CONTROLLED and d:
+                self._answer(battler, d)
+
+    def _battle_for(self, battler, foe_battler=None):
+        """One against one: our battler's Pokemon (its bench, our own) against one Tower trainer's."""
+        foe_battler = foe_battler if foe_battler is not None else self.FOES[0]
+        def half(team, active):
+            base = 0 if active < 3 else 3
+            mons = [(k, m) for k, m in enumerate(team[base:base + 3], base) if m]
+            idx = next((i for i, (k, _) in enumerate(mons) if k == active), 0)
+            return [m.clone() for _, m in mons] or [Mon(1, 5, [1])], idx
+        c = Battle.__new__(Battle)
+        mt, mi = half(self.side_team(battler), self.active.get(battler, 3))
+        ft, fi = half(self.side_team(foe_battler), self.active.get(foe_battler, 0))
+        c.sides = [Side(mt, "DUO"), Side(ft, "Tower")]
+        c.sides[0].active, c.sides[1].active = mi, fi
+        c.rng = random.Random(self.rng.random())
+        c.weather, c.weather_turns, c.turn, c.log, c.winner = self.weather, 0, 1, None, None
+        return c
+
+    def choose(self, battler):
+        """As LinkBattle.choose, for battler 2: fight (no switching in the Tower's multi battle), a
+        move at one of the Tower's trainers, a replacement from our own two (party slots 3-4)."""
+        cmd, d = self.pending[battler]
+        if not self.theirs:
+            raise ValueError("the Tower trainers' party isn't in the record yet")
+        if cmd == C_CHOOSEACTION:
+            self.plan[battler] = (self._double_plan(battler) if self.level in ("elite", "impossible")
+                                  else self._double_move(battler))
+            return 0, 0
+        if cmd == C_CHOOSEMOVE:
+            usable = [i for i in range(4) if len(d) >= 16 and (d[4 + 2 * i] | d[5 + 2 * i]) and d[12 + i]]
+            plan = self.plan.pop(battler, None) or self._double_move(battler)
+            slot, target = plan[1], plan[2]
+            if slot not in usable:
+                slot = usable[0] if usable else 0
+            return slot, target if target in self.FOES else self.FOES[0]
+        bench = [3 + k for k, m in enumerate(self.mine) if not m.fainted and 3 + k != self.active.get(battler)]
+        if not bench:
+            return 6, 0
+        foes = [f for f in self.FOES if self.mon(f) and not self.mon(f).fainted] or [self.FOES[0]]
+        def score(slot):
+            return sum(matchup(self._battle_for(battler, f), 0, slot - 3) for f in foes)
+        return max(bench, key=score), 0
 
 
 def ko_of(lb, battler, move, foe_battler):

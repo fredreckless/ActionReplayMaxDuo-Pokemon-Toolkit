@@ -1,0 +1,267 @@
+"""Emerald's Battle Tower link multi battle, for the simulator (8 November 2026): the game's side of
+the link, as pret's pokeemerald plays it, with the DUO as the player's partner.
+
+The challenge (docs/MULTI.md, section 1):
+  1. the lobby's link-up (LINKTYPE_BATTLE_TOWER_50 0x2266 / _OPEN 0x2277; cable_club.c
+     TryBattleLinkup): link players, the trainer cards (the two chosen Pokemon's species at 0x54:
+     the same species on both sides fails the link-up, FinishLinkup), the link save
+     (Task_LinkFullSave: three "ready" barriers), the win streaks (4 bytes each) and the Tower
+     trainers' list (40 bytes; everyone keeps player 0's: LoadLinkMultiOpponentsData), then closed;
+  2. each battle (LINKTYPE_BATTLE_TOWER 0x2288; CB2_HandleStartMultiPartnerBattle): link players,
+     the header (signature 0x0300), the party (two Pokemon, then the third), the Tower trainers'
+     party (three blocks; the follower's are ignored), the recorded battle's seed; then the battle,
+     four battlers: the player 0, the partner 2, the Tower's trainers 1 and 3 (the game's AI);
+  3. after a win that isn't the seventh (field_specials.c Task_LinkRetireStatusWithBattleTowerPartner):
+     the link again, the follower's choice (2 bytes), the leader's verdict (2 bytes), a "ready"
+     barrier, closed.
+The game here is player 0 (the leader and the battle's master); the DUO must be player 1."""
+import struct
+from link_game_model import LinkError
+from battle_game_model import (RubyColosseum, battle_block, mon_battle_fields, party_list, B_OUTCOME_WON,
+                               B_OUTCOME_LOST, GETMONDATA, SETMONDATA, SWITCHINANIM, FAINTANIMATION, MOVEANIMATION,
+                               PRINTSTRING, CHOOSEACTION, CHOOSEMOVE, CHOOSEPOKEMON, TWORETURNVALUES,
+                               CHOSENMONRETURNVALUE, HEALTHBARUPDATE, ENDLINKBATTLE, REQUEST_HP_BATTLE)
+from trade_game_model import BLOCK_REQUEST_SIZES
+
+LT_TOWER_50, LT_TOWER_OPEN, LT_TOWER = 0x2266, 0x2277, 0x2288
+LINK_CONTINUE, LINK_RETIRE = 0, 1
+LINKSTAT_CONTINUE, LINKSTAT_BOTH_RETIRE, LINKSTAT_MEMBER_RETIRE, LINKSTAT_LEADER_RETIRE = 0, 1, 2, 3
+PARTNER, MULTI_PARTY = 2, 3                      # the partner's battler; its Pokemon from party slot 3
+
+
+class EmeraldTowerMulti(RubyColosseum):
+    def __init__(self, party=None, enemy=None, open_level=False, battles=7, player_retires_after=None,
+                 trainer_ids=None, **kw):
+        """party: the player's two Pokemon (game form); enemy: the Tower trainers' Pokemon (four:
+        trainer A's two, trainer B's two); player_retires_after: the battle after which the player
+        retires (None: carries on); battles: how many the challenge is (7)."""
+        super().__init__(master=True, party=party, game="emerald", **kw)
+        self.tower_type = LT_TOWER_OPEN if open_level else LT_TOWER_50
+        self.enemy = [bytes(m) for m in (enemy or [])]
+        self.battles, self.retires_after = battles, player_retires_after
+        self.trainer_ids = trainer_ids or list(range(1, 15)) + [0] * 6
+        self.result.update(battles_won=0, battles_played=0, partner_status=[], retire_sessions=0,
+                           partner_cards=None, challenge_status=None, partner_species=None)
+
+    def _battler_side(self, b):                   # (who answers for a battler: the partner only for its own)
+        return self.other if b == PARTNER else self.my_id
+
+    # ------------------------------------------------------------ the challenge
+    def run(self):
+        yield ("until_ready",)
+        yield from self._session(self.tower_type, self._lobby, max_frames=9000)
+        for n in range(1, self.battles + 1):
+            yield from self._session(LT_TOWER, self._tower_battle, max_frames=40000)
+            if self.result["outcome"] != B_OUTCOME_WON or n == self.battles:
+                break
+            yield from self._session(LT_TOWER, self._retire, max_frames=4000)
+            if self.result["challenge_status"] != LINKSTAT_CONTINUE:
+                break
+        return self.result
+
+    def _lobby(self, s):
+        s.stage = "Tower lobby: link players"
+        while not s.players_checked:
+            yield
+        s.stage = "Tower lobby: trainer cards"
+        card = bytearray(100)
+        for k, m in enumerate(self.party[:2]):
+            f = mon_battle_fields(m)
+            struct.pack_into("<H", card, 0x54 + 2 * k, f["species"])
+        s.send_buffer = bytes(card)
+        s.link.send(0xCCCC, 2)
+        while len(s.blocks_in) < 2:
+            yield
+        theirs = s.blocks_in[self.other]
+        if len(theirs) != BLOCK_REQUEST_SIZES[2]:
+            raise LinkError(f"the partner's trainer card was {len(theirs)} bytes")
+        s.blocks_in = {}
+        mine = [struct.unpack_from("<H", card, 0x54 + 2 * k)[0] for k in range(2)]
+        partner = [struct.unpack_from("<H", theirs, 0x54 + 2 * k)[0] for k in range(2)]
+        self.result["partner_species"] = partner
+        if set(mine) & set(partner) - {0}:          # (FinishLinkup: AreBattleTowerLinkSpeciesSame)
+            raise LinkError("the partner chose a Pokemon of the same species: the link-up fails")
+        s.stage = "Tower lobby: the link save"
+        for _ in range(3):                          # (Task_LinkFullSave: three "ready" barriers)
+            yield from s.barrier()
+            for _ in range(20):
+                yield
+        s.stage = "Tower lobby: win streaks"
+        s.link.send_block(struct.pack("<i", 0))
+        got = yield from self._blocks(s, 1)
+        if len(got[0]) < 4:
+            raise LinkError(f"the partner's win streak block was {len(got[0])} bytes")
+        s.stage = "Tower lobby: the trainers"
+        s.link.send_block(struct.pack("<20H", *self.trainer_ids))
+        got = yield from self._blocks(s, 1)
+        if len(got[0]) < 40:
+            raise LinkError(f"the partner's trainer list was {len(got[0])} bytes")
+        s.close()
+
+    def _tower_battle(self, s):
+        s.stage = "Tower battle: link players"
+        while not s.players_checked:
+            yield
+        me, other = self.my_id, self.other
+        self.result["battles_played"] += 1
+        header = struct.pack("<HH", 0x0300, 0x0145) + bytes(27)
+        s.link.send_block(header)
+        s.stage = "Tower battle: headers"
+        got = yield from self._blocks(s, 1)
+        sig = {me: 0x0300, other: struct.unpack_from("<H", got[0], 0)[0]}
+        if self._find_master(sig, me) != 12:
+            raise LinkError(f"the partner's header (signature {sig[other]:#06x}) makes the partner run the battle")
+        mine = b"".join(self.party).ljust(300, b"\0")
+        theirs = b""
+        for k, size in enumerate((200, 100)):
+            s.stage = f"Tower battle: parties, block {k + 1}"
+            s.link.send_block(mine[:200] if k == 0 else mine[200:300])
+            got = yield from self._blocks(s, 1)
+            if len(got[0]) != size:
+                raise LinkError(f"the partner's party block {k + 1} was {len(got[0])} bytes, not {size}")
+            theirs += got[0]
+        enemy = b"".join(self.enemy[:2]).ljust(300, b"\0") + b"".join(self.enemy[2:4]).ljust(300, b"\0")
+        for k in range(3):
+            s.stage = f"Tower battle: the Tower's trainers, block {k + 1}"
+            s.link.send_block(enemy[200 * k:200 * k + 200])
+            got = yield from self._blocks(s, 1)
+            if len(got[0]) != 200:
+                raise LinkError(f"the partner's enemy block was {len(got[0])} bytes")
+        s.stage = "Tower battle: the seed"
+        s.link.send_block(struct.pack("<I", 0x12345678))
+        got = yield from self._blocks(s, 1)
+        self.result["partner_party"] = theirs
+        mons = lambda raw: [mon_battle_fields(raw[100 * i:100 * i + 100]) if any(raw[100 * i:100 * i + 32]) else None
+                            for i in range(len(raw) // 100)]
+        # party slots as the engine keeps them: the player's 0-2, the partner's 3-5; the trainers' 0-2, 3-5
+        self.tparty = {"player": (mons(mine) + [None] * 3)[:3] + (mons(theirs) + [None] * 3)[:3],
+                       "enemy": mons(enemy)}
+        if not any(self.tparty["player"][3:]):
+            raise LinkError("the partner sent no Pokemon")
+        for _ in range(100):
+            yield
+        yield from self._multi_engine(s)
+        for _ in range(20):
+            yield
+        s.close()
+
+    def _retire(self, s):
+        s.stage = "Tower: the link again, after the battle"
+        while not s.players_checked:
+            yield
+        self.result["retire_sessions"] += 1
+        s.stage = "Tower: the partner's choice"
+        got = yield from self._blocks(s, 1, frames=600)
+        if len(got[0]) < 2:
+            raise LinkError(f"the partner's choice was {len(got[0])} bytes")
+        theirs = struct.unpack_from("<H", got[0], 0)[0]
+        self.result["partner_status"].append(theirs)
+        ours = LINK_RETIRE if self.retires_after == self.result["battles_played"] else LINK_CONTINUE
+        verdict = (LINKSTAT_BOTH_RETIRE if ours and theirs else LINKSTAT_MEMBER_RETIRE if theirs else
+                   LINKSTAT_LEADER_RETIRE if ours else LINKSTAT_CONTINUE)
+        self.result["challenge_status"] = verdict
+        s.link.send_block(struct.pack("<H", verdict))
+        for _ in range(30):
+            yield
+        yield from s.barrier()
+        s.close()
+
+    # ------------------------------------------------------------ the battle: four battlers
+    def _multi_engine(self, s):
+        p, e = self.tparty["player"], self.tparty["enemy"]
+        team = {0: p, 2: p, 1: e, 3: e}
+        active = {0: 0, 2: MULTI_PARTY, 1: 0, 3: MULTI_PARTY}
+        for b in (0, 1, 2, 3):
+            if team[b][active[b]] is None:
+                active[b] = None
+        hp = {id(p): [f["hp"] if f else 0 for f in p], id(e): [f["hp"] if f else 0 for f in e]}
+        HP = lambda b, k=None: hp[id(team[b])][active[b] if k is None else k]
+        live = lambda b: active[b] is not None and HP(b) > 0
+        own = lambda b: b != PARTNER
+        foes = lambda b: (1, 3) if b in (0, 2) else (0, 2)
+        s.stage = "Tower battle: the intro"
+        yield from self._emit(s, [(b, [GETMONDATA, 0, 0, 0]) for b in (0, 1, 2, 3)])
+        yield from self._emit(s, [(0, [PRINTSTRING, 0, 0, 0])])
+        turn = 0
+        while True:
+            turn += 1
+            if turn > 60:
+                raise LinkError("the battle went on for 60 turns")
+            self.turn = turn
+            acting = [b for b in (0, 1, 2, 3) if live(b)]
+            self._own_moves = {}
+            for b in acting:
+                if own(b):
+                    f = team[b][active[b]]
+                    self._own_moves[b] = [CHOOSEMOVE, 0, 0, 0] + list(struct.pack("<4H", *f["moves"])) + f["pp"] + \
+                        [35] * 4 + list(struct.pack("<H", f["species"])) + [0, 0]
+            s.stage = f"Tower battle: turn {turn}, choosing"
+            answers = yield from self._emit(s, [(b, [CHOOSEACTION, 0, 0, 0]) for b in acting])
+            moves = {b: (self.game_move(turn, b), b ^ 1) for b in self._own_moves}
+            self._own_moves = {}
+            if PARTNER in acting:
+                r = answers.get(PARTNER)
+                if r is None or r[0] != TWORETURNVALUES or r[1] != 0:
+                    raise LinkError(f"the partner's action was {r!r}, not 'fight'")
+                f = team[PARTNER][active[PARTNER]]
+                answers = yield from self._emit(s, [(PARTNER, [CHOOSEMOVE, 0, 0, 0] + list(struct.pack("<4H", *f["moves"])) +
+                                                      f["pp"] + [35] * 4 + list(struct.pack("<H", f["species"])) + [0, 0])])
+                r = answers.get(PARTNER)
+                if r is None or r[0] != TWORETURNVALUES or r[1] != 10:
+                    raise LinkError(f"the partner's move answer was {r!r}")
+                slot, target = r[2], r[3]
+                if not (0 <= slot < 4 and f["moves"][slot] and f["pp"][slot]):
+                    raise LinkError(f"the partner's move slot {slot} has no move or PP")
+                if target not in (1, 3):
+                    raise LinkError(f"the partner aimed at battler {target}, on the player's side")
+                f["pp"][slot] -= 1
+                moves[PARTNER] = (slot, target)
+                self.result["partner_choices"].append((turn, PARTNER, slot, target))
+            s.stage = f"Tower battle: turn {turn}, moves"
+            for b in sorted(moves):
+                if not live(b):
+                    continue
+                slot, target = moves[b]
+                if not live(target):
+                    target = next((t for t in foes(b) if live(t)), None)
+                    if target is None:
+                        continue
+                move = team[b][active[b]]["moves"][slot]
+                yield from self._emit(s, [(b, [MOVEANIMATION] + list(struct.pack("<H", move)) + [1, 0, 0])], attacker=b, target=target)
+                share = self.hit_share if target in (1, 3) else self.partner_hit_share
+                f = team[target][active[target]]
+                dmg = min(HP(target), max(1, int(f["max_hp"] * share + 0.999)))
+                hp[id(team[target])][active[target]] -= dmg
+                yield from self._emit(s, [(target, [HEALTHBARUPDATE, 0] + list(struct.pack("<h", dmg)))], attacker=b, target=target)
+                yield from self._emit(s, [(target, [SETMONDATA, REQUEST_HP_BATTLE, 0] + list(struct.pack("<H", HP(target))))],
+                                      attacker=b, target=target)
+                if HP(target) == 0:
+                    yield from self._emit(s, [(target, [FAINTANIMATION] * 4)], attacker=b, target=target)
+            for b in (0, 1, 2, 3):
+                if active[b] is None or live(b):
+                    continue
+                half = range(MULTI_PARTY, 6) if b in (2, 3) else range(0, MULTI_PARTY)
+                bench = [i for i in half if team[b][i] and hp[id(team[b])][i] > 0 and i != active[b]]
+                if not bench:
+                    active[b] = None
+                    continue
+                answers = yield from self._emit(s, [(b, [CHOOSEPOKEMON, 0, 6, 0, 0, 0, 0, 0])])
+                if own(b):
+                    pick = bench[0]
+                else:
+                    r = answers.get(b)
+                    if r is None or r[0] != CHOSENMONRETURNVALUE or r[1] not in bench:
+                        raise LinkError(f"the partner sent in {r!r}, not one of {bench}")
+                    pick = r[1]
+                    self.result["partner_switches"].append((turn, b, pick))
+                active[b] = pick
+                yield from self._emit(s, [(b, [SWITCHINANIM, pick, 0, 5])])
+            ours_alive = any(live(b) for b in (0, 2))
+            theirs_alive = any(live(b) for b in (1, 3))
+            if ours_alive and theirs_alive:
+                continue
+            outcome = B_OUTCOME_WON if ours_alive else B_OUTCOME_LOST
+            self.result["outcome"] = outcome
+            self.result["battles_won"] += outcome == B_OUTCOME_WON
+            yield from self._emit(s, [(b, [ENDLINKBATTLE, outcome, 0, 0]) for b in (0, 1, 2, 3)])
+            return

@@ -4,7 +4,37 @@ The last kinds of link battle: battles with four battlers on the field. They spl
 GBAs the game expects on the cable, which decides how hard each is. Sources: pret's pokeemerald
 (`battle_main.c`, `include/link.h`, `include/constants/battle.h`) and pokeruby.
 
-## 1. Emerald's Battle Tower link multi battle: two GBAs (start here)
+## 1. Emerald's Battle Tower link multi battle: two GBAs (built 8 November, simulator)
+
+**Built:** `firmware/programs/tower.c`, `python duo_events.py tower --pk3 A.pk3 B.pk3 [--level ...]
+[--retire-after N]`, `duo_battle.TowerLink`, and `tests/tower_game_model.py`. What it does, from
+pret's sources (cable_club.c, battle_tower.c, field_specials.c, start_menu.c, save.c, battle_main.c):
+
+1. **The lobby** (0x2266 level 50 / 0x2277 open): link players (the DUO says Emerald, with the
+   progress flags), the trainer cards (the DUO's two species at 0x54; the game refuses a partner with
+   the same species, `AreBattleTowerLinkSpeciesSame`), the link save (`Task_LinkFullSave`: three
+   "ready" barriers), the win streaks (4 bytes each) and the Tower trainers' list (40 bytes; the game
+   keeps player 0's, so the DUO only echoes the game's), then closed.
+2. **Each battle** (0x2288, `CB2_HandleStartMultiPartnerBattle`): link players, then seven blocks each
+   way: the header (the game's own signature: player 0, the game, runs the battle), the party (two
+   Pokemon, then a third, empty), three blocks of the Tower trainers' party (the follower's are
+   ignored: zeros), the recorded battle's seed. Four battlers: the player 0, the DUO 2, the Tower's
+   trainers 1 and 3 (the game's AI). The DUO answers battler 2's choices, the PC choosing (as in the
+   Colosseum, aimed only at the Tower's trainers); its Pokemon are party slots 3 and 4.
+3. **After a win that isn't the seventh** (`Task_LinkRetireStatusWithBattleTowerPartner`): the link
+   again; the DUO, the follower, sends its choice first (carry on, or retire after the battle given by
+   `--retire-after`), the game its verdict, a "ready" barrier, closed. A loss, the seventh win or a
+   verdict to stop ends the challenge.
+
+**The DUO must be player 1** (the game's GBA on the master end): player 0's copy of the trainers'
+list and of their party is the one the battle uses, which the DUO can't make. The tool says so if
+the cable is the other way round.
+
+Tested in the simulator: a three-battle challenge (with the carry-on exchanges), the DUO retiring
+after the first battle, a lost battle, a link-up refused for the same species, one battle at the
+impossible level; planted bugs for each. Hardware next: Emerald with the Battle Frontier open.
+
+### The design, as first written
 
 **What it is.** In the Battle Tower's multi room, two Emerald players team up, each with two
 Pokemon, against two of the Tower's trainers, over a normal two-player cable
@@ -67,6 +97,6 @@ noted here only so the list is complete.
 
 ## Order
 
-1. The Battle Tower link multi battle (section 1): two GBAs, much of it already built.
+1. The Battle Tower link multi battle (section 1): built (simulator), hardware next.
 2. The four-player experiment (section 2): a short lab test first; build only if it works.
 3. The Union Room (section 3): with the Wireless Adapter work, later.

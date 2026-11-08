@@ -283,6 +283,14 @@ Before a battle, each `.pk3` is checked against the game's rules (effort values,
 
 Everything the game sends is recorded and kept in a `battles` folder beside the tools (a `.txt` you can read, and a `.bin`). **Keep the DUO's GBA switched on until the tool says it's safe to switch off.** The record is copied during the battle, so switching off early loses little, but the end needs a moment.
 
+**Emerald's Battle Tower, together.** The DUO can be your partner in the Battle Tower's link multi battle (two Pokemon each, against the Tower's trainers, up to seven battles):
+
+```
+python duo_events.py tower --pk3 "mine\METAGROSS.pk3" "mine\SALAMENCE.pk3" --level elite
+```
+
+Talk to the attendant for the LINK MULTI BATTLE and choose two Pokemon of other species than the DUO's. The game's GBA must be on the cable's master end (the DUO is player 1). `--retire-after N` has the DUO retire after battle N. Tested in the simulator; hardware next.
+
 The thinking half can also battle on its own, on the PC:
 
 ```

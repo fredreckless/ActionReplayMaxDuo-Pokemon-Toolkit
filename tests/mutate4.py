@@ -83,6 +83,7 @@ PC_MUTANTS = {
     "battle partner: elite's double battle uses the quick chooser": ("                self.plan[battler] = (self._double_plan(battler) if self.level in (\"elite\", \"impossible\")", "                self.plan[battler] = (self._double_plan(battler) if False", "elite and impossible in a double battle"),
     "battle partner: a double battle's Earthquake never hurts the partner": ("                    targets = list(side) + ([a ^ 2] if MOVES[move][6] == 0x20 and (a ^ 2) in alive else [])", "                    targets = list(side)", "elite and impossible in a double battle"),
     "battle partner: a double battle's Protect ignored": ("                    if x in protect or alive[x] < 0.05:", "                    if alive[x] < 0.05:", "elite and impossible in a double battle"),
+    "Battle Tower: the PC's partner aims at the player": ("            return slot, target if target in self.FOES else self.FOES[0]", "            return slot, 0", "Battle Tower link multi battle (8 November)"),
     "battle partner: a double battle taken for a single": ("                    double = v & 0xFFFF == 0x2244", "                    double = False", "a double battle chosen by the PC"),
     "battle: the impossible level doesn't use the other side's choice": ("            v = self.values(battle, s, acts, first=first)", "            v = self.values(battle, s, acts)", "the impossible level sees the other side's choice"),
     "battle: a team's effort values aren't checked": ("    if sum(evs) > 510:", "    if False:", "a team's .pk3 files are checked"),
@@ -168,11 +169,12 @@ def run(kind, name):
                            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=paths.FIRMWARE))
         assert r.returncode == 0, r.stderr[-800:]
         env = dict(os.environ, V3_FW=os.path.join(work, "fw_mut.bin"))
-    elif kind in ("prog", "ereader", "trade", "mix", "colosseum"):
+    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower"):
         old, new, pick = KINDS[kind][name]
         sys.path.insert(0, paths.FIRMWARE)
         import programs
-        src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c"}[kind]
+        src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c",
+                    "tower": "tower.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
         walk_path = os.path.join(paths.FIRMWARE, "programs", "room_walk.h")
@@ -180,7 +182,7 @@ def run(kind, name):
         assert in_walk or good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
         builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
-                  "colosseum": ("colosseum",)}[kind]
+                  "colosseum": ("colosseum",), "tower": ("tower",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
@@ -312,8 +314,17 @@ COLOSSEUM_MUTANTS = {      # firmware/programs/colosseum.c: the battle probe
     "colosseum: aims at its own side in a double": ("r[3] = battler ^ 1;", "r[3] = battler ^ 2;", "battle probe: a double battle"),
 }
 
+TOWER_MUTANTS = {          # firmware/programs/tower.c: the Battle Tower's link multi battle (8 November)
+    "tower: our choice sent before our link player has gone": ("    if (state == ST_RETIRE && !choice_sent && !tx_on && !player_pending) {", "    if (state == ST_RETIRE && !choice_sent) {", "Battle Tower link multi battle (8 November)"),
+    "tower: never retires": ("        small[0] = RETIRE_AFTER && battles >= RETIRE_AFTER;", "        small[0] = 0;", "the DUO retires after the first battle"),
+    "tower: the trainers' list never answered": ("        else if (size == 40 && lobby_blocks == 1) { memcpy(small, b, 40); send_block(small, 40); lobby_blocks = 2; }", "", "Battle Tower link multi battle (8 November)"),
+    "tower: answers the Tower trainers' battlers too": ("    u32 battler = b[1], cmd = b[8], ours = battler == OUR_BATTLER, side = 0;", "    u32 battler = b[1], cmd = b[8], ours = battler & 1, side = 0;", "Battle Tower link multi battle (8 November)"),
+    "tower: the opening's third party block left out": ("    else if (start_out == 2) send_block(PARTY + 200, 100);       /* a third (none) */", "    else if (start_out == 2) send_block(zeros, 200);", "Battle Tower link multi battle (8 November)"),
+    "tower: a carry-on after a loss": ("        retire_next = outcome == 1 && battles < 7;", "        retire_next = battles < 7;", "the first battle is lost"),
+}
+
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,
-         "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "pc": PC_MUTANTS}
+         "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "tower": TOWER_MUTANTS, "pc": PC_MUTANTS}
 
 
 def runnable_kinds():

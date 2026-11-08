@@ -94,7 +94,8 @@ then a double battle; Record Mixing with the player in the DUO's way.
 1. Hardware: the battle queue (HARDWARE_QUEUE.md 1-3), then fix what it shows.
 2. Done 8 November (simulator): Emerald and FireRed/LeafGreen Colosseums (docs/BATTLE.md).
 3. Done 8 November: elite and impossible plan a double battle's turn (`LinkBattle._double_plan`).
-4. Multi battles: docs/MULTI.md (the Battle Tower's link multi battle first: two GBAs).
+4. Multi battles: docs/MULTI.md. The Battle Tower's link multi battle is built (`tower.c`,
+   `duo_events.py tower`, simulator, 8 November); hardware next. Four-player battles: an experiment.
 
 ## Space in the programs (bytes below 0x0203AE00)
 
@@ -108,7 +109,7 @@ then a double battle; Record Mixing with the player in the DUO's way.
 - **Repository:** `fredreckless/ActionReplayMaxDuo-Pokemon-Toolkit`. Push with
   `git push origin v42-local && git push origin v42-local:main`.
 - **Programs** (`firmware/programs/*.c`, clang 18 + lld; `firmware/programs.py`): `adapter`,
-  `adapter_lab`, `adapter_probe`, `ereader`, `trade`, `mix`, `colosseum`; `room_walk.h` is shared.
+  `adapter_lab`, `adapter_probe`, `ereader`, `trade`, `mix`, `colosseum`, `tower`; `room_walk.h` is shared.
   Everything must end below `0x0203AE00`. No hardware divide: no `/` or `%` on variables.
   **After any change to a program, run `python firmware/embed_programs.py`.**
 - **Program protocol** (v4.2): `0x23` RUN, `0x2A` POLL (low byte selects; `idx << 8`), `0x2B` STOP,

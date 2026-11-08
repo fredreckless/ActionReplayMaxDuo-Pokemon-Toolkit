@@ -3781,6 +3781,73 @@ def _():
 
 
 import battle_game_model as BG
+import tower_game_model as TWG
+
+
+def tower_run(team=(409, 280), player_species=(25, 151), enemy_species=(19, 20, 21, 22), level="medium",
+              retire_after=0, seconds=600, **game_kw):
+    """The DUO's tower program as the player's partner against a simulated Emerald in the Battle Tower."""
+    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}") for k, sp in enumerate(team)]
+    party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in player_species]
+    enemy = [W.pk3_party_form(test_pk3(species=sp, pid=0x3000 + sp, otid=0x3333)) for sp in enemy_species]
+    game = TWG.EmeraldTowerMulti(party=party, enemy=enemy, **game_kw)
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    paths = [event_file(d, f"{k} - TEST.pk3") for k, d in enumerate(pk3s)]
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r = quiet(W.tower_session, duo, types.SimpleNamespace(pk3=paths, seconds=seconds, level=level, fallback=15,
+                                                          retire_after=retire_after),
+              poll_s=0.2, stop_when=lambda: hw.lg_done)
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    return hw, game, r[0]
+
+
+@test("Battle Tower link multi battle (8 November): a three-battle challenge - the lobby's link-up (cards, the link save, the win streaks, the trainers), each battle with the DUO as partner (battler 2, the PC choosing, always at the Tower's trainers), and the carry-on exchange between battles")
+def _():
+    hw, game, report = tower_run(battles=3, duo_wins=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["battles_played"] == 3 and r["battles_won"] == 3 and r["retire_sessions"] == 2, r
+    assert r["partner_status"] == [TWG.LINK_CONTINUE] * 2, r["partner_status"]
+    assert r["partner_choices"] and all(t in (1, 3) for _, b, _, t in r["partner_choices"] if b == 2), r["partner_choices"]
+    assert report["battles"] == 3 and report["won"] == 3 and report["pc_answers"] > 0 and report["fallbacks"] == 0, report
+    assert "3 battles, 3 won" in hw.text and report.get("file")
+
+
+@test("Battle Tower link multi battle: the DUO retires after the first battle (--retire-after 1) - the game hears it, says the partner has retired, and the challenge ends")
+def _():
+    hw, game, report = tower_run(battles=7, duo_wins=True, retire_after=1)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["battles_played"] == 1 and r["partner_status"] == [TWG.LINK_RETIRE], r
+    assert r["challenge_status"] == TWG.LINKSTAT_MEMBER_RETIRE and report["verdict"] == TWG.LINKSTAT_MEMBER_RETIRE
+
+
+@test("Battle Tower link multi battle: the first battle is lost - no carry-on exchange, the challenge is over, and the DUO is done")
+def _():
+    hw, game, report = tower_run(battles=7, hit_share=0.05, partner_hit_share=0.9)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["battles_played"] == 1 and r["battles_won"] == 0 and r["retire_sessions"] == 0, r
+    assert report["battles"] == 1 and report["won"] == 0 and report["state"] == W.TOWER_ST["DONE"], report
+
+
+@test("Battle Tower link multi battle: one battle at the impossible level - the DUO waits for the player's (and the Tower trainers') choices, then answers within the rules")
+def _():
+    hw, game, report = tower_run(battles=1, duo_wins=True, level="impossible", answer_delay=120)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert game.result["partner_choices"] and report["pc_answers"] > 0, report
+
+
+@test("Battle Tower link multi battle: the player chose a Pokemon of the same species as one of the DUO's - the game ends the link-up, and the tool says why")
+def _():
+    hw, game, report = tower_run(player_species=(409, 151), seconds=120)
+    assert "same species" in repr(hw.lg_error), repr(hw.lg_error)
+    assert "didn't get as far as the Tower's trainers" in hw.text, hw.text[-800:]
+
+
+
 
 
 def switch_off_at(duo, state):
