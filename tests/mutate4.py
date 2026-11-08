@@ -294,6 +294,8 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
 COLOSSEUM_MUTANTS = {      # firmware/programs/colosseum.c: the battle probe
     "colosseum: as player 0, sends the game's own signature - the DUO would have to run the battle": ("    if (is_master) { our_header[0] = 1; our_header[1] = 0; }", "    if (0) { our_header[0] = 1; our_header[1] = 0; }", "battle probe, the DUO as master"),
     "colosseum: its done carries the game's player ID": ("    u8 done[4] = { is_master ? 0 : 1, 0, 0, 0 };", "    u8 done[4] = { is_master ? 1 : 0, 0, 0, 0 };", "battle probe, the game as master"),
+    "colosseum: to Emerald, an Emerald player (the recorded battle's steps follow)": ("    return v == 3 ? 2 : v;", "    return v;", "battle partner: Emerald"),
+    "colosseum: no progress flags for FireRed/LeafGreen": ("        lp[0x10] = 0x11;                                     /* (as trade.c", "        lp[0x10] = 0;                                        /* (as trade.c", "battle partner: FireRed and LeafGreen"),
     "colosseum: done to a choice without its answer": ("    battle_block(hdr, 1, r, kind == 2 ? 5 : 4);", "", "battle probe, the game as master"),
     "colosseum: never chooses by itself when the PC is silent": ("        if (t - since < wait) continue;", "        if (t - since < wait || 1) continue;", "when the PC stops choosing"),
     "colosseum: the PC's polls don't hold off its own choice": ("        u32 since = pc_alive_at - pend_since[side] < 0x80000000u ? pc_alive_at : pend_since[side];", "        u32 since = pend_since[side];", "the impossible level waits"),

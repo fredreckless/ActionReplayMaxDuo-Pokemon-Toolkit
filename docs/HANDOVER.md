@@ -54,7 +54,7 @@ multiplayer feature of the five games (ROADMAP Stage 12).
 | e-Reader route (Ruby/Sapphire) | Eon Ticket, berries, Battle-e trainers on hardware |
 | Trades | Ruby, Emerald, LeafGreen on hardware; up to six a sitting |
 | Record Mixing (Ruby) | Everything in a record, on hardware (6-7 November); the user considers it done for now |
-| Colosseum | The battle link worked on hardware (7 November, the probe). **The PC choosing (easy, medium, elite, impossible), singles and doubles: simulator only, hardware next** |
+| Colosseum | The battle link worked on hardware (7 November, the probe). **The PC choosing (easy, medium, elite, impossible), singles and doubles, Ruby/Sapphire, Emerald (as a Ruby player) and FireRed/LeafGreen: simulator only, hardware next** |
 
 **Hardware next:** docs/HARDWARE_QUEUE.md, from the top: a single battle at medium, then impossible,
 then a double battle; Record Mixing with the player in the DUO's way.
@@ -92,9 +92,7 @@ then a double battle; Record Mixing with the player in the DUO's way.
 ## Next (towards every kind of link battle)
 
 1. Hardware: the battle queue (HARDWARE_QUEUE.md 1-3), then fix what it shows.
-2. Emerald and FireRed/LeafGreen Colosseums: read pokeemerald's and pokefirered's
-   `CB2_HandleStartBattle` and Cable Club scripts (Emerald's signature 0x0300, its recorded-battle
-   seed; FRLG's room). The program warns "only Ruby and Sapphire are known" for now.
+2. Done 8 November (simulator): Emerald and FireRed/LeafGreen Colosseums (docs/BATTLE.md).
 3. Elite in doubles: a doubles engine in `duo_battle.py` for playouts.
 4. Multi battles and the Battle Tower's link multi battle: ROADMAP Stage 12, steps C and W.
 

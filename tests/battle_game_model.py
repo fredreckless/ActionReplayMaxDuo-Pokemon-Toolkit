@@ -153,13 +153,18 @@ class ColosseumRoom(Room):
 class RubyColosseum(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, party=None, double=False, spot=None, duo_wins=False,
                  hit_share=0.6, partner_hit_share=0.35, leaves_first=False, pace=300, frame_blocks=25 * 228, version=2,
-                 player=None, game_move=None, answer_delay=0):
+                 player=None, game_move=None, answer_delay=0, game="ruby", frontier_pass=True):
         """party: the game's party (100-byte Pokemon, game form); double: a double battle; spot:
         where the player sits ((3,5) or (10,5); default: player 0 left, player 1 right); hit_share:
         the share of a Pokemon's max HP each hit takes from the partner's side, partner_hit_share
         from the game's (the stand-in for the damage calculation)."""
         super().__init__(master=master, language=language, party=party or [bytes(100)], pace=pace,
-                         frame_blocks=frame_blocks, version=version, leaves_first=leaves_first)
+                         frame_blocks=frame_blocks, version=version, leaves_first=leaves_first, game=game)
+        # game: whose battle start (8 November): its header signature (Ruby/Sapphire 0x0101,
+        # FireRed/LeafGreen 0x0201, Emerald 0x0300), and with two Emerald players the recorded
+        # battle's seed after the parties and, with a Frontier Pass, the offer to record it after
+        self.signature = {"ruby": 0x0101, "emerald": 0x0300, "firered": 0x0201, "leafgreen": 0x0201}[game]
+        self.frontier_pass = frontier_pass
         self.double = double
         self.room_type = LT_DOUBLE if double else LT_SINGLE
         self.spot = spot or (3, 5) if self.my_id == 0 else spot or (10, 5)
@@ -256,7 +261,7 @@ class RubyColosseum(RubyTrade):
             f = mon_battle_fields(mon) if any(mon) else None
             if f and f["species"] and f["hp"]:
                 fit |= 1 << 2 * i
-        header = bytes([1, 1]) + struct.pack("<H", fit) + bytes(27)
+        header = struct.pack("<HH", self.signature, fit) + bytes(27)
         s.link.send_block(header)
         s.stage = "battle: headers"
         got = yield from self._blocks(s, 1)
@@ -264,7 +269,7 @@ class RubyColosseum(RubyTrade):
         self.result["partner_header"] = partner
         if len(partner) < 4:
             raise LinkError(f"the partner's header was {len(partner)} bytes")
-        sig = {me: 0x0101, other: struct.unpack_from("<H", partner, 0)[0]}
+        sig = {me: self.signature, other: struct.unpack_from("<H", partner, 0)[0]}
         flags = self._find_master(sig, me)
         self.result["battle_master"] = me if flags == 12 else other
         if flags != 12:
@@ -280,6 +285,14 @@ class RubyColosseum(RubyTrade):
                 raise LinkError(f"the partner's party block was {len(got[0])} bytes")
             theirs += got[0]
         self.result["partner_party"] = theirs
+        both_emerald = all(self.link_players[i]["version"] & 0xFF == 3 for i in (0, 1))
+        self.result["seed_exchanged"] = both_emerald
+        if both_emerald:                              # (pokeemerald CB2_HandleStartBattle cases 15-17)
+            s.stage = "battle: the recorded battle's seed"
+            s.link.send_block(struct.pack("<I", 0x12345678))
+            got = yield from self._blocks(s, 1)
+            if len(got[0]) < 4:
+                raise LinkError(f"the partner's seed block was {len(got[0])} bytes")
         self.theirs = [theirs[100 * i:100 * i + 100] for i in range(6)]
         self.battle_party = {me: [mon_battle_fields(m) if any(m) else None for m in party_list(party)],
                              other: [mon_battle_fields(m) if any(m) else None for m in self.theirs]}
@@ -293,6 +306,9 @@ class RubyColosseum(RubyTrade):
         for _ in range(100):
             yield
         yield from self._engine(s)
+        if both_emerald and self.frontier_pass:       # (EndLinkBattleInSteps: CB2_InitAskRecordBattle)
+            raise LinkError("two Emerald players and a Frontier Pass: the game would offer to record the "
+                            "battle, with link steps this model doesn't have")
         s.stage = "battle: over, closing"
         for _ in range(20):
             yield
@@ -300,15 +316,20 @@ class RubyColosseum(RubyTrade):
         s.close()
 
     def _find_master(self, sig, me):
-        """CB2_HandleStartBattle case 1 (pokeruby): the flags this game takes (12: master, 8: not)."""
+        """CB2_HandleStartBattle / LinkBattleComputeBattleTypeFlags: the flags this game takes (12:
+        master, 8: not). pokeruby compares with 0x0101; pokeemerald (0x0300) and pokefirered (0x0201)
+        also let the lower-numbered of two players on their own version win."""
         buf = [sig[0], sig[1]]
         if buf[0] == 0x100:
             return 12 if me == 0 else 8
         if buf[0] == buf[1]:
             return 12 if me == 0 else 8
+        own = self.signature
         i = 0
         while i < 2:
-            if buf[i] > 0x0101 and i != me:
+            if own != 0x0101 and buf[i] == own and i != me and i < me:
+                break
+            if buf[i] > own and i != me:
                 break
             i += 1
         return 12 if i == 2 else 8

@@ -192,6 +192,12 @@ static u8 our_header[32];
 static u8 tq[TQ][16];                     /* battle blocks waiting to go: 16 bytes each */
 static u32 tq_head, tq_count, tq_dropped;
 
+static u32 our_version(void)              /* the version we give in our link player and card */
+{
+    u32 v = game_player[16];
+    return v == 3 ? 2 : v;                                   /* (Emerald: Ruby, above) */
+}
+
 static void build_our_player(void)
 {
     static const char magic[] = "GameFreak inc.";
@@ -199,12 +205,22 @@ static void build_our_player(void)
     memcpy(our_player, magic, 14);
     memcpy(our_player + 44, magic, 14);
     u8 *lp = our_player + 16;
-    lp[0] = game_player[16]; lp[1] = game_player[17];       /* the game's version; lp_field_2 stays 0 */
+    /* the game's own version, except that to Emerald we're a Ruby player (8 November): two Emerald
+     * players add a recorded-battle seed after the parties and may record the battle afterwards
+     * (pokeemerald battle_main.c), which Ruby and Sapphire partners skip; Emerald battles them as
+     * readily. lp_field_2 stays 0 */
+    u32 version = our_version();
+    lp[0] = version; lp[1] = game_player[17];
     memcpy(lp + 4, OUR_TID, 4);
     memcpy(lp + 8, OUR_NAME, 8);
     memcpy(lp + 0x14, game_player + 16 + 0x14, 4);           /* link type */
     memcpy(lp + 0x1A, game_player + 16 + 0x1A, 2);           /* language */
-    lp[0x10] = OUR_GENDER;                                   /* Ruby/Sapphire keep the gender here */
+    if (version >= 4) {                                      /* FireRed/LeafGreen: the progress flags */
+        lp[0x10] = 0x11;                                     /* (as trade.c: National Dex, game cleared; */
+        lp[0x13] = OUR_GENDER;                               /* the gender here) */
+    } else {
+        lp[0x10] = OUR_GENDER;                               /* Ruby/Sapphire keep the gender here */
+    }
     lp[0x18] = is_master ? 0 : 1;                            /* id: our spot (VAR_0x8005) */
 }
 
@@ -342,7 +358,10 @@ static void next_command(void)
 
 static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
 {
-    if (n == 2) send_block(CARD, 100);
+    if (n == 2) {
+        if (!CARD[0x38] || game_player[16] == 3) CARD[0x38] = our_version();   /* (the card's game) */
+        send_block(CARD, 100);
+    }
     else send_block(0, n == 4 ? 40 : n == 3 ? 220 : n == 2 ? 100 : 200);     /* (zeros: a request we don't expect) */
 }
 

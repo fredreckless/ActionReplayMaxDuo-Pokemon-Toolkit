@@ -264,7 +264,7 @@ The tool checks everything the game needs, and warns about anything a real playe
 
 ## A battle partner
 
-The DUO sits in the Cable Club Colosseum as your link-battle opponent, its team a set of your `.pk3` files, and the PC chooses its moves ([docs/BATTLE.md](docs/BATTLE.md)). Single and double battles, with English Ruby or Sapphire:
+The DUO sits in the Cable Club Colosseum as your link-battle opponent, its team a set of your `.pk3` files, and the PC chooses its moves ([docs/BATTLE.md](docs/BATTLE.md)). Single and double battles, with Ruby, Sapphire, Emerald, FireRed or LeafGreen (to Emerald the DUO is a Ruby player, so that battle can't be recorded at the Frontier):
 
 ```
 python duo_events.py colosseum --pk3 "mine\SWAMPERT.pk3" "mine\MANECTRIC.pk3"                    (medium)
@@ -291,7 +291,7 @@ python duo_battle.py --pk3 "mine\*.pk3" --level elite         (your .pk3 files a
 python duo_battle.py --tournament 40 --level medium --opponent easy
 ```
 
-**Status (8 November 2026):** the battle link worked on hardware with the probe on 7 November (a single battle against English Ruby, to the end and out of the room). The PC's choosing, the impossible level and double battles are tested in the simulator against a model of Ruby; hardware next. Not yet: Emerald and FireRed/LeafGreen's Colosseums, multi battles (four players), and the Battle Tower's link multi battle.
+**Status (8 November 2026):** the battle link worked on hardware with the probe on 7 November (a single battle against English Ruby, to the end and out of the room). The PC's choosing, the impossible level, double battles, and Emerald and FireRed/LeafGreen are tested in the simulator against a model of each game; hardware next. Not yet: multi battles (four players) and the Battle Tower's link multi battle.
 
 ## Logs of every run
 

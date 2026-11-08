@@ -275,17 +275,30 @@ and the levels in order of strength.
 Next: what a human sees of the other side's party in a link battle (now each level knows the
 other side's species from the start), doubles, and the DUO side (steps 1-3).
 
+## Emerald and FireRed/LeafGreen (8 November)
+
+From pret's sources: the two-player Colosseum is the same room in all three generations' games
+(`BattleColosseum_2P`, 14 x 9: the same walls, the attendant at (9,3), the spots at (3,5) and
+(10,5), the door at (6-7,8)), so the room walk is unchanged. The controller commands and `SETMONDATA`
+requests have the same numbers (only two names differ). The battle's start is Ruby's with each
+game's header signature (FireRed/LeafGreen 0x0201, Emerald 0x0300) and the same rule for who runs
+it, which the DUO's signatures already satisfy in both roles (player 1 copies the game's; player 0
+sends 0x0001).
+
+- **FireRed/LeafGreen:** the DUO's link player now carries the progress flags (National Dex, game
+  cleared), as trade's does, with the gender where those games keep it.
+- **Emerald:** two Emerald players add a step after the parties (each sends the recorded battle's
+  4-byte seed) and, at the end, with a Frontier Pass, the offer to record the battle, with link
+  steps around it (`EndLinkBattleInSteps`). Emerald battles Ruby and Sapphire players just as
+  readily without either, so **to Emerald the DUO is a Ruby player** (its link player and card).
+  The only thing lost is recording that battle for the Battle Frontier.
+- The model plays each game's start (its signature, its master rule, Emerald's seed step, and
+  Emerald's recording offer as a failure the DUO must avoid). Tested: Emerald single and double,
+  FireRed as player 1, LeafGreen as player 0.
+
 ## Still to do
 
-- **Emerald and FireRed/LeafGreen.** Read 8 November, pokeemerald `battle_main.c`
-  `CB2_HandleStartBattle`: the same header (`struct LinkBattlerHeader`, signature 0x0300), the same
-  three party blocks, then **one more step when both link players are Emerald** (states 15-17): each
-  side sends `gRecordedBattleRngSeed` (4 bytes), and only the follower reads the master's. As the DUO
-  copies the game's version into its link player, with Emerald it must send a 4-byte block after its
-  party (zeros will do: the game, as master, ignores it) and count the game's seed as a fifth opening
-  block. Still to read: Emerald's and FireRed/LeafGreen's Colosseum maps (the room walk's layout,
-  the spots and the door), their Cable Club scripts, and whether their controller commands' numbers
-  match Ruby's.
+- ~~Emerald and FireRed/LeafGreen~~ **done in the simulator, 8 November** (below).
 - **Elite in doubles**: a doubles engine in `duo_battle.py` (two battlers a side, targets, spread
   moves, partner effects) for playouts.
 - **Multi battles** (four players) and the **Battle Tower's link multi battle** (Emerald): ROADMAP

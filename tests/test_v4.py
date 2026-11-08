@@ -3870,6 +3870,26 @@ def _():
     assert game.result["battled"] or game.result["outcome"], game.result
 
 
+@test("battle partner: Emerald - the DUO introduces itself as a Ruby player (two Emerald players would add a recorded battle's seed and, with a Frontier Pass, the offer to record it), and the battle plays to the end, single and double")
+def _():
+    for double in (False, True):
+        hw, game, report, pk3s = colosseum_run(master=True, level="medium", game="emerald", double=double,
+                                               team=(409, 280, 151) if double else (409, 280), duo_wins=True)
+        assert hw.lg_error is None and hw.lg_done, (double, repr(hw.lg_error), game.log, hw.text[-1500:])
+        assert game.link_players[game.other]["version"] & 0xFF == 2 and not game.result["seed_exchanged"], game.link_players
+        assert "to Emerald the DUO is a Ruby player" in hw.text and report["fallbacks"] == 0
+
+
+@test("battle partner: FireRed and LeafGreen - the DUO is a player of the same game, with the progress flags the games look for (National Dex, game cleared), and the battle plays to the end; the DUO as player 0 too")
+def _():
+    for g, master in (("firered", True), ("leafgreen", False)):
+        hw, game, report, pk3s = colosseum_run(master=master, level="medium", game=g, duo_wins=True)
+        assert hw.lg_error is None and hw.lg_done, (g, repr(hw.lg_error), game.log, hw.text[-1500:])
+        lp = game.link_players[game.other]
+        assert lp["version"] & 0xFF == game.version and lp["progress"] & 0x11 == 0x11, lp
+        assert game.result["battle_master"] == game.my_id
+
+
 @test("battle partner: the PC's answer breaks the rules (a move slot with no move) - the DUO doesn't send it, chooses by itself instead, and the battle goes on")
 def _():
     import duo_battle as B
