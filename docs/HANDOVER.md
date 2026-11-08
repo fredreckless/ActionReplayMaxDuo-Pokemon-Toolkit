@@ -64,6 +64,10 @@ then a double battle; Record Mixing with the player in the DUO's way.
 
 ## What changed on 8 November
 
+- **The four-player experiment** (`firmware/programs/lab4p.c`, `duo_events.py lab4p`,
+  `tests/gp_link_model.py`, docs/MULTI.md section 2): the DUO, as master, drives the port bit by bit
+  and sends slots 0, 2 and 3 itself. Simulator only; a hardware run with Ruby's Trade Center is in
+  docs/HARDWARE_QUEUE.md (the DUO on the master end).
 - **Record Mixing with Emerald** (`mix.c`): the DUO says Ruby to Emerald, so Emerald mixes in
   Ruby's layout, saves and closes as Ruby does. Simulator only.
 - **Emerald's link Contest, E MODE** (`firmware/programs/contest.c`, `duo_events.py contest`,

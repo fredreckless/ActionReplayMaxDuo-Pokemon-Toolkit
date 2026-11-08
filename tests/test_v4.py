@@ -3931,6 +3931,51 @@ def _():
     assert r["partner_answers"] == [BBG.SAY_NO] and r["verdicts"] == ["stop"] and len(r["blends"]) == 1, r
 
 
+# ---------------------------------------------------------------- the four-player cable experiment (8 November)
+import gp_link_model as GPL
+
+
+def lab4p_run(players=3, link="trade", seconds=60, **game_kw):
+    """The lab4p program driving the link port bit by bit against a line-level model of a game's
+    serial hardware (child 1) and its link layer."""
+    hw, duo = run42()
+    game = GPL.GpLinkGame(hw, **game_kw)
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=players, link=link, seconds=seconds, gap=4, bit_adjust=0),
+              poll_s=0.2, stop_when=lambda: game.result["closed"])
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    return hw, game, r[0]
+
+
+@test("lab4p (8 November): the four-player experiment against a line-level model of the game's serial hardware - the DUO's bits read back as words in slots 0, 2 and 3 around the game's slot 1, the handshake counts four players, the game's checksums take in all four slots, and a Trade Center link-up (two players only) is refused and closed")
+def _():
+    hw, game, report = lab4p_run(players=3, link="trade", max_players=2)
+    assert not game.errors, game.errors[:5]
+    r = game.result
+    assert r["handshake_players"] == 4 and r["checksum_errors"] == 0, r
+    assert sorted(r["link_players"]) == [0, 2, 3] and r["refused"] is True and r["closed"], r
+    assert report["players_seen"] == 4 and report["ck_four"] > 0 and report["timeouts"] == 0, report
+    assert "it counted four players" in hw.text, hw.text[-1200:]
+
+
+@test("lab4p: the control - the DUO as one player (slot 0 only) on the bit-by-bit link: the game hears two players, its checksums match, its link player arrives, and the Trade Center link-up carries on")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=25, max_players=2)
+    assert not game.errors, game.errors[:5]
+    r = game.result
+    assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, r
+    assert report["game_version"] == 2 and report["ck_two"] + report["ck_four"] > 0, report
+
+
+@test("lab4p: a game whose hardware waits less for the next child than the DUO's gap (0.8 bits, the gap one bit) - slots 2 and 3 arrive too late and stay 0xFFFF, so the game counts two players: what --gap is there to try")
+def _():
+    hw, game, report = lab4p_run(players=3, link="none", seconds=20, window=0.8)
+    r = game.result
+    assert r["handshake_players"] == 2, r
+    assert all(t[2] == 0xFFFF for t in game.transfers[-5:]), game.transfers[-5:]
+
+
 # ---------------------------------------------------------------- Emerald's link Contest (8 November)
 import contest_game_model as CTG
 

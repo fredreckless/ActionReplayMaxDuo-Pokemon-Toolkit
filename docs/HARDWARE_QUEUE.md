@@ -29,6 +29,13 @@ When a test has been done, move it to "Done" with the date and what was seen (or
 | 11 | Japanese FireRed/LeafGreen's **Trainer Tower** e-Cards (needs a Japanese cartridge) | `python duo_events.py event --event "...Trainer Tower....raw"` | The floor is there in the Trainer Tower |
 | 12 | Sapphire, and other languages of Ruby/Sapphire, for the e-Reader route | `python duo_events.py event --event ...` | As English Ruby (sessions 24-30) |
 
+## The four-player experiment (the DUO's GBA on the cable's master end, the purple plug)
+
+| # | Test | Command | What to look for |
+|---|---|---|---|
+| 12a | **The control**: the bit-by-bit link as one player (Ruby, the Trade Center) | `python duo_events.py lab4p --players 1` | The game links and the trade screen comes as usual (cancel it). The tool shows the game's words (0xb9a1 first) and no missing stop bits |
+| 12b | **Three players** (Ruby, the Trade Center) | `python duo_events.py lab4p --players 3` | The game says the number of participants is wrong (it counted four), and the tool says the game's checksums took in four slots. If the trade carries on as usual instead, try `--gap 2`, then `--gap 1` |
+
 ## With the Wireless Adapter (once the cable comes out)
 
 | # | Test | Command | What to look for |

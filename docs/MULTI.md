@@ -88,6 +88,32 @@ sits in the Cable Club, and the game's own view of how many players there are (t
 "Please wait" until four have joined). Only then the room (the 4P layout, four spots) and the
 battle (four sets of answers, three parties).
 
+### The lab program (built 8 November, simulator)
+
+`firmware/programs/lab4p.c`, run with `python duo_events.py lab4p` (**the DUO's GBA on the cable's
+master end**, the purple plug; the opposite of the Tower, Blender and Contest). The DUO leaves its
+multi-player hardware alone and drives the port in general-purpose mode (RCNT), timed by timer 0
+(145.64 CPU cycles a bit): SC low; its word on SD (a low start bit, 16 bits from the lowest, a
+high stop bit); SO low to give the game its turn; the game's word read off SD at the middle of
+each bit; then, as children 2 and 3, two more words a bit apart (`--gap`, in quarter bits); SC
+high. Above the bits, link.c's link layer for four slots: the handshake (`DoHandshake` counts the
+handshake words in a row), commands of eight words and a checksum over four slots, and, with
+`--link trade`, link players: 0x2222 from slot 0 and a link player from each of the DUO's slots
+("DUO", "DUO2", "DUO3"). `--players 1` is the control: the same bit-by-bit link as one player.
+
+What to look for, in the Trade Center (two players only):
+- `--players 1`: the trade goes on as usual (the game's link player arrives; its checksums match).
+  That proves the bit-by-bit link itself.
+- `--players 3`: a game that counted four players says the number of participants is wrong and
+  closes the link; the tool also sees the game's checksums take in slots 2 and 3. A game that
+  counted two carries on as usual: then the game's hardware didn't take slots 2 and 3 (try a
+  shorter `--gap`; the record shows how soon the game's own start bit followed its turn).
+
+Tested against `tests/gp_link_model.py`, a model of the game's serial hardware at the level of the
+lines (it reads SD as a GBA's hardware would, and needs each unit's start bit within a window
+after the previous stop bit) and of its link layer. The real hardware's window, how soon a child
+answers, and whether the DUO's timing from EWRAM is steady enough are what the hardware run tells.
+
 ## 3. The Union Room (Emerald, FireRed/LeafGreen): wireless only
 
 Battles and trades in the Union Room go through the Wireless Adapter's RFU protocol, not the
@@ -98,5 +124,6 @@ noted here only so the list is complete.
 ## Order
 
 1. The Battle Tower link multi battle (section 1): built (simulator), hardware next.
-2. The four-player experiment (section 2): a short lab test first; build only if it works.
+2. The four-player experiment (section 2): the lab program is built (`lab4p`, simulator); a short
+   hardware run next, then the four-player features only if it works.
 3. The Union Room (section 3): with the Wireless Adapter work, later.

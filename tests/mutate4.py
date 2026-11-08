@@ -173,12 +173,13 @@ def run(kind, name):
                            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=paths.FIRMWARE))
         assert r.returncode == 0, r.stderr[-800:]
         env = dict(os.environ, V3_FW=os.path.join(work, "fw_mut.bin"))
-    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest"):
+    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p"):
         old, new, pick = KINDS[kind][name]
         sys.path.insert(0, paths.FIRMWARE)
         import programs
         src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c",
-                    "tower": "tower.c", "blender": "blender.c", "contest": "contest.c"}[kind]
+                    "tower": "tower.c", "blender": "blender.c", "contest": "contest.c",
+                    "lab4p": "lab4p.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
         walk_path = os.path.join(paths.FIRMWARE, "programs", "room_walk.h")
@@ -187,7 +188,7 @@ def run(kind, name):
         # the everyday and the lab build share adapter.c
         builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
                   "colosseum": ("colosseum",), "tower": ("tower",), "blender": ("blender",),
-                  "contest": ("contest",)}[kind]
+                  "contest": ("contest",), "lab4p": ("lab4p",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
@@ -350,8 +351,18 @@ CONTEST_MUTANTS = {        # firmware/programs/contest.c: Emerald's link Contest
     "contest: a \"ready\" barrier not answered": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Contest (8 November)"),
 }
 
+LAB4P_MUTANTS = {          # firmware/programs/lab4p.c: the four-player cable experiment (8 November)
+    "lab4p: bits sent from the highest": ("        set_pins(w >> i & 1 ? rc | P_SD : rc & ~P_SD);", "        set_pins(w >> (15 - i) & 1 ? rc | P_SD : rc & ~P_SD);", "lab4p (8 November)"),
+    "lab4p: no stop bit": ("    set_pins(rc | P_SD);                                     /* the stop bit: high */", "    set_pins(rc & ~P_SD);", "lab4p (8 November)"),
+    "lab4p: the game never given its turn (SO)": ("    set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */", "    set_pins(rc);", "lab4p (8 November)"),
+    "lab4p: SD still driven after our word": ("    set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */", "", "lab4p (8 November)"),
+    "lab4p: checksums over two slots with three players": ("        u16 ck = PLAYERS >= 3 ? sum_four : sum_two;", "        u16 ck = sum_two;", "lab4p (8 November)"),
+    "lab4p: the first transfer after the handshake taken as data": ("            send_idx = CMD_LEN; recv_idx = 0; cycles = 0;", "            send_idx = 0; recv_idx = 0; cycles = 0;", "lab4p (8 November)"),
+}
+
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,
          "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "tower": TOWER_MUTANTS, "blender": BLENDER_MUTANTS, "contest": CONTEST_MUTANTS,
+         "lab4p": LAB4P_MUTANTS,
          "pc": PC_MUTANTS}
 
 
