@@ -297,8 +297,8 @@ own link traffic): step W below.
 1. Done: Record Mixing's whole record on hardware with Ruby (7 November). Emerald's own layout
    and parts (the DUO saying "Emerald") when the user wants them.
 2. The battle partner on the DUO: singles and doubles chosen by the PC (8 November, simulator);
-   hardware next; then Emerald and FireRed/LeafGreen's Colosseums, elite in doubles, and the Battle
-   Tower's link multi battle.
+   Emerald and FireRed/LeafGreen's Colosseums and elite in doubles followed the same day; hardware
+   next; then the multi battles (docs/MULTI.md: the Battle Tower's link multi battle first).
 3. The Berry Blender and link Contests (cable, Ruby/Sapphire/Emerald): one model each, from pret.
 4. **Step W, the wireless session**: the adapter emulation from Mystery Gift grown into a full
    wireless group (pret's `link_rfu*.c`, then a hardware probe that only records), first as one

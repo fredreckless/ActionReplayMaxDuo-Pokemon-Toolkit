@@ -93,8 +93,8 @@ then a double battle; Record Mixing with the player in the DUO's way.
 
 1. Hardware: the battle queue (HARDWARE_QUEUE.md 1-3), then fix what it shows.
 2. Done 8 November (simulator): Emerald and FireRed/LeafGreen Colosseums (docs/BATTLE.md).
-3. Elite in doubles: a doubles engine in `duo_battle.py` for playouts.
-4. Multi battles and the Battle Tower's link multi battle: ROADMAP Stage 12, steps C and W.
+3. Done 8 November: elite and impossible plan a double battle's turn (`LinkBattle._double_plan`).
+4. Multi battles: docs/MULTI.md (the Battle Tower's link multi battle first: two GBAs).
 
 ## Space in the programs (bytes below 0x0203AE00)
 
