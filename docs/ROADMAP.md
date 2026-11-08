@@ -264,12 +264,12 @@ own link traffic): step W below.
 | Feature | Games | Link | Players | The DUO's part | Where we are |
 |---|---|---|---|---|---|
 | **Trade Center** | all five | cable; wireless (E, FRLG) | 2 | trade partner: Pokémon in, Pokémon out | **Working on hardware** (Ruby, Japanese Emerald, LeafGreen); wireless after step W |
-| **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; Emerald's own layout next (Stage 10 and the Record Workshop); 3-4 players only over wireless |
+| **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; **Emerald in Ruby's layout (the DUO a Ruby player) built 8 November, simulator**; Emerald's own layout later; 3-4 players only over wireless |
 | **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | The battle link worked on hardware (7 November); the PC choosing, singles and doubles, four levels (8 November): hardware next. Emerald and FRLG next |
 | Colosseum: multi battle | all five | cable; wireless (E, FRLG) | 4 | three of the four trainers | Needs step C (cable) or step W (wireless), and doubles in the battle model |
 | **Battle Tower link multi battle** | E | cable; wireless | 2 | the player's Tower partner (two Pokémon each) | After the battle partner: doubles, and the Tower's rules and teams |
-| **Berry Blender** | R, S, E | cable; wireless (E) | 2-4 | a blending partner: presses on the beat (easy to perfect) | Not started: read `berry_blender.c`'s link traffic; a timing model |
-| **Pokémon Contests (link)** | R, S, E | cable; wireless (E) | 2-4 (NPCs fill the rest) | a contest entrant: a Pokémon, its condition, its appeals | Not started: `contest_link.c`; the appeal choices could use the battle partner's levels |
+| **Berry Blender** | R, S, E | cable; wireless (E) | 2-4 | a blending partner: presses on the beat (easy to perfect) | **Built 8 November (two players, the DUO as player 1): `duo_events.py blender`, docs/BLENDER.md; simulator, hardware next** |
+| **Pokémon Contests (link)** | R, S, E | cable; wireless (E) | 2-4 (NPCs fill the rest) | a contest entrant: a Pokémon, its condition, its appeals | **Emerald E MODE built 8 November (`duo_events.py contest`, docs/CONTEST.md; simulator, hardware next). Ruby/Sapphire (and G MODE) need exactly four players: with the four-player experiment** |
 | **Union Room** | E, FRLG | wireless | up to 5 | a player in the room: greetings, chat (Easy Chat words), trainer cards, invitations to trade and battle, the trade board | After step W |
 | Union Room chat | E, FRLG | wireless | up to 5 | a chatting player (fixed or scripted lines, or the PC typing) | After step W |
 | Trainer Card exchange | all five (in the Colosseum and Trade Center; Union Room) | cable; wireless | 2 | a realistic card | **Working** (the trade's card, 6 November) |

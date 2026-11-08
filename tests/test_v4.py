@@ -1940,6 +1940,8 @@ def game_tail(seed=5):
 
 def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_first=False, strict=False, extra=None,
             off_at=None, **game_kw):
+    if isinstance(game, str):                         # (8 November: "emerald", the same Record Corner)
+        game_kw["game"], game = game, None
     game = game or MG.RubyRecordCorner(master=master, bases=game_kw.pop("own", None) or game_bases(), player=GAME_PLAYER,
                                        tail=game_tail(), leaves_first=leaves_first, **game_kw)
     hw, duo = run42()
@@ -1956,6 +1958,18 @@ def mix_run(master=True, bases=(), game=None, gift=None, seconds=240, leaves_fir
     assert duo.hello() == 0x104
     hw.stop(); clean(hw)                              # nothing written to any cartridge
     return hw, game, r[0]
+
+
+@test("Record Mixing with Emerald (8 November): the DUO is a Ruby player, so Emerald mixes in Ruby's layout - the 24 rounds go across both ways, the game files the bases and saves as with Ruby, and the tool says what Emerald's layout leaves out")
+def _():
+    ours = [test_base(), test_base(owner="ODA", gender="boy", tid=4321, location=1)]
+    hw, game, report = mix_run(master=True, bases=ours, game="emerald")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["saved"] and res["left_room"], res
+    assert game.link_players[game.other]["version"] & 0xFF == 2, game.link_players[game.other]
+    assert res["partner_record"][:320] == b"".join(ours), "Emerald didn't receive our bases exactly"
+    assert "To Emerald the DUO is a Ruby player" in hw.text, hw.text[-1500:]
 
 
 @test("Record Mixing, the game as master (the cable as fitted): the DUO sits down, the 24 rounds go across, the game files the two bases by its own rules and saves; its other sections come back unchanged, the Battle Tower empty; the DUO walks out")
@@ -3845,6 +3859,114 @@ def _():
     hw, game, report = tower_run(player_species=(409, 151), seconds=120)
     assert "same species" in repr(hw.lg_error), repr(hw.lg_error)
     assert "didn't get as far as the Tower's trainers" in hw.text, hw.text[-800:]
+
+
+# ---------------------------------------------------------------- the Berry Blender (8 November)
+import blender_game_model as BBG
+
+
+def blender_run(berries=(133,), seconds=900, duo_berries=None, skill="expert", blends=1, **game_kw):
+    """The DUO's blender program at a simulated Berry Blender, the game the leader."""
+    game = BBG.BerryBlenderLink(berries=berries, **game_kw)
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r = quiet(W.blender_session, duo, types.SimpleNamespace(berry=duo_berries, skill=skill, blends=blends, seconds=seconds,
+                                                            name="DUO", gender="boy"),
+              poll_s=0.2, stop_when=lambda: hw.lg_done)
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    return hw, game, r[0]
+
+
+@test("Berry Blender (8 November): one blend with the player's Cheri - the link-up, the DUO's Oran (its berry block as the game's own), every hit the DUO claims matching the game's own arrow, the leader's time and RPM, the DUO's 'no more', the link save and the close; the PC names the Pokeblock")
+def _():
+    hw, game, report = blender_run()
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["partner_berries"] == [139] and r["partner_answers"] == [BBG.SAY_NO] and r["verdicts"] == ["stop"], r
+    b = r["blends"][0]
+    # (an expert presses on the best spot each pass; once the arrow outruns it - over 2048 a frame - the
+    # good spot is the nearest it lands, as for a player)
+    assert b["partner_hits"] and all(h != BBG.HIT_MISS for _, h in b["partner_hits"]), b["partner_hits"]
+    assert sum(h == BBG.HIT_BEST for _, h in b["partner_hits"]) >= 10 and b["passes"] <= len(b["partner_hits"]) + 1, b
+    assert r["closed"] and report["state"] == W.BLENDER_ST["DONE"] and report["blends"] == 1, report
+    d = report["details"][0]
+    assert sum(d["hits"][1]) == len(b["partner_hits"]) and d["max_rpm"] == b["max_rpm"] and d["frames"] == b["frames"], (d, b)
+    assert "a red Pokeblock (spicy 16; feel 20)" in hw.text and "Blend 1: your Cheri, the DUO's Oran" in hw.text, hw.text[-1200:]
+
+
+@test("Berry Blender: two blends (--blends 2) - the DUO says yes after the first and no after the second, the game blends again in between")
+def _():
+    hw, game, report = blender_run(berries=(133, 135), blends=2, answers=[True, True])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["partner_answers"] == [BBG.PLAY_AGAIN, BBG.SAY_NO] and r["verdicts"] == ["again", "stop"], r
+    assert len(r["blends"]) == 2 and report["blends"] == 2 and len(report["details"]) == 2, report
+    assert "Blend 2: your Pecha, the DUO's Oran" in hw.text, hw.text[-1200:]
+
+
+@test("Berry Blender: the player brings an Oran too - the DUO puts in its next berry (Sitrus), not a second Oran (a black Pokeblock)")
+def _():
+    hw, game, report = blender_run(berries=(139,))
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert game.result["partner_berries"] == [142], game.result
+
+
+@test("Berry Blender: a casual DUO (--skill casual) and a player who sometimes misses - good and missed presses too, every one scored by the arrow as the game scores it")
+def _():
+    plan = lambda n: (BBG.HIT_BEST, BBG.HIT_MISS, BBG.HIT_GOOD)[n % 3]
+    hw, game, report = blender_run(skill="casual", player_plan=plan, duo_berries=["Pecha", "Oran"])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    hits = {h for _, h in game.result["blends"][0]["partner_hits"]}
+    assert hits == {BBG.HIT_BEST, BBG.HIT_GOOD, BBG.HIT_MISS}, hits
+    assert game.result["partner_berries"] == [135], game.result
+
+
+@test("Berry Blender: the player wants another blend but the DUO stays for one - the leader's verdict is 'stop' (the DUO's answer), and the link closes")
+def _():
+    hw, game, report = blender_run(berries=(133, 135), blends=1, answers=[True, True])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["partner_answers"] == [BBG.SAY_NO] and r["verdicts"] == ["stop"] and len(r["blends"]) == 1, r
+
+
+# ---------------------------------------------------------------- Emerald's link Contest (8 November)
+import contest_game_model as CTG
+
+
+def contest_run(species=300, moves=(45, 39, 33, 98), seconds=900, category="cool", order=None, duo_category="cool",
+                **game_kw):
+    """The DUO's contest program as a contestant against a simulated Emerald (E mode), the game leading."""
+    raw = test_pk3(species=species, pid=0x5000 + species, otid=0x00004E44, nickname="SKITTY", moves=moves, lang=2)
+    game = CTG.EmeraldLinkContest(category=category, partner_species=species, partner_moves=list(moves), **game_kw)
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r = quiet(W.contest_session, duo, types.SimpleNamespace(pk3=[event_file(raw, "0 - SKITTY.pk3")], category=duo_category,
+                                                            order=order, seconds=seconds, allow_unchecked=True),
+              poll_s=0.2, stop_when=lambda: hw.lg_done)
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    return hw, game, r[0]
+
+
+@test("Contest (8 November): Emerald's link Contest in E mode - the link-up as an Emerald player, the set-up (the DUO's contestant in the link's form, nothing back where only the leader sends, the category and the leader's figures sent back), five rounds of the DUO's own moves in turn, every block of the appeals answered at its size, the final standings, the close")
+def _():
+    hw, game, report = contest_run(duo_place=1)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["partner_moves"] == [45, 39, 33, 98, 45] and r["partner_index"] == [1, 1] and r["closed"], r
+    assert report["standings"] == [0, 1, 2, 3] and report["rounds"] == 5 and report["state"] == W.CONTEST_ST["DONE"], report
+    assert "your Pokemon came 1st, the DUO's" in hw.text and "2nd" in hw.text, hw.text[-800:]
+
+
+@test("Contest: the DUO's moves in the order given (--order 2 1) and a beauty contest - the category matches the player's, and the DUO wins")
+def _():
+    hw, game, report = contest_run(category="beauty", duo_category="beauty", order=["2", "1"], duo_place=0)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert game.result["partner_moves"] == [39, 45, 39, 45, 39], game.result["partner_moves"]
+    assert report["standings"][1] == 0 and "the DUO's" in hw.text and "1st." in hw.text, hw.text[-600:]
 
 
 

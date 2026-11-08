@@ -514,13 +514,13 @@ def mix_tower(records, new, rng):
 class RubyRecordCorner(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, bases=None, player=None, tail=None, gift=0,
                  secret_power=True, leaves_first=False, has_items=(), pace=300, frame_blocks=25 * 228, version=2,
-                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1, to_seat=None):
+                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1, to_seat=None, game="ruby"):
         """bases: the game's own 20 Secret Bases (160 bytes each); player: its (gender, trainer ID
         bytes, name bytes); tail: the rest of its record (0x5B0 bytes: TV shows to the filler);
         gift: the Record Mixing gift it holds (it gives it only as player 0)."""
         super().__init__(master=master, language=language, party=[bytes(100)], pace=pace,
                          frame_blocks=frame_blocks, version=version, leaves_first=leaves_first,
-                         in_the_way=in_the_way)
+                         in_the_way=in_the_way, game=game)
         self.bases = [bytearray(b) for b in (bases or [bytes(BASE_SIZE)] * BASES)]
         assert len(self.bases) == BASES and all(len(b) == BASE_SIZE for b in self.bases)
         self.player = player or (0, b"\x01\x02\x03\x04", b"\xbb\xbc\xbd\xff\xff\xff\xff")
@@ -548,11 +548,15 @@ class RubyRecordCorner(RubyTrade):
                            saved_indexes=None, gift_received=None, mixed=False, keys_while_mixing=0)
 
     def patch_link_player(self, block):
-        """link.c InitLocalLinkPlayer: this game's trainer ID, name and (Ruby) gender."""
+        """link.c InitLocalLinkPlayer: this game's trainer ID, name and gender (Ruby at 0x10; Emerald
+        at 0x13, with its progress flags at 0x10)."""
         gender, tid, name = self.player
         block[16 + 4:16 + 8] = tid
         block[16 + 8:16 + 16] = (bytes(name) + b"\xff")[:8]
-        block[16 + 0x10] = gender
+        if self.game == "emerald":
+            block[16 + 0x13] = gender
+        else:
+            block[16 + 0x10] = gender
 
     def own_record(self):
         """RecordMixing_PrepareExchangePacket: the record as this game sends it (once sent, that)."""
@@ -652,6 +656,11 @@ class RubyRecordCorner(RubyTrade):
             if s.cmd is not None and s.cmd[0][self.other] == 0xCAFE:
                 self.result["keys_while_mixing"] += 1
             yield
+        if self.game == "emerald" and self.link_players[self.other]["version"] & 0xFF not in (1, 2):
+            # record_mixing.c: only a Ruby/Sapphire partner (Link_AnyPartnersPlayingRubyOrSapphire) makes
+            # Emerald use Ruby's layout (struct PlayerRecordRS, 24 rounds); with Emeralds only it is
+            # struct PlayerRecordEmerald (0x1444 bytes, 26 rounds) and a link save with barriers
+            raise LinkError("an Emerald partner: Emerald would mix in its own layout (26 rounds), not Ruby's")
         mine_rec = self.sent = self.own_record()
         got = {}
         for r in range(ROUNDS):

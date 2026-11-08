@@ -215,7 +215,7 @@ A trade is one for one. **Whatever you give is kept** as a `.pk3` in a `received
 
 ## Secret Bases: Record Mixing
 
-The DUO can sit in a Pokémon Center's **Record Corner** as the other player and mix records with Ruby or Sapphire. Up to twenty Secret Bases go in. The game files them by its own rules and saves by itself, just as it would with a friend's. Its own bases come back to the PC.
+The DUO can sit in a Pokémon Center's **Record Corner** as the other player and mix records with Ruby or Sapphire, and (8 November, simulator) Emerald, to which it is a Ruby player, so Emerald mixes in Ruby's layout without its own extras. Up to twenty Secret Bases go in. The game files them by its own rules and saves by itself, just as it would with a friend's. Its own bases come back to the PC.
 
 ```
 python duo_events.py mix --base "WILLOW - Tree 1, Route 121 (ENG).sb3" "ODA - Red cave 1, Route 118 (ENG).sb3"
@@ -290,6 +290,22 @@ python duo_events.py tower --pk3 "mine\METAGROSS.pk3" "mine\SALAMENCE.pk3" --lev
 ```
 
 Talk to the attendant for the LINK MULTI BATTLE and choose two Pokemon of other species than the DUO's. The game's GBA must be on the cable's master end (the DUO is player 1). `--retire-after N` has the DUO retire after battle N. Tested in the simulator; hardware next.
+
+**The Berry Blender.** The DUO can blend berries with you at a link Berry Blender in Ruby, Sapphire or Emerald (Lilycove City), pressing A as its arrow passes; afterwards the tool says which Pokéblock you made:
+
+```
+python duo_events.py blender --blends 2
+```
+
+It brings an Oran Berry (or a Sitrus, if you bring an Oran): ten of every flavour, which leaves your Pokéblock's flavours as they are and only adds speed. `--berry` gives it others, `--skill expert|good|casual` sets how well it presses. The game's GBA must be on the cable's master end. Details in [docs/BLENDER.md](docs/BLENDER.md); tested in the simulator, hardware next.
+
+**Contests (Emerald).** The DUO can enter a Pokémon of its own in Emerald's link Contest (E MODE, at the Contest Lobby's link counter) against yours:
+
+```
+python duo_events.py contest --pk3 "mine\SKITTY.pk3" --category cute
+```
+
+The game works out the contest; the DUO's Pokémon uses its moves in turn (`--order` to choose the order), and the tool says where each of you came. The game's GBA must be on the cable's master end. Ruby and Sapphire's link contests need four players, so they wait for the four-player experiment. Details in [docs/CONTEST.md](docs/CONTEST.md); tested in the simulator, hardware next.
 
 The thinking half can also battle on its own, on the PC:
 

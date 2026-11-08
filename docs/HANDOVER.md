@@ -55,12 +55,26 @@ multiplayer feature of the five games (ROADMAP Stage 12).
 | Trades | Ruby, Emerald, LeafGreen on hardware; up to six a sitting |
 | Record Mixing (Ruby) | Everything in a record, on hardware (6-7 November); the user considers it done for now |
 | Colosseum | The battle link worked on hardware (7 November, the probe). **The PC choosing (easy, medium, elite, impossible), singles and doubles, Ruby/Sapphire, Emerald (as a Ruby player) and FireRed/LeafGreen: simulator only, hardware next** |
+| Battle Tower link multi battle (Emerald) | Built 8 November (`tower`, the DUO as partner): simulator only |
+| Link Contest (Emerald, E MODE) | Built 8 November (`contest`, docs/CONTEST.md; the DUO as player 1): simulator only. Ruby/Sapphire need four players |
+| Berry Blender (Ruby/Sapphire/Emerald) | Built 8 November (`blender`, docs/BLENDER.md; two players, the DUO as player 1): simulator only |
 
 **Hardware next:** docs/HARDWARE_QUEUE.md, from the top: a single battle at medium, then impossible,
 then a double battle; Record Mixing with the player in the DUO's way.
 
 ## What changed on 8 November
 
+- **Record Mixing with Emerald** (`mix.c`): the DUO says Ruby to Emerald, so Emerald mixes in
+  Ruby's layout, saves and closes as Ruby does. Simulator only.
+- **Emerald's link Contest, E MODE** (`firmware/programs/contest.c`, `duo_events.py contest`,
+  `tests/contest_game_model.py`, docs/CONTEST.md): the DUO's contestant (built as the game builds its
+  own), its moves in turn, and every leader's-copy block sent straight back (the game leads, so the
+  DUO needs no contest rules). Ruby/Sapphire contests need exactly four players.
+- **The Berry Blender** (`firmware/programs/blender.c`, `duo_events.py blender`,
+  `tests/blender_game_model.py`, docs/BLENDER.md): the link-up (0x4411), the berries (a 40-byte
+  `BlenderBerry` each; the DUO's first berry that isn't the player's), the play (0x4444 each frame,
+  the DUO running the game's own arrow arithmetic and pressing as its arrow passes), the leader's
+  time and RPM, "another berry?", the link save, the close. The PC names the Pokéblock.
 - **The room walk** (`firmware/programs/room_walk.h`, shared by trade, mix and colosseum). The
   7 November pacing along the Record Corner's left wall was a bug, not the player: the planner only
   cleared the 16 walkable columns, and the Record Corner's start at column 4, so column 3 kept old

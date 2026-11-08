@@ -223,10 +223,14 @@ The walk to the seat and to the door now goes round the player (`room_walk.h`, d
 
 - How long Ruby takes between the last round and closing the link (the model allows 19 frames).
 - That the DUO, sitting first, never blocks the player's way to their seat.
-- Emerald: the DUO's link player copies the game's version, so Emerald would mix in its own
-  layout, which the DUO doesn't speak yet. The plan is for the DUO to say "Ruby" to Emerald, so that
-  Emerald uses Ruby's layout (`Link_AnyPartnersPlayingRubyOrSapphire`). Until then the tool warns
-  and suggests leaving the room.
+- Emerald (8 November, simulator): the DUO says "Ruby" to Emerald, in its link player and card, so
+  Emerald uses Ruby's layout (`Link_AnyPartnersPlayingRubyOrSapphire`): it sends its record
+  sanitised for Ruby (`PrepareExchangePacketForRubySapphire`), files ours with
+  `ReceiveExchangePacket`'s Ruby branch, saves by itself and closes the link after 10 frames, as
+  Ruby does (`Task_DoRecordMixing` states 2-5). The Record Corner's seats and doors are the same in
+  both games. Emerald's own extras (the Lilycove lady, apprentices, the Battle Frontier's records)
+  don't travel in Ruby's layout. The tool's prediction of which bases are kept uses Ruby's rules;
+  Emerald's differ only in small ways (the language byte).
 
 ## The Secret Base card
 

@@ -32,7 +32,9 @@ TRADE = ["trade", "party form", "Pokemon files", "v4.2 programs"]
 MIX = ["Record Mixing", "Secret Base", "v4.2 programs"]
 COLOSSEUM = ["battle probe", "battle partner", "v4.2 programs"]
 TOWER = ["Battle Tower", "v4.2 programs"]
-EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + ["two tools", "v4.2 run", "connect"]
+BLENDER = ["Berry Blender", "v4.2 programs"]
+CONTEST = ["Contest", "v4.2 programs"]
+EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + ["two tools", "v4.2 run", "connect"]
 
 # Which tests a changed file needs, first match wins. ALL for anything shared; [] for documentation.
 AREAS = [
@@ -43,9 +45,11 @@ AREAS = [
     ("firmware/programs/mix.c", MIX),
     ("firmware/programs/colosseum.c", COLOSSEUM),
     ("firmware/programs/tower.c", TOWER),
+    ("firmware/programs/blender.c", BLENDER),
+    ("firmware/programs/contest.c", CONTEST),
     ("firmware/programs/room_walk.h", TRADE + MIX + COLOSSEUM),
-    ("firmware/programs/*", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER),
-    ("firmware/embed_programs.py", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER),
+    ("firmware/programs/*", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST),
+    ("firmware/embed_programs.py", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST),
     ("firmware/thumbcheck.py", MYSTERY_GIFT + EREADER + ["build:"]),
     ("duo_events.py", EVENTS_TOOL),
     ("secret_bases.py", MIX),
@@ -57,9 +61,11 @@ AREAS = [
     ("tests/rfu_game_model.py", MYSTERY_GIFT),
     ("tests/link_game_model.py", EREADER),
     ("tests/mevent_model.py", EREADER),
-    ("tests/trade_game_model.py", TRADE + MIX + COLOSSEUM + TOWER),
+    ("tests/trade_game_model.py", TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST),
     ("tests/battle_game_model.py", COLOSSEUM + TOWER),
     ("tests/tower_game_model.py", TOWER),
+    ("tests/blender_game_model.py", BLENDER),
+    ("tests/contest_game_model.py", CONTEST),
     ("tests/mix_game_model.py", MIX),
     ("tests/ecard_fixtures.py", EREADER),
     ("tests/check.py", []), ("tests/run_each.py", []), ("tests/history/*", []),
@@ -74,8 +80,10 @@ BUG_KINDS = [
     ("firmware/programs/mix.c", ["mix"]),
     ("firmware/programs/colosseum.c", ["colosseum"]),
     ("firmware/programs/tower.c", ["tower"]),
+    ("firmware/programs/blender.c", ["blender"]),
+    ("firmware/programs/contest.c", ["contest"]),
     ("firmware/programs/room_walk.h", ["trade", "mix", "colosseum"]),
-    ("firmware/programs/*", ["prog", "ereader", "trade", "mix", "colosseum", "tower"]),
+    ("firmware/programs/*", ["prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest"]),
     ("firmware/build_v42.py", ["fw42"]),
     ("firmware/build_v4.py", ["fw", "fw42"]),
     ("firmware/build_*.py", ["fw", "fw42"]),
@@ -83,10 +91,12 @@ BUG_KINDS = [
     ("tests/rfu_game_model.py", ["prog"]),
     ("tests/link_game_model.py", ["ereader"]), ("tests/mevent_model.py", ["ereader", "pc"]),
     ("tests/ecard_fixtures.py", ["pc"]),
-    ("tests/trade_game_model.py", ["trade", "mix", "colosseum"]),
+    ("tests/trade_game_model.py", ["trade", "mix", "colosseum", "blender", "contest"]),
     ("tests/mix_game_model.py", ["mix"]),
     ("tests/battle_game_model.py", ["colosseum", "tower"]),
     ("tests/tower_game_model.py", ["tower"]),
+    ("tests/blender_game_model.py", ["blender"]),
+    ("tests/contest_game_model.py", ["contest"]),
     ("tests/test_v4.py", ALL), ("tests/hwsim.py", ALL), ("tests/fixtures.py", ALL),
     ("tests/mutate4.py", ALL),       # a changed or new planted bug should be run
 ]

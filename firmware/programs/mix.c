@@ -1,5 +1,6 @@
 /* mix.c - the DUO's GBA sits in a Pokemon Ruby/Sapphire Cable Club Record Corner as the other
- * player and mixes records with the game: up to twenty Secret Bases from the PC (.sb3 files) go in,
+ * player (Emerald too: there the DUO is a Ruby player, so Emerald mixes in Ruby's layout) and mixes
+ * records with the game: up to twenty Secret Bases from the PC (.sb3 files) go in,
  * and the game's own twenty come back to the PC. docs/RECORD_MIXING.md. The game files the bases
  * by its own rules and saves itself; nothing is written to either cartridge by this program.
  *
@@ -135,6 +136,12 @@ static const u8 *tx_src;                  /* our outgoing block */
 static u32 tx_len, tx_off, tx_on, tx_header, tx_kind;
 static u8 our_player[60];
 
+static u32 our_version(void)              /* the version in our link player and card */
+{
+    u32 v = game_player[16];
+    return v == 3 ? 2 : v;                                   /* (Emerald: Ruby, below) */
+}
+
 static void build_our_player(void)
 {
     static const char magic[] = "GameFreak inc.";
@@ -142,7 +149,10 @@ static void build_our_player(void)
     memcpy(our_player, magic, 14);
     memcpy(our_player + 44, magic, 14);
     u8 *lp = our_player + 16;
-    lp[0] = game_player[16]; lp[1] = game_player[17];       /* the game's version; lp_field_2 stays 0 */
+    /* the game's version, except that to Emerald we're a Ruby player (8 November): Emerald then mixes
+     * in Ruby's layout (record_mixing.c Link_AnyPartnersPlayingRubyOrSapphire) and saves and closes
+     * as Ruby does, so one record serves all three games. lp_field_2 stays 0 */
+    lp[0] = our_version(); lp[1] = game_player[17];
     memcpy(lp + 4, OUR_TID, 4);
     memcpy(lp + 8, OUR_NAME, 8);
     memcpy(lp + 0x14, game_player + 16 + 0x14, 4);           /* link type */
@@ -277,7 +287,7 @@ static void build_card(void)              /* the trainer card the game shows for
     card[0x24] = 3000 & 0xFF; card[0x25] = 3000 >> 8;
     memcpy(card + 0x28, profile, 8);
     memcpy(card + 0x30, OUR_NAME, 8);
-    card[0x38] = game_player[16];
+    card[0x38] = our_version();
 }
 
 static void flush_copy(void)              /* the game's chunk, kept for the PC once ours has gone */

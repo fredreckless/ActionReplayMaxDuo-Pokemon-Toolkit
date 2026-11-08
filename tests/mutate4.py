@@ -70,6 +70,10 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 }
 
 PC_MUTANTS = {
+    "contest: the names not in the link's form": ("        name[length - 1], name[5] = name[5], 0xFF\n", "        name[length - 1] = name[5]\n", "Contest (8 November)"),
+    "contest: the moves always in slot order": ("    order = [k for k in (order or slots) if 0 <= k < 4 and moves[k]] or slots\n", "    order = slots\n", "Contest: the DUO's moves"),
+    "blender: the Pokeblock's strength without the best RPM": ("    factor = max_rpm // 333 + 100\n", "    factor = 100\n", "Berry Blender (8 November)"),
+    "blender: the DUO's berry block with the flavours shifted": ("    return struct.pack(\"<H\", item) + SB.encode_name(row[0], 2) + bytes(row[1:7]) + b\"\\0\"", "    return struct.pack(\"<H\", item) + SB.encode_name(row[0], 2) + bytes(row[2:7]) + b\"\\0\\0\"", "Berry Blender (8 November)"),
     "mix: the gift item left out of our record": ("    parts[\"gift\"] = gift\n", "    parts[\"gift\"] = 0\n", "Record Mixing, the DUO as master"),
     "mix: a part we bring is handed back from the game instead": ("    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS) if not parts.get(name))", "    mirror = 0x1F", "Record Mixing with a whole record"),
     "records: the prediction keeps the lower trendiness": ("            elif pool[key][0] & 0x7F < w[0] & 0x7F:", "            elif pool[key][0] & 0x7F > w[0] & 0x7F:", "Record files: what Ruby keeps"),
@@ -169,12 +173,12 @@ def run(kind, name):
                            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=paths.FIRMWARE))
         assert r.returncode == 0, r.stderr[-800:]
         env = dict(os.environ, V3_FW=os.path.join(work, "fw_mut.bin"))
-    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower"):
+    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest"):
         old, new, pick = KINDS[kind][name]
         sys.path.insert(0, paths.FIRMWARE)
         import programs
         src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c",
-                    "tower": "tower.c"}[kind]
+                    "tower": "tower.c", "blender": "blender.c", "contest": "contest.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
         walk_path = os.path.join(paths.FIRMWARE, "programs", "room_walk.h")
@@ -182,7 +186,8 @@ def run(kind, name):
         assert in_walk or good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
         builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
-                  "colosseum": ("colosseum",), "tower": ("tower",)}[kind]
+                  "colosseum": ("colosseum",), "tower": ("tower",), "blender": ("blender",),
+                  "contest": ("contest",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
@@ -274,6 +279,7 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
 }
 
 MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
+    "mix: tells Emerald it's an Emerald player (Emerald's own layout follows)": ("    return v == 3 ? 2 : v;                                   /* (Emerald: Ruby, below) */", "    return v;", "Record Mixing with Emerald"),
     "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13, seat_y", "seat_x = is_master ? 6 : 6, seat_y", "Record Mixing, the game as master"),
     "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
@@ -323,8 +329,30 @@ TOWER_MUTANTS = {          # firmware/programs/tower.c: the Battle Tower's link 
     "tower: a carry-on after a loss": ("        retire_next = outcome == 1 && battles < 7;", "        retire_next = battles < 7;", "the first battle is lost"),
 }
 
+BLENDER_MUTANTS = {        # firmware/programs/blender.c: the Berry Blender partner (8 November)
+    "blender: the arrow drifts from the game's": ("    arrow = (arrow + speed) & 0xFFFF;                        /* UpdateBlenderCenter */", "    arrow = (arrow + speed + 0x300) & 0xFFFF;", "Berry Blender (8 November)"),
+    "blender: claims the best spot whatever the arrow": ("code = prox == 2 ? HIT_BEST : HIT_GOOD;", "code = HIT_BEST;", "Berry Blender (8 November)"),
+    "blender: a good hit speeds the arrow above 1500 too": ("    else if (code == HIT_GOOD) { if (speed < 1500) speed += 256;", "    else if (code == HIT_GOOD) { speed += 256;", "Berry Blender (8 November)"),
+    "blender: the same berry as the player's": ("    while (k + 1 < n && (BERRIES[16 * k] | BERRIES[16 * k + 1] << 8) == game_item) k++;", "    (void)n; (void)game_item;", "the player brings an Oran too"),
+    "blender: always says yes to another blend": ("        u32 again = blends + 1 < (BLENDS ? BLENDS : 1);", "        u32 again = 1;", "Berry Blender (8 November)"),
+    "blender: the answer to 'another berry?' never sent": ("        queue(SEND_PACKET, answered, 0);                     /* \"blend another berry?\" */", "", "Berry Blender (8 November)"),
+    "blender: a \"ready\" barrier not answered": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Berry Blender (8 November)"),
+    "blender: the link's close not answered": ("        queue(0x5FFF, 0, 0);\n        log_event(E_CLOSE, state);", "        log_event(E_CLOSE, state);", "Berry Blender (8 November)"),
+}
+
+CONTEST_MUTANTS = {        # firmware/programs/contest.c: Emerald's link Contest (8 November)
+    "contest: says it's a Ruby player": ("    lp[0] = 3; lp[1] = game_player[17];", "    lp[0] = 2; lp[1] = game_player[17];", "Contest (8 November)"),
+    "contest: answers the leader's random seed": ("((size == 4 && !seed_seen) || size == 2 * MON_SIZE)", "(size == 2 * MON_SIZE)", "Contest (8 November)"),
+    "contest: answers the leader's AI contestants": ("((size == 4 && !seed_seen) || size == 2 * MON_SIZE)", "(size == 4 && !seed_seen)", "Contest (8 November)"),
+    "contest: sends the game's move back, not its own": ("    if (state >= ST_CONTEST && size == 2) {", "    if (0) {", "Contest (8 November)"),
+    "contest: its contestant number is the game's": ("        ours[0] = is_master ? 0 : 1;", "        ours[0] = 0;", "Contest (8 November)"),
+    "contest: a block sent back a byte short": ("        send_block(blk, size);", "        send_block(blk, size - 1);", "Contest (8 November)"),
+    "contest: a \"ready\" barrier not answered": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Contest (8 November)"),
+}
+
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,
-         "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "tower": TOWER_MUTANTS, "pc": PC_MUTANTS}
+         "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "tower": TOWER_MUTANTS, "blender": BLENDER_MUTANTS, "contest": CONTEST_MUTANTS,
+         "pc": PC_MUTANTS}
 
 
 def runnable_kinds():
