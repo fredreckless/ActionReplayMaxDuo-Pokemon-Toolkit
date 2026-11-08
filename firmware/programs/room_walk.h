@@ -38,6 +38,7 @@ static rw_player rw[2];
 static u32 rw_await;                  /* a key of ours sent and not yet seen in a received frame */
 static u32 rw_need, rw_ready;         /* a route asked for / worked out (below) */
 static u32 rw_blocked_now;            /* the way to where we're going is blocked (for the PC) */
+static u32 rw_was_blocked;            /* ...at any moment since the PC last asked (a short wait between polls) */
 static u32 rw_clock, rw_wait_since;   /* command cycles seen; since when the player is in our way */
 static u8 rw_hx[2], rw_hy[2];         /* the two tiles the other player was on before (0xFF: none) */
 static u32 rw_moved_at;               /* the cycle the other player last started a step */

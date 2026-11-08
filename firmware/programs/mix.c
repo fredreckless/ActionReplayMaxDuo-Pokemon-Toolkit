@@ -198,7 +198,7 @@ static u16 room_key(void)                 /* our key for this frame in the Recor
     if (rw_at(me, seat_x, seat_y)) { sat = 1; sat_at = f; return 17; }
     u16 k;
     if (!rw_take(seat_x, seat_y, &k)) return 17;
-    rw_blocked_now = !k;
+    rw_blocked_now = !k; rw_was_blocked |= !k;
     if (!k) return 17;
     rw_await = 1;
     return k;
@@ -231,7 +231,7 @@ static u16 exit_key(void)                 /* back in the room after mixing: leav
     }
     u16 k;
     if (!rw_take(-1, -1, &k)) return 17;
-    rw_blocked_now = !k;
+    rw_blocked_now = !k; rw_was_blocked |= !k;
     if (!k) return 17;
     rw_await = 1;
     return k;
@@ -579,7 +579,7 @@ static int pc_service(api_t *api)
         break;
     }
     case 8: v = max_gap; break;
-    case 10: v = rw_blocked_now; break;                        /* the way to the seat or door is blocked */
+    case 10: v = rw_blocked_now | rw_was_blocked; rw_was_blocked = 0; break;                        /* the way to the seat or door is blocked */
     case 9: v = game_player[16 + 0x10]; break;                  /* the game's player's gender */
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);

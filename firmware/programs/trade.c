@@ -199,7 +199,7 @@ static u16 room_key(void)                 /* our key for this frame in the Trade
     if (rw_at(me, seat_x, 5)) { sat = 1; sat_at = f; return 17; }
     u16 k;
     if (!rw_take(seat_x, 5, &k)) return 17;
-    rw_blocked_now = !k;
+    rw_blocked_now = !k; rw_was_blocked |= !k;
     if (!k) return 17;
     rw_await = 1;
     return k;
@@ -232,7 +232,7 @@ static u16 exit_key(void)                 /* back in the room after the trade sc
     }
     u16 k;
     if (!rw_take(-1, -1, &k)) return 17;
-    rw_blocked_now = !k;
+    rw_blocked_now = !k; rw_was_blocked |= !k;
     if (!k) return 17;
     rw_await = 1;
     return k;
@@ -586,7 +586,7 @@ static int pc_service(api_t *api)
     case 6: v = game_player[16] | game_player[17] << 8 | game_player[18] << 16 | (u32)game_player[19] << 24; break;
     case 7: v = game_player[32] | game_player[33] << 8 | game_player[34] << 16 | (u32)game_player[35] << 24; break;
     case 8: v = max_gap; break;
-    case 10: v = rw_blocked_now; break;                        /* the way to the seat or door is blocked */
+    case 10: v = rw_blocked_now | rw_was_blocked; rw_was_blocked = 0; break;                        /* the way to the seat or door is blocked */
     case 20: put_at = 0; blob_ready = 0; v = sizeof blob_words; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= 16 + 600 + 220 && PARTY_COUNT >= 1 && PARTY_COUNT <= 6 && FIRST_PICK < PARTY_COUNT;
