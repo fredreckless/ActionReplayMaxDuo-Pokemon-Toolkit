@@ -147,8 +147,15 @@ the game's) and asks the level's player. A switch is answered as action 2, then 
 `expected_hit` on a one-against-one copy) plus a bonus for a likely knock-out; spread moves at half
 power on each foe; not both on a foe the partner is expected to knock out; status moves only when
 they'd work. After a faint, the bench Pokemon with the best match-up against both foes. Easy adds
-some randomness. The levels above easy share this chooser in doubles for now (elite's playouts need a
-doubles engine).
+some randomness. Easy and medium use this quick chooser. **Elite and impossible** (8 November) think the turn through
+(`LinkBattle._double_plan`): every pairing of the two battlers' moves and targets (the partner's
+kept once it has chosen), each turn played out in expectation in order of priority and speed against
+the foes' likely moves (the moves each foe has shown, at their best, for elite; the player's real
+choices for impossible), with knock-outs that come before a foe can act, a move turning to the other
+foe when its target has fainted (as Gen 3 does), spread moves at half power and Earthquake-like moves
+hitting the partner, and Protect. The pairing leaving the best position (weighed as `evaluate`
+does) wins. Tested: Rock Slide rather than Earthquake beside a Machamp, Earthquake beside a
+Skarmory; impossible never wastes attacks on a foe that protects.
 
 **The impossible level** (the user's request, 8 November). Every GBA receives every player's answers
 in a link battle (`PrepareBufferDataTransfer` sends `B_COMM_TO_ENGINE` over the link when
@@ -299,8 +306,8 @@ sends 0x0001).
 ## Still to do
 
 - ~~Emerald and FireRed/LeafGreen~~ **done in the simulator, 8 November** (below).
-- **Elite in doubles**: a doubles engine in `duo_battle.py` (two battlers a side, targets, spread
-  moves, partner effects) for playouts.
+- **Elite in doubles**: done as a one-turn plan (above). Full playouts over several turns would
+  need a doubles version of the whole engine; not needed yet.
 - **Multi battles** (four players) and the **Battle Tower's link multi battle** (Emerald): ROADMAP
   Stage 12, steps C and W.
 

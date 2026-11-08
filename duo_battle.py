@@ -2087,7 +2087,8 @@ class LinkBattle:
             raise ValueError("the game's party isn't in the record yet")
         if cmd == C_CHOOSEACTION:
             if self.double:
-                self.plan[battler] = self._double_move(battler)
+                self.plan[battler] = (self._double_plan(battler) if self.level in ("elite", "impossible")
+                                      else self._double_move(battler))
                 return 0, 0
             a = self._single(battler)
             self.plan[battler] = a
@@ -2096,7 +2097,8 @@ class LinkBattle:
             usable = [i for i in range(4) if len(d) >= 16 and (d[4 + 2 * i] | d[5 + 2 * i]) and d[12 + i]]
             plan = self.plan.pop(battler, None)
             if self.double:
-                plan = plan if plan and plan[0] == "move" else self._double_move(battler)
+                plan = plan if plan and plan[0] == "move" else (
+                    self._double_plan(battler) if self.level in ("elite", "impossible") else self._double_move(battler))
                 slot, target = plan[1], plan[2]
                 self.chosen[battler] = plan          # (the partner, choosing next, works with it)
             else:
@@ -2178,6 +2180,131 @@ class LinkBattle:
         if best is None:
             return ("move", 0, foes[0] if foes else battler ^ 1, 0.0)
         return best
+
+    def _double_plan(self, battler):
+        """Elite and impossible in a double battle: every pairing of our two battlers' moves and
+        targets (the partner's kept if it has already chosen this turn), each turn played out in
+        order of priority and speed against the foes' likely moves - the player's real choices for
+        impossible, and the moves each foe has shown, at best, for elite - with knock-outs that come
+        before a foe can act, a move turning to the other foe when its target has fainted, spread
+        moves at half power (Earthquake and the like on the partner too), and Protect; the pairing
+        that leaves the best position (as evaluate weighs it) wins."""
+        impossible = isinstance(self.player, Impossible)
+        ours = [b for b in (1, 3) if self.mon(b) and not self.mon(b).fainted]
+        foes = [b for b in (0, 2) if self.mon(b) and not self.mon(b).fainted]
+        if not foes or battler not in ours:
+            return self._double_move(battler)
+        known = (self.player_known(battler) or {}) if impossible else {}
+        cache = {}
+
+        def hit(a, t, move):                       # (expected share of t's HP, chance it knocks t out)
+            key = (a, t, move)
+            if key not in cache:
+                if a & 1 and t & 1:                # (our own partner)
+                    b = self._battle_for(a, t ^ 1)
+                    b.sides[1].team = [self.mon(t).clone()]
+                    b.sides[1].active = 0
+                    cache[key] = expected_hit(b, 0, move)
+                elif a & 1:
+                    cache[key] = expected_hit(self._battle_for(a, t), 0, move)
+                else:
+                    cache[key] = expected_hit(self._battle_for(t, a), 1, move)
+            return cache[key]
+
+        def options(a, moves_of):
+            m = self.mon(a)
+            out = []
+            for i, move in enumerate(moves_of(m)):
+                if a & 1 and (i >= len(m.pp) or m.pp[i] <= 0):
+                    continue
+                if MOVES[move][6] in (0x08, 0x20):
+                    out.append((i, move, None))    # (spread: every foe)
+                else:
+                    for t in ([f for f in (0, 2) if f in foes] if a & 1 else [o for o in ours]):
+                        out.append((i, move, t))
+            return out or [(0, m.moves[0], (foes if a & 1 else ours)[0])]
+
+        def foe_moves(m):
+            if impossible:
+                return m.moves
+            return [x for x in m.moves if x in m.known_moves] or m.moves[:1]
+
+        foe_pick = {}
+        for f in foes:                             # what each foe does: its real choice, or its best
+            choice = known.get(f)
+            fm = self.mon(f)
+            if choice and choice[0] == "move" and choice[1] < len(fm.moves):
+                move = fm.moves[choice[1]]
+                tgt = choice[2] if len(choice) > 2 and choice[2] in ours else (ours[0] if ours else 1)
+                foe_pick[f] = (choice[1], move, None if MOVES[move][6] in (0x08, 0x20) else tgt)
+            elif choice and choice[0] in ("switch", "other"):
+                foe_pick[f] = None
+            else:
+                best, bv = None, -1.0
+                for opt in options(f, foe_moves):
+                    i, move, t = opt
+                    v = sum(1.6 * d + 2.0 * k for d, k in (hit(f, o, move) for o in (ours if t is None else [t])))
+                    if v > bv:
+                        best, bv = opt, v
+                foe_pick[f] = best
+
+        def play(picks):                           # the turn, in expectation: the position's value
+            hp = {b: self.mon(b).hp / self.mon(b).maxhp for b in ours + foes}
+            alive = {b: 1.0 for b in ours + foes}
+            protect = {b for b, p in picks.items() if p and effect_of(p[1]) in PROTECTS}
+            order = sorted((b for b, p in picks.items() if p), reverse=True,
+                           key=lambda b: (MOVES[picks[b][1]][7], self.mon(b).speed(self.weather)))
+            for a in order:
+                i, move, t = picks[a]
+                if alive[a] < 0.05 or not MOVES[move][1]:
+                    continue
+                side = foes if a & 1 else ours
+                if t is None:
+                    targets = list(side) + ([a ^ 2] if MOVES[move][6] == 0x20 and (a ^ 2) in alive else [])
+                    mult = 0.5 if len([x for x in targets if alive[x] > 0.05]) > 1 else 1.0
+                else:
+                    targets = [t if alive.get(t, 0) >= 0.5 or len(side) == 1 else
+                               next((x for x in side if x != t), t)]
+                    mult = 1.0
+                for x in targets:
+                    if x in protect or alive[x] < 0.05:
+                        continue
+                    d, k = hit(a, x, move)
+                    full = self.mon(x).hp / self.mon(x).maxhp
+                    if hp[x] < full:               # (already hurt this turn: easier to knock out)
+                        k = min(1.0, k + (full - hp[x]) / max(full, 1e-6))
+                    w = alive[a] * mult
+                    hp[x] = max(0.0, hp[x] - w * d)
+                    alive[x] *= 1.0 - min(1.0, w * k)
+            return (sum(alive[b] * (1.0 + 1.6 * hp[b]) for b in ours) -
+                    sum(alive[b] * (1.0 + 1.6 * hp[b]) for b in foes))
+
+        fixed = {}
+        partner = battler ^ 2
+        if partner in ours and self.chosen.get(partner):
+            pc = self.chosen[partner]
+            pm = self.mon(partner)
+            if pc[1] < len(pm.moves):
+                pmove = pm.moves[pc[1]]
+                fixed[partner] = (pc[1], pmove, None if MOVES[pmove][6] in (0x08, 0x20) else pc[2])
+        mine = options(battler, lambda m: m.moves)
+        theirs = [fixed[partner]] if partner in fixed else (options(partner, lambda m: m.moves) if partner in ours else [None])
+        best, bv = None, None
+        for mo in mine:
+            for po in theirs:
+                picks = dict(foe_pick)
+                picks[battler] = mo
+                if partner in ours:
+                    picks[partner] = po
+                v = play(picks)
+                if bv is None or v > bv:
+                    best, bv = mo, v
+        i, move, t = best
+        t = foes[0] if t is None else t
+        if impossible:
+            self.log.append(f"impossible (double): the player chose {known or 'nothing yet'}; battler {battler} "
+                            f"uses {move_name(move)} at {t}")
+        return ("move", i, t, ko_of(self, battler, move, t))
 
     def _double_replacement(self, battler, bench):
         foes = [f for f in (0, 2) if self.mon(f) and not self.mon(f).fainted] or [battler ^ 1]

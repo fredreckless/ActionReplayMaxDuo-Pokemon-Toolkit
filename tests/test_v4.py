@@ -3688,6 +3688,54 @@ def _():
     assert lb.choose(1) == (0, 0) and lb.choose(3) == (0, 2), (lb.chosen,)
 
 
+def _double_view(level, ours, theirs, known=None):
+    import duo_battle as B
+    lb = B.LinkBattle([test_pk3(species=409, pid=0x2000, otid=0x4E44)], level=level, double=True, seed=1)
+    lb.ours, lb.theirs = ours, theirs
+    for m in theirs:
+        m.known_moves = set(m.moves)
+    if known:                                              # (the player has chosen this turn)
+        lb.last_choose, lb.turn_mark, lb.player_choice = {0: 5, 2: 5, 1: 6, 3: 6}, {1: 0, 3: 0}, known
+    return lb
+
+
+def _ask(lb, battler):
+    """CHOOSEACTION then CHOOSEMOVE for our battler, as the DUO asks: the move's name and target."""
+    import duo_battle as B
+    m = lb.mon(battler)
+    lb.pending[battler] = (B.C_CHOOSEACTION, bytes(4))
+    assert lb.choose(battler) == (0, 0)
+    d = bytes([B.C_CHOOSEMOVE, 0, 0, 0]) + struct.pack("<4H", *(m.moves + [0] * 4)[:4]) + bytes((m.pp + [0] * 4)[:4]) + bytes(8)
+    lb.pending[battler] = (B.C_CHOOSEMOVE, d)
+    slot, target = lb.choose(battler)
+    return B.move_name(m.moves[slot]), target
+
+
+@test("battle partner: elite and impossible in a double battle play each pairing of moves out - Golem uses Rock Slide, not Earthquake, beside a Machamp (Earthquake would hit it) but Earthquake beside a Skarmory; impossible never aims at a foe protecting this turn (it hits the Weezing, though Fighting moves do little to it), which medium can't know")
+def _():
+    for partner, want in (("MACHAMP", "ROCK SLIDE"), ("SKARMORY", "EARTHQUAKE")):
+        lb = _double_view("elite", [battle_mon("GOLEM", moves=["EARTHQUAKE", "ROCK SLIDE"]), battle_mon(partner, moves=["TACKLE"])],
+                          [battle_mon("SNORLAX", moves=["BODY SLAM"]), battle_mon("SNORLAX", moves=["BODY SLAM"])])
+        assert _ask(lb, 1)[0] == want, (partner, _ask(lb, 1))
+    def protecting(level):
+        weak = battle_mon("SNORLAX", moves=["PROTECT", "BODY SLAM"]); weak.hp = weak.maxhp * 3 // 10
+        return _double_view(level, [battle_mon("MACHAMP", moves=["CROSS CHOP"]), battle_mon("HITMONLEE", moves=["HI JUMP KICK"])],
+                            [weak, battle_mon("WEEZING", moves=["SLUDGE BOMB"])], known={0: ("move", 0, 1), 2: ("move", 0, 1)})
+    lb = protecting("impossible")
+    assert _ask(lb, 1)[1] == 2 and _ask(lb, 3)[1] == 2, "impossible aimed at the protecting Snorlax"
+    lb = protecting("medium")
+    assert _ask(lb, 1)[1] == 0                             # (medium goes for the weakened one)
+
+
+@test("battle partner: a double battle at the impossible level through the DUO - both Pokemon's choices wait for the player's, follow the rules, and the battle plays to the end")
+def _():
+    hw, game, report, pk3s = colosseum_run(master=True, double=True, level="impossible", answer_delay=120, fallback=4,
+                                           team=(409, 280, 151), duo_wins=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert game.result["partner_choices"] and report["fallbacks"] == 0, report
+    assert all(t in (0, 2) for _, _, _, t in game.result["partner_choices"])
+
+
 @test("battle: a team's .pk3 files are checked before a battle - effort values over 510, a move twice, too many PP, stats or a level that don't match its species and experience are refused (even the impossible level plays by the game's rules); an event's special move is only noted")
 def _():
     import duo_battle as B
