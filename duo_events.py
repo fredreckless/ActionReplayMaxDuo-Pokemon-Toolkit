@@ -2046,7 +2046,7 @@ def trade_session(duo, args, poll_s=0.3, stop_when=None):
                 collect()
             if state == last:
                 watch.check(duo, text)
-            if state in WALKING_STATES_TRADE:
+            if state in WALKING_STATES_TRADE or last in WALKING_STATES_TRADE:   # (and just after: a wait the poll missed is kept)
                 blocked_said = blocked_note(duo, t0, blocked_said)
             if state != last:
                 watch.changed()
@@ -2310,7 +2310,7 @@ def mix_session(duo, args, poll_s=0.3, stop_when=None):
                     rec.step(0.6 if done else 0.1, None if done else max(0, min(got, sent) - 1) * 50)
             if state == last:
                 watch.check(duo, text, f"{program_poll(duo, 1) >> 16} \"ready\" barriers answered")
-            if state in WALKING_STATES_MIX:
+            if state in WALKING_STATES_MIX or last in WALKING_STATES_MIX:   # (and just after: a wait the poll missed is kept)
                 blocked_said = blocked_note(duo, t0, blocked_said)
             if state != last:
                 watch.changed()
@@ -2909,7 +2909,7 @@ def colosseum_session(duo, args, poll_s=0.3, stop_when=None):
                     runlog.detail(f"battler {battler}: kind {w >> 1 & 3}, answered {value}/{target} ({ok})")
             if state == last:
                 watch.check(duo, text, f"{program_poll(duo, 3) & 0xFFFF} battle commands so far")
-            if state in WALKING_STATES_COLOSSEUM:
+            if state in WALKING_STATES_COLOSSEUM or last in WALKING_STATES_COLOSSEUM:   # (and just after: a wait the poll missed is kept)
                 blocked_said = blocked_note(duo, t0, blocked_said)
             if state == COLOSSEUM_ST["BATTLE"]:
                 cmds = program_poll(duo, 3) & 0xFFFF
