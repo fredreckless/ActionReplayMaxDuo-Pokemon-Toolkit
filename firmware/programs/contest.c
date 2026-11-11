@@ -18,62 +18,11 @@
  *     never read, and it has the size the game expects;
  *   - the link closed (0x5FFF) after the results.
  * Every block goes into the log, as blender.c's. */
-typedef unsigned int u32;
-typedef unsigned short u16;
-typedef unsigned char u8;
-
-typedef struct {
-    void (*send8)(const void *);
-    void (*recv8)(void *);
-    u32 (*avail)(void);
-    void (*idle)(void);
-    void (*log)(const char *);
-    void (*log1)(const char *, u32);
-    void (*reply)(u32 cmd, u32 value);
-    u32 (*crc32)(const void *, u32);
-} api_t;
-
-#define REG16(a) (*(volatile u16 *)(a))
-#define SIOMULTI(i) REG16(0x04000120 + 2 * (i))
-#define SIOCNT      REG16(0x04000128)
-#define SIOMLT_SEND REG16(0x0400012A)
-#define RCNT        REG16(0x04000134)
-#define REG_IE      REG16(0x04000200)
-#define REG_IF      REG16(0x04000202)
-#define VCOUNT      REG16(0x04000006)
-
-#define MULTI_MODE  0x2000
-#define BAUD_115200 0x0003
-#define CNT_SI      0x0004
-#define CNT_ID_SHIFT 4
-#define SI_LOW_NEEDED 16
-#define CNT_START   0x0080
-#define CNT_IRQ     0x4000
-#define IF_SERIAL   0x0080
-#define LINES_PER_FRAME 228
-#define GAP_AFTER_DONE 13
-#define LINK_UP_WAIT   (2 * LINES_PER_FRAME)
-
-#define MASTER_HS 0x8FFF
-#define SLAVE_HS  0xB9A0
-#define CMD_LEN   8
+#include "link_core.h"
 
 #define LT_CONTEST_EMODE 0x6602
 #define MON_SIZE    64            /* struct ContestPokemon */
 #define BLK_MAX     256           /* BLOCK_BUFFER_SIZE */
-
-static void *memcpy(void *d, const void *s, unsigned n) { u8 *p = d; const u8 *q = s; while (n--) *p++ = *q++; return d; }
-static void zero(void *d, unsigned n) { u8 *p = d; while (n--) *p++ = 0; }
-
-static u32 lines_total, last_vcount;
-static u32 now(void)
-{
-    u32 v = VCOUNT & 0xFF;
-    u32 d = v >= last_vcount ? v - last_vcount : v + LINES_PER_FRAME - last_vcount;
-    last_vcount = v;
-    lines_total += d;
-    return lines_total;
-}
 
 /* ------------------------------------------------------------------ what the PC loads, and the log */
 #define BLOB_AT     0x02010030          /* build_v4.py BUFFER */
@@ -374,69 +323,6 @@ static void new_session(void)
     qcount = 0;
 }
 
-static void on_transfer(void)
-{
-    u16 w[2] = { SIOMULTI(0), SIOMULTI(1) };
-    transfers++;
-    is_master = (SIOCNT >> CNT_ID_SHIFT & 3) == 0;
-    role_known = 1;
-    if (state == ST_HANDSHAKE || state == ST_WAITING || hs_run == 0xFFFF) {
-        static u32 prev, seen_two;
-        u32 n = 0;
-        for (u32 i = 0; i < 2; i++) {
-            if ((w[i] & ~3) == SLAVE_HS || w[i] == MASTER_HS) n++;
-            else break;
-        }
-        if (n > 1 && n == prev && w[0] == MASTER_HS) {
-            sessions++; hs_run = 0;
-            send_idx = recv_idx = 0; checksum_ready = 0; nonzero = 0;
-            new_session();
-            if (state < ST_CONNECTED) state = ST_CONNECTED;
-            if (is_master) queue(0x2222, LT_CONTEST_EMODE, 0);     /* as master: link players, please */
-            loaded = 0;
-            SIOMLT_SEND = loaded;
-            return;
-        }
-        prev = n;
-        seen_two = n == 2 ? seen_two + 1 : 0;
-        loaded = is_master && seen_two >= 20 ? MASTER_HS : SLAVE_HS;
-        SIOMLT_SEND = loaded;
-        return;
-    }
-    u16 gw = w[is_master ? 1 : 0];
-    hs_run = ((gw & ~3) == SLAVE_HS || gw == MASTER_HS) ? hs_run + 1 : 0;
-    if (hs_run >= 3) {                                           /* the game opened a new link */
-        hs_run = 0xFFFF;
-        rx_on = tx_on = qcount = player_pending = 0;
-        loaded = SLAVE_HS;
-        SIOMLT_SEND = loaded;
-        return;
-    }
-    if (send_idx == 0) {
-        if (checksum_ready && (w[0] != checksum || w[1] != checksum) && !hs_run)
-            bad_checksums++;
-        checksum = 0; checksum_ready = 1;
-    } else {
-        frame[recv_idx][0] = w[0]; frame[recv_idx][1] = w[1];
-        checksum = (checksum + w[0] + w[1]) & 0xFFFF;
-        nonzero |= w[0] | w[1];
-        recv_idx++;
-        if (recv_idx == CMD_LEN) {
-            if (nonzero) process_command();
-            nonzero = 0;
-        }
-    }
-    if (send_idx == CMD_LEN) {
-        loaded = checksum;
-    } else {
-        if (send_idx == 0) next_command();
-        loaded = current[send_idx++];
-    }
-    if (recv_idx == CMD_LEN)
-        send_idx = recv_idx = 0;
-    SIOMLT_SEND = loaded;
-}
-
 /* ------------------------------------------------------------------ the DUO's screen */
 static const char *const SAY[] = {
     "Contest: waiting for game", "Contest: handshaking", "Contest: linked", "Contest: linking up",
@@ -502,61 +388,5 @@ static int pc_service(api_t *api)
     return 0;
 }
 
-/* ------------------------------------------------------------------ entry */
-__attribute__((section(".text.start")))
-u32 start(api_t *api)
-{
-    u16 saved_ie = REG_IE, saved_rcnt = RCNT, saved_siocnt = SIOCNT;
-    REG_IE = saved_ie & ~IF_SERIAL;
-    RCNT = 0;
-    SIOCNT = MULTI_MODE | BAUD_115200 | CNT_IRQ;
-    REG_IF = IF_SERIAL;
-    loaded = SLAVE_HS;
-    SIOMLT_SEND = loaded;
-    last_vcount = VCOUNT & 0xFF;
-    u32 last_done = now(), next_cycle = last_done, in_flight = 0, started_at = 0;
-    u32 last_iter = now();
-    while (!stop_requested) {
-        u32 t = now();
-        if (state >= ST_CONNECTED && t - last_iter > max_gap)
-            max_gap = t - last_iter;
-        last_iter = t;
-        if (!role_known) {
-            si_low_run = SIOCNT & CNT_SI ? 0 : si_low_run < SI_LOW_NEEDED ? si_low_run + 1 : si_low_run;
-            is_master = si_low_run >= SI_LOW_NEEDED;
-        }
-        int linked = state >= ST_CONNECTED && hs_run != 0xFFFF;
-        if (REG_IF & IF_SERIAL) {
-            REG_IF = IF_SERIAL;
-            in_flight = 0;
-            int was = linked;
-            if (blob_ready) on_transfer();
-            last_done = now();
-            if (!was && state >= ST_CONNECTED && hs_run != 0xFFFF)
-                next_cycle = last_done + LINK_UP_WAIT;
-        } else if (in_flight && now() - started_at > 2 * LINES_PER_FRAME) {
-            in_flight = 0;
-        } else if (blob_ready && is_master && !in_flight && !(SIOCNT & CNT_START) && now() - last_done >= GAP_AFTER_DONE) {
-            int cycle_start = !linked || send_idx == 0;
-            if (!cycle_start || (int)(now() - next_cycle) >= 0) {
-                if (cycle_start)
-                    next_cycle = now() + LINES_PER_FRAME;
-                in_flight = 1; started_at = now();
-                SIOCNT = MULTI_MODE | BAUD_115200 | CNT_IRQ | CNT_START;
-            }
-        }
-        if (!(REG_IF & IF_SERIAL))
-            pc_service(api);
-        if (close_pending && !qcount && !tx_on && state != ST_DONE) {
-            if (!close_at) close_at = now() | 1;
-            else if (now() - close_at > 10 * LINES_PER_FRAME) state = ST_DONE;
-        }
-        if (blob_ready && !in_flight && !(REG_IF & IF_SERIAL))
-            screen(api, state >= ST_CONNECTED && hs_run != 0xFFFF);
-    }
-    SIOCNT = saved_siocnt & ~(CNT_START | CNT_IRQ);
-    RCNT = saved_rcnt;
-    REG_IF = IF_SERIAL;
-    REG_IE = saved_ie;
-    return state | transfers << 8;
-}
+#define LINK_TYPE_ASK LT_CONTEST_EMODE
+#include "link_tail.h"
