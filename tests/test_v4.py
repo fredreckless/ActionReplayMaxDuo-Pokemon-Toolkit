@@ -3931,6 +3931,19 @@ def _():
     assert r["partner_answers"] == [BBG.SAY_NO] and r["verdicts"] == ["stop"] and len(r["blends"]) == 1, r
 
 
+@test("Contest, the DUO as player 0 (11 November): it asks for the cards, sends the random seed and the two other contestants (its --rivals, with the game's contest AI), gives a leader ID below the game's so the game still works out the contest, and plays its moves")
+def _():
+    rival = [event_file(test_pk3(species=sp, pid=0x7000 + sp, otid=0x00004E45, nickname=nm, moves=(33, 45, 0, 0), lang=2), f"{nm}.pk3")
+             for sp, nm in ((25, "PIKA"), (183, "MARILL"))]
+    hw, game, report = contest_run(master=False, rivals=rival, duo_place=2)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert struct.unpack_from("<H", r["ai_mons"], 0)[0] == 25 and struct.unpack_from("<H", r["ai_mons"], 64)[0] == 183, r["ai_mons"].hex()
+    assert struct.unpack_from("<I", r["ai_mons"], 24)[0] == 0x3F and r["partner_index"] == [0, 0], r
+    assert len(r["partner_moves"]) == 5 and report["player0"] is True, report
+    assert "your Pokemon came" in hw.text and "its --rivals" in hw.text, hw.text[-800:]
+
+
 # ---------------------------------------------------------------- the four-player cable experiment (8 November)
 import gp_link_model as GPL
 
@@ -3976,12 +3989,39 @@ def _():
     assert all(t[2] == 0xFFFF for t in game.transfers[-5:]), game.transfers[-5:]
 
 
+@test("Berry Blender, the DUO leading (11 November): the DUO as player 0 asks for the trainer cards and, after the barrier, the berries; plays the player-0 spot; sends the time and best RPM by its own count (within a frame or two of the game's: as master it sets the link's pace, not the game's frames); and gives the verdict from both answers")
+def _():
+    hw, game, report = blender_run(master=False)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["partner_berries"] == [139] and r["partner_card"] is not None and r["closed"], r
+    b = r["blends"][0]
+    assert b["partner_hits"] and sum(h == BBG.HIT_BEST for _, h in b["partner_hits"]) >= 10, b
+    assert report["leads"] is True and report["blends"] == 1 and "it leads the blend" in hw.text, hw.text[-1200:]
+
+
+@test("Berry Blender, the DUO leading: two blends (--blends 2) - after the first the verdict is 'again' (both said yes), the DUO asks for the next berries only after the save's barriers and the new blend's, and after the second it stops")
+def _():
+    hw, game, report = blender_run(master=False, berries=(133, 135), blends=2, answers=[True, True])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert len(r["blends"]) == 2 and r["partner_berries"] == [139, 139] and report["blends"] == 2, (r, report)
+    assert r["partner_answers"] == [BBG.PLAY_AGAIN, BBG.SAY_NO], r
+
+
+@test("Berry Blender, the DUO leading: the player says no after the first of two - the DUO's verdict is 'stop', naming the player and its answer")
+def _():
+    hw, game, report = blender_run(master=False, berries=(133, 135), blends=2, answers=[False, True])
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert len(game.result["blends"]) == 1 and report["blends"] == 1, game.result
+
+
 # ---------------------------------------------------------------- Emerald's link Contest (8 November)
 import contest_game_model as CTG
 
 
 def contest_run(species=300, moves=(45, 39, 33, 98), seconds=900, category="cool", order=None, duo_category="cool",
-                **game_kw):
+                rivals=None, **game_kw):
     """The DUO's contest program as a contestant against a simulated Emerald (E mode), the game leading."""
     raw = test_pk3(species=species, pid=0x5000 + species, otid=0x00004E44, nickname="SKITTY", moves=moves, lang=2)
     game = CTG.EmeraldLinkContest(category=category, partner_species=species, partner_moves=list(moves), **game_kw)
@@ -3989,7 +4029,7 @@ def contest_run(species=300, moves=(45, 39, 33, 98), seconds=900, category="cool
     hw.attach_mp_game(game.run(), game_master=game.master)
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
     r = quiet(W.contest_session, duo, types.SimpleNamespace(pk3=[event_file(raw, "0 - SKITTY.pk3")], category=duo_category,
-                                                            order=order, seconds=seconds, allow_unchecked=True),
+                                                            order=order, seconds=seconds, allow_unchecked=True, rivals=rivals),
               poll_s=0.2, stop_when=lambda: hw.lg_done)
     hw.text = r[1]
     assert duo.hello() == 0x104
@@ -4001,7 +4041,10 @@ def _():
     hw, game, report = contest_run(duo_place=1)
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
     r = game.result
-    assert r["partner_moves"] == [45, 39, 33, 98, 45] and r["partner_index"] == [1, 1] and r["closed"], r
+    import contest_data as CD
+    plan = [(45, 39, 33, 98)[k] for k in CD.plan_moves([45, 39, 33, 98], 0)[0]]
+    assert r["partner_moves"] == plan and r["partner_index"] == [1, 1] and r["closed"], (r, plan)
+    assert plan != [45, 39, 33, 98, 45] and "the PC's plan" in hw.text, plan
     assert report["standings"] == [0, 1, 2, 3] and report["rounds"] == 5 and report["state"] == W.CONTEST_ST["DONE"], report
     assert "your Pokemon came 1st, the DUO's" in hw.text and "2nd" in hw.text, hw.text[-800:]
 

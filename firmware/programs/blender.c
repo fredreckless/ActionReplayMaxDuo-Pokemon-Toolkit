@@ -1,6 +1,8 @@
 /* blender.c - the DUO as the player's partner at the Berry Blender, Ruby, Sapphire and Emerald (8
  * November 2026; docs/BLENDER.md). Grown from tower.c: the same link engine and log, no battle. The
- * DUO must be player 1 (the game, player 0, is the leader). From pret's pokeemerald berry_blender.c,
+ * DUO can be either player (11 November): player 1, the game leading, or player 0, the leader, which
+ * asks for the trainer cards and the berries, sends the time and best RPM, and gathers the answers
+ * to "blend another berry?" into its verdict. From pret's pokeemerald berry_blender.c,
  * cable_club.c and link.c, and pokeruby's berry_blender.c (the same protocol):
  *   - the link-up (LINKTYPE_BERRY_BLENDER_SETUP 0x4411, TryBerryBlenderLinkup): link players (the
  *     game's version and link type), our trainer card (the leader's 0xCCCC 2); the link stays open
@@ -73,7 +75,10 @@ typedef struct {
 /* the arrow (berry_blender.c), two players: we are player 1, arrow 2 */
 #define ARROW_START    0xC000     /* sArrowStartPos[sArrowStartPosIds[0]] */
 #define MIN_SPEED      0x80
-#define HIT_RANGE      96         /* sArrowHitRangeStart[2] */
+#define HIT_RANGE      (is_master ? 224 : 96)   /* sArrowHitRangeStart[playerIdToArrowId[us]]: arrow 1 or 2 */
+#define LT_SETUP_ASK   0x4411     /* (as master: the link type we ask link players for) */
+#define NO_BERRIES     0x9999
+#define NO_SPACE       0xAAAA
 #define MAX_PROGRESS   1000
 
 static void *memcpy(void *d, const void *s, unsigned n) { u8 *p = d; const u8 *q = s; while (n--) *p++ = *q++; return d; }
@@ -165,13 +170,14 @@ static u8 small[40];                      /* our berry block */
 static u32 arrow, timer, pass, in_window, pressed, plan, ended, press, frames;
 static s32 speed, progress, shown_progress;
 static u32 hits[2][3];                    /* this blend's hits: [player][best, good, miss] */
-static u32 max_speed, time_rpm;
+static u32 max_speed, time_rpm, max_rpm;
+static u32 lead_timer, card_asked, barriers_to_go, berries_asked_at, game_resp;
 
 /* ------------------------------------------------------------------ the link layer */
 static u32 send_idx, recv_idx, checksum, checksum_ready, nonzero;
 static u16 frame[CMD_LEN][2], current[CMD_LEN];
 #define QN 4
-static u16 qcmd[QN][3];
+static u16 qcmd[QN][4];
 static u32 qhead, qcount;
 static u16 loaded;
 
@@ -201,20 +207,33 @@ static void build_our_player(void)
     } else {
         lp[0x10] = OUR_GENDER;                               /* Ruby/Sapphire keep the gender here */
     }
-    lp[0x18] = 1;
+    lp[0x18] = is_master ? 0 : 1;
 }
 
-static void queue(u16 w0, u16 w1, u16 w2)
+static void queue4(u16 w0, u16 w1, u16 w2, u16 w3)
 {
     if (qcount == QN) return;
     u16 *q = qcmd[(qhead + qcount) % QN];
-    q[0] = w0; q[1] = w1; q[2] = w2;
+    q[0] = w0; q[1] = w1; q[2] = w2; q[3] = w3;
     qcount++;
 }
+#define queue(a, b, c) queue4(a, b, c, 0)
 
 static void send_block(const u8 *src, u32 len)
 {
     tx_src = src; tx_len = len; tx_off = 0; tx_header = 0; tx_on = 1;
+}
+
+static void lead(void)                    /* as player 0, once a cycle: the leader's requests */
+{
+    if (tx_on) return;
+    if (state == ST_LINKUP && game_player[16] && !card_asked && ++lead_timer > 40) {   /* cable_club.c: the cards */
+        queue(0xCCCC, 2, 0); card_asked = 1; lead_timer = 0;
+        barriers_to_go = 1;                                  /* (the first blend's barrier comes next) */
+    }
+    if (berries_asked_at && ++berries_asked_at > 16) {       /* CB2_StartBlenderLink 9: after the barrier */
+        queue(0xCCCC, 4, 0); berries_asked_at = 0;
+    }
 }
 
 static void next_command(void)
@@ -222,10 +241,12 @@ static void next_command(void)
     for (u32 i = 0; i < CMD_LEN; i++) current[i] = 0;
     if (qcount) {
         u16 *q = qcmd[qhead];
-        current[0] = q[0]; current[1] = q[1]; current[2] = q[2];
+        current[0] = q[0]; current[1] = q[1]; current[2] = q[2]; current[3] = q[3];
         qhead = (qhead + 1) % QN; qcount--;
         return;
     }
+    if (is_master) lead();
+    if (qcount) { next_command(); return; }
     if (state == ST_BLENDING) {                  /* the play: every frame, our keys and a hit */
         current[0] = SEND_KEYS;
         current[1] = press ? 1 : 0;              /* (A held as we press) */
@@ -266,7 +287,7 @@ static void start_blend(void)
     arrow = ARROW_START; speed = MIN_SPEED; timer = 0; progress = shown_progress = 0;
     pass = in_window = pressed = ended = press = frames = 0;
     zero(hits, sizeof hits);
-    max_speed = MIN_SPEED;
+    max_speed = MIN_SPEED; max_rpm = 0; game_resp = 0;
     log_event(E_START, blends + 1);
 }
 
@@ -292,6 +313,7 @@ static u32 our_plan(u32 n)               /* what we aim for on our n-th pass: 0 
 
 static void blend_frame(u32 game_hit, u32 our_hit)   /* one frame of CB2_PlayBlender, as the game runs it */
 {
+    if (ended) return;                                       /* (CB2_EndBlenderGame: no more hits, the clock stopped) */
     frames++;
     arrow = (arrow + speed) & 0xFFFF;                        /* UpdateBlenderCenter */
     u32 pos = (arrow >> 8) + 24, prox = 0;                   /* GetArrowProximity, for our arrow */
@@ -309,8 +331,10 @@ static void blend_frame(u32 game_hit, u32 our_hit)   /* one frame of CB2_PlayBle
         if (!prox && in_window) { in_window = 0; pass++; }
     }
     if (++timer > 5) { if (speed > MIN_SPEED) speed--; timer = 0; }
-    hit(0, game_hit);                                        /* UpdateOpponentScores: player 0, then us */
-    hit(1, our_hit);
+    if (is_master) { hit(1, our_hit); hit(0, game_hit); }    /* UpdateOpponentScores: player 0 first */
+    else { hit(0, game_hit); hit(1, our_hit); }
+    u32 rpm = (u32)speed * 360000 >> 16;                     /* UpdateRPM: ArrowSpeedToRPM, in hundredths */
+    if (rpm > max_rpm) max_rpm = rpm;
     if (shown_progress < progress) shown_progress += 2;      /* TryUpdateProgressBar */
     if (!ended && shown_progress >= MAX_PROGRESS) { ended = 1; log_event(E_END, frames); }
 }
@@ -347,7 +371,7 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         return;
     }
     if (size == 40 && berry_wanted && kept >= 15) { berry_block(b); return; }
-    if (size == 40 && state == ST_RESULTS && kept >= 6) {    /* the leader's time and best RPM */
+    if (size == 40 && state == ST_RESULTS && kept >= 6 && !is_master) {    /* the leader's time and best RPM */
         time_rpm = (b[0] | b[1] << 8) | (u32)(b[4] | b[5] << 8) << 16;
         u32 again = blends + 1 < (BLENDS ? BLENDS : 1);
         answered = again ? PLAY_AGAIN : SAY_NO;
@@ -363,11 +387,28 @@ static void process_command(void)
     u16 c = frame[0][game];
     if (c == 0x2222 || frame[0][ours] == 0x2222)
         player_pending = 1;
-    if (state == ST_COUNTDOWN && c == SEND_KEYS) { state = ST_BLENDING; start_blend(); }
+    if (state == ST_COUNTDOWN && c == SEND_KEYS) {
+        state = ST_BLENDING; start_blend();
+        /* as master, the game's first 0x4444 reaches us a frame later in its play than as a child
+         * (who starts the transfers decides): its first frame has gone by already */
+        if (is_master) arrow = (arrow + speed) & 0xFFFF;
+    }
     if (state == ST_BLENDING) {
         if (c == SEND_KEYS) { blend_frame(frame[2][game], frame[0][ours] == SEND_KEYS ? frame[2][ours] : 0); return; }
         state = ST_RESULTS;                                  /* the game's play is over */
+        if (is_master) {                                     /* the leader's block: the time and best RPM */
+            zero(small, 40);
+            small[0] = frames; small[1] = frames >> 8; small[2] = frames >> 16;
+            small[4] = max_rpm; small[5] = max_rpm >> 8;
+            time_rpm = (frames & 0xFFFF) | (max_rpm & 0xFFFF) << 16;
+            send_block(small, 40);
+            answered = blends + 1 < (BLENDS ? BLENDS : 1) ? PLAY_AGAIN : SAY_NO;
+            log_event(E_ANSWER, answered);
+            state = ST_AGAIN;
+        }
     }
+    if (frame[0][ours] == 0xCCCC && is_master)               /* our own request: our block too */
+        answer_request(frame[1][ours]);
     switch (c) {
     case 0xBBBB:
         rx_size = frame[1][game];
@@ -389,7 +430,22 @@ static void process_command(void)
         answer_request(frame[1][game]);
         break;
     case SEND_PACKET:                                        /* the leader's verdict (its own answer: ignored) */
-        if (frame[1][game] == LEADER_GO || frame[1][game] == LEADER_STOP) {
+        if (is_master && state == ST_AGAIN && !game_resp) {  /* as leader: the game's answer, then our verdict */
+            u16 r = frame[1][game];
+            if (r != PLAY_AGAIN && r != SAY_NO && r != NO_BERRIES && r != NO_SPACE) break;
+            game_resp = r;
+            u32 go = r == PLAY_AGAIN && answered == PLAY_AGAIN;
+            if (go) queue(SEND_PACKET, LEADER_GO, 0);
+            else if (answered != PLAY_AGAIN) queue4(SEND_PACKET, LEADER_STOP, answered, 0);
+            else queue4(SEND_PACKET, LEADER_STOP, r, 1);
+            verdict = go ? 2 : 1;
+            blends++;
+            log_event(E_VERDICT, verdict | game_resp << 8);
+            state = go ? ST_CHOOSING : ST_AGAIN;
+            if (go) barriers_to_go = 5;                      /* (four round the link save, then the next blend's) */
+            break;
+        }
+        if (!is_master && (frame[1][game] == LEADER_GO || frame[1][game] == LEADER_STOP)) {
             verdict = frame[1][game] == LEADER_GO ? 2 : 1;
             blends++;
             log_event(E_VERDICT, verdict | frame[2][game] << 8);
@@ -401,6 +457,7 @@ static void process_command(void)
         barriers++;
         log_event(E_READY, barriers);
         if (state == ST_LINKUP) state = ST_CHOOSING;
+        if (is_master && barriers_to_go && --barriers_to_go == 0) berries_asked_at = 1;
         break;
     case 0x5FFF:
         queue(0x5FFF, 0, 0);
@@ -414,6 +471,7 @@ static void new_session(void)
 {
     rx_on = tx_on = player_pending = 0;
     qcount = 0;
+    lead_timer = card_asked = barriers_to_go = berries_asked_at = 0;
 }
 
 static void on_transfer(void)
@@ -434,6 +492,7 @@ static void on_transfer(void)
             send_idx = recv_idx = 0; checksum_ready = 0; nonzero = 0;
             new_session();
             if (state < ST_CONNECTED) state = ST_CONNECTED;
+            if (is_master) queue(0x2222, LT_SETUP_ASK, 0);  /* as master: link players, please */
             loaded = 0;
             SIOMLT_SEND = loaded;
             return;

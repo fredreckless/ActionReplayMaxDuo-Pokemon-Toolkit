@@ -52,11 +52,12 @@ def proximity(arrow, player):
 
 class BerryBlenderLink(RubyTrade):
     def __init__(self, berries=(133,), answers=None, player_plan=None, game="emerald", language=LANG_ENGLISH,
-                 choose_frames=120, **kw):
+                 choose_frames=120, master=True, **kw):
         """berries: the player's berry for each blend (item numbers); answers: the player's answer to
         "blend another berry?" after each (True: yes; default yes until the last); player_plan(n):
         what the player aims for on its n-th pass (HIT_BEST, HIT_GOOD or HIT_MISS; default BEST)."""
-        super().__init__(master=True, language=language, party=[bytes(100)], game=game, **kw)
+        # master: the game is player 0 and leads the blend; False: the DUO leads (11 November)
+        super().__init__(master=master, language=language, party=[bytes(100)], game=game, **kw)
         self.berries = list(berries)
         self.answers = list(answers) if answers is not None else [True] * (len(self.berries) - 1) + [False]
         self.player_plan = player_plan or (lambda n: HIT_BEST)
@@ -79,8 +80,9 @@ class BerryBlenderLink(RubyTrade):
             raise LinkError(f"the partner's link type is {partner['link_type']:#06x}")
         s.stage = "Berry Blender link-up: trainer cards"
         s.send_buffer = bytes(100)
-        s.link.send(0xCCCC, 2)
-        got = yield from self._blocks(s, 100)
+        if self.master:
+            s.link.send(0xCCCC, 2)
+        got = yield from self._blocks(s, 100, frames=900 if self.master else 2000)   # (as follower: the leader asks)
         self.result["partner_card"] = got
         for n, item in enumerate(self.berries):
             again = yield from self._blend(s, n, item)
@@ -124,9 +126,26 @@ class BerryBlenderLink(RubyTrade):
         s.stage = f"blend {n + 1}: the berries' barrier"
         s.send_buffer = berry_block(item)
         yield from self._barrier(s)
-        s.link.send(0xCCCC, 4)
         s.stage = f"blend {n + 1}: the berries"
-        theirs = yield from self._blocks(s, 40, frames=1200)
+        if self.master:
+            s.link.send(0xCCCC, 4)
+            theirs = yield from self._blocks(s, 40, frames=1200)
+        else:
+            # CB2_StartBlenderLink 9: the follower clears the blocks it has, then waits for every player's
+            # (a leader that asked before the barrier would leave the game waiting for its own for ever)
+            s.blocks_in.clear()
+            own, theirs = None, None
+            for _ in range(1500):
+                own = own or s.blocks_in.pop(self.my_id, None)
+                theirs = theirs or s.blocks_in.pop(self.other, None)
+                if own and theirs:
+                    break
+                yield
+            else:
+                raise LinkError(f"waiting for the berries: the game's own {'arrived' if own else 'never came'}, "
+                                f"the leader's {'arrived' if theirs else 'never came'}")
+            if len(theirs) != 40:
+                raise LinkError(f"the leader's berry block is {len(theirs)} bytes, not 40")
         their_item = struct.unpack_from("<H", theirs, 0)[0]
         if their_item not in KNOWN_BERRIES:
             raise LinkError(f"the partner's berry is item {their_item}, not a berry this model knows")
@@ -149,31 +168,59 @@ class BerryBlenderLink(RubyTrade):
                 for i in (0, 1):
                     if cmd[0][i] == SEND_PACKET and cmd[1][i] in (PLAY_AGAIN, SAY_NO, NO_BERRIES, NO_SPACE):
                         responses.setdefault(i, cmd[1][i])
-        s.stage = f"blend {n + 1}: the leader's time and RPM"
-        while s.link.queue:
-            collect()
-            yield
-        s.link.send_block(struct.pack("<IH", blend["frames"], blend["max_rpm"]).ljust(40, b"\0"))
-        for _ in range(300):
-            collect()
-            s.blocks_in.pop(self.my_id, None)
-            if self.other in s.blocks_in:
-                raise LinkError("the partner sent a block where only the leader sends one (the time and RPM)")
-            yield
-        s.stage = f"blend {n + 1}: blend another berry?"
         mine = PLAY_AGAIN if self.answers[n] else SAY_NO
-        s.link.send(SEND_PACKET, mine)
-        for _ in range(1200):
-            collect()
-            if len(responses) == 2:
-                break
-            yield
+        if self.master:
+            s.stage = f"blend {n + 1}: the leader's time and RPM"
+            while s.link.queue:
+                collect()
+                yield
+            s.link.send_block(struct.pack("<IH", blend["frames"], blend["max_rpm"]).ljust(40, b"\0"))
+            for _ in range(300):
+                collect()
+                s.blocks_in.pop(self.my_id, None)
+                if self.other in s.blocks_in:
+                    raise LinkError("the partner sent a block where only the leader sends one (the time and RPM)")
+                yield
+            s.stage = f"blend {n + 1}: blend another berry?"
+            s.link.send(SEND_PACKET, mine)
+            for _ in range(1200):
+                collect()
+                if len(responses) == 2:
+                    break
+                yield
+            else:
+                raise LinkError(f"no answer from the partner to 'blend another berry?' ({responses})")
+            self.result["partner_answers"].append(responses[self.other])
+            go = all(responses[i] == PLAY_AGAIN for i in (0, 1))
+            stopper = next((i for i in (0, 1) if responses[i] != PLAY_AGAIN), 0)
+            s.link.send(SEND_PACKET, LEADER_GO if go else LEADER_STOP, 0 if go else responses[stopper], 0 if go else stopper)
         else:
-            raise LinkError(f"no answer from the partner to 'blend another berry?' ({responses})")
-        self.result["partner_answers"].append(responses[self.other])
-        go = all(responses[i] == PLAY_AGAIN for i in (0, 1))
-        stopper = next((i for i in (0, 1) if responses[i] != PLAY_AGAIN), 0)
-        s.link.send(SEND_PACKET, LEADER_GO if go else LEADER_STOP, 0 if go else responses[stopper], 0 if go else stopper)
+            s.stage = f"blend {n + 1}: the leader's time and RPM"
+            tr = yield from self._blocks(s, 40, frames=600)
+            t, rpm = struct.unpack_from("<IH", tr, 0)
+            if abs(t - blend["frames"]) > 4 or abs(rpm - blend["max_rpm"]) > blend["max_rpm"] // 50:   # (the drift above)
+                raise LinkError(f"the leader's time and RPM are {t}, {rpm}: the game's own are {blend['frames']}, {blend['max_rpm']}")
+            s.stage = f"blend {n + 1}: blend another berry? (the leader's verdict)"
+            yield from self._wait(60)
+            s.link.send(SEND_PACKET, mine)
+            verdict = None
+            for _ in range(1200):
+                cmd = s.cmd
+                if cmd is not None and cmd[0][self.other] == SEND_PACKET and cmd[1][self.other] in (LEADER_GO, LEADER_STOP):
+                    verdict = [cmd[j][self.other] for j in range(4)]
+                    break
+                yield
+            else:
+                raise LinkError("no verdict from the leader")
+            go = verdict[1] == LEADER_GO
+            if go and mine != PLAY_AGAIN:
+                raise LinkError("the leader blends again though the player said no")
+            # (the leader names the first player, in order, who said no: itself, player 0, before the game)
+            if not go and verdict[3] == self.my_id and (mine == PLAY_AGAIN or verdict[2] != mine):
+                raise LinkError(f"the leader's stop names the player ({verdict[2:4]}), whose answer was {mine:#06x}")
+            if not go and verdict[3] not in (0, 1):
+                raise LinkError(f"the leader's stop names player {verdict[3]}")
+            self.result["partner_answers"].append(verdict[2] if not go and verdict[3] == self.other else PLAY_AGAIN)
         self.result["verdicts"].append("again" if go else "stop")
         yield from self._wait(10)
         s.stage = f"blend {n + 1}: the link save"
@@ -201,16 +248,17 @@ class BerryBlenderLink(RubyTrade):
                 p = proximity(arrow, i)
                 if p and not inside[i]:
                     inside[i] = True
-                    if i == 0:
-                        pressed, plan = False, self.player_plan(passes[0])
+                    if i == self.my_id:
+                        pressed, plan = False, self.player_plan(passes[i])
                 elif not p and inside[i]:
                     inside[i] = False
                     passes[i] += 1
-                    left = left or i == 0
+                    left = left or i == self.my_id
+            me = self.my_id
             score = 0                                         # HandlePlayerInput: the player's press
-            p = proximity(arrow, 0)
-            if inside[0] and not pressed:
-                if plan == HIT_BEST and (p == 2 or (p == 1 and (arrow >> 8) + 24 >= HIT_RANGE[0] + 28)):
+            p = proximity(arrow, me)
+            if inside[me] and not pressed:
+                if plan == HIT_BEST and (p == 2 or (p == 1 and (arrow >> 8) + 24 >= HIT_RANGE[me] + 28)):
                     score = PROX[p]
                 elif plan == HIT_GOOD and p == 1:
                     score = HIT_GOOD
@@ -243,8 +291,13 @@ class BerryBlenderLink(RubyTrade):
                     (partner_hits if i == self.other else game_hits).append((frames, hit))
                     if i == self.other:
                         claimed = {HIT_BEST: 2, HIT_GOOD: 1, HIT_MISS: 0}[hit]
-                        back = [proximity(a, 1) for a in history[-8:-1]]
-                        if claimed not in back:
+                        back = [proximity(a, self.other) for a in history[-8:-1]]
+                        # as master the game's frames set the pace, so the DUO's copy of the arrow is exact; as
+                        # a child the game keeps its own frames (the DUO's transfers set the link's), so the
+                        # copies can drift by a frame or two: a claimed hit must then be on the DUO's spot,
+                        # best or good, as the arrow passed (a GBA a frame behind would see the same)
+                        ok = claimed in back if self.master else (claimed == 0 or any(back))
+                        if not ok:
                             raise LinkError(f"the partner claimed {hit:#06x} at frame {frames}, but its arrow was "
                                             f"{back} over the frames before (the game's own arrow)")
             max_rpm = max(max_rpm, 60 * 60 * 100 * speed // 0x10000)
@@ -261,7 +314,7 @@ class BerryBlenderLink(RubyTrade):
             speed -= 32
             if speed > 0:
                 s.link.send(SEND_KEYS, 0, 0)
-        if len(partner_hits) > passes[1] + 1:
-            raise LinkError(f"the partner pressed {len(partner_hits)} times in {passes[1]} passes over its spot")
-        return dict(frames=frames, max_rpm=max_rpm, partner_hits=partner_hits, game_hits=game_hits,
-                    passes=passes[1])
+        po = passes[self.other]
+        if len(partner_hits) > po + 1:
+            raise LinkError(f"the partner pressed {len(partner_hits)} times in {po} passes over its spot")
+        return dict(frames=frames, max_rpm=max_rpm, partner_hits=partner_hits, game_hits=game_hits, passes=po)

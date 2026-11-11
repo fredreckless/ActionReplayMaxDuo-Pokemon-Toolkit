@@ -1,7 +1,8 @@
 /* contest.c - the DUO as a contestant in Emerald's link Contest, E mode (8 November 2026;
- * docs/CONTEST.md). Grown from blender.c: the same link engine and log. The DUO must be player 1:
- * the game, player 0, is the leader that works out the contest; every other GBA copies the leader's
- * figures. From pret's pokeemerald contest_link.c, contest_link_util.c, contest.c, contest_util.c and
+ * docs/CONTEST.md). Grown from blender.c: the same link engine and log. The game always works out
+ * the contest (the leader, whose figures every other GBA copies). The DUO can be player 1, or (11
+ * November) player 0: then it asks for the trainer cards, sends the random seed and the two other
+ * contestants (player 0's jobs), and a leader ID below the game's, so that the game still leads. From pret's pokeemerald contest_link.c, contest_link_util.c, contest.c, contest_util.c and
  * cable_club.c:
  *   - the link-up (LINKTYPE_CONTEST_EMODE 0x6602, 2-4 players, all Emerald): link players (we say
  *     Emerald), our trainer card (the leader's 0xCCCC 2);
@@ -76,18 +77,19 @@ static u32 now(void)
 
 /* ------------------------------------------------------------------ what the PC loads, and the log */
 #define BLOB_AT     0x02010030          /* build_v4.py BUFFER */
-#define BLOB_MAX    248
+#define BLOB_MAX    376
 static u32 put_at, blob_ready;
 #define blob_words  ((u32 *)BLOB_AT)
 #define BLOB        ((u8 *)BLOB_AT)
-#define NMOVES      BLOB[0]             /* our moves, in the order we use them (1-4) */
+#define NMOVES      BLOB[0]             /* the length of our plan (1-8): the move slots, round by round */
 #define OUR_GENDER  BLOB[1]             /* our trainer: 0 boy, 1 girl */
 #define OUR_NAME    (BLOB + 4)          /* 8 bytes, game charset */
 #define OUR_TID     (BLOB + 12)         /* 4 bytes */
-#define ORDER       (BLOB + 16)         /* 4: the order of our moves (indexes into the Pokemon's) */
+#define ORDER       (BLOB + 232)        /* 8: the plan, a move slot for each round (then round again) */
 #define LABEL       ((const char *)BLOB + 20)   /* 28: a line for the screen */
 #define MON         (BLOB + 48)         /* 64: our struct ContestPokemon, as the game sends it */
 #define CARD        (BLOB + 112)        /* 100: our trainer card (struct TrainerCard) */
+#define RIVALS      (BLOB + 248)        /* 128: as player 0, the two other contestants (struct ContestPokemon x 2) */
 
 #define LOG         ((u8 *)(BLOB_AT + 0x400))
 #define LOG_MAX     0x1F800
@@ -135,6 +137,8 @@ static u32 role_known, si_low_run, sessions, hs_run, max_gap;
 static u8 game_player[60];
 
 static u32 close_pending, close_at, barriers, setup_blocks, seed_seen, rounds, mirrored, skipped, category;
+static u32 lead_timer, card_asked, setup_barriers, lead_send, lead_at;
+static u8 seed[4];
 static u8 blk[BLK_MAX];                   /* the game's block as it arrives (and ours, sent back) */
 static u8 ours[4];                        /* our contestant number, our move */
 static u8 standings[4], have_standings;
@@ -169,7 +173,7 @@ static void build_our_player(void)
     memcpy(lp + 0x1A, game_player + 16 + 0x1A, 2);           /* language */
     lp[0x10] = 0x11;                                         /* the progress flags (National Dex, champion) */
     lp[0x13] = OUR_GENDER;
-    lp[0x18] = 1;
+    lp[0x18] = is_master ? 0 : 1;
 }
 
 static void queue(u16 w0, u16 w1, u16 w2)
@@ -185,6 +189,25 @@ static void send_block(const u8 *src, u32 len)
     tx_src = src; tx_len = len; tx_off = 0; tx_header = 0; tx_on = 1;
 }
 
+static void lead(void)                    /* as player 0, once a cycle: player 0's jobs */
+{
+    if (tx_on) return;
+    if (state == ST_LINKUP && game_player[16] && !card_asked && ++lead_timer > 40) {   /* cable_club.c: the cards */
+        queue(0xCCCC, 2, 0); card_asked = 1;
+    }
+    if (lead_send && ++lead_at > 12) {                       /* a while after the barrier: the block itself */
+        if (lead_send == 1) {                                /* Task_LinkContest_CommunicateRngEm: the seed */
+            u32 r = transfers * 0x9E3779B1u ^ lines_total;
+            seed[0] = r; seed[1] = r >> 8; seed[2] = r >> 16; seed[3] = r >> 24;
+            send_block(seed, 4);
+        } else {                                             /* ...CommunicateAIMonsEm: the other two contestants */
+            send_block(RIVALS, 2 * MON_SIZE);
+        }
+        log_event(E_MON, lead_send == 1 ? 4 : 2 * MON_SIZE);
+        lead_send = 0;
+    }
+}
+
 static void next_command(void)
 {
     for (u32 i = 0; i < CMD_LEN; i++) current[i] = 0;
@@ -194,6 +217,7 @@ static void next_command(void)
         qhead = (qhead + 1) % QN; qcount--;
         return;
     }
+    if (is_master) { lead(); if (qcount) { next_command(); return; } }
     if (tx_on) {
         if (!tx_header) {
             current[0] = 0xBBBB; current[1] = tx_len; current[2] = (is_master ? 0 : 1) + 128;
@@ -253,9 +277,16 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         log_event(E_MON, size);
         return;
     }
-    if (state == ST_SETUP && ((size == 4 && !seed_seen) || size == 2 * MON_SIZE)) {   /* the leader's own */
+    if (state == ST_SETUP && !is_master && ((size == 4 && !seed_seen) || size == 2 * MON_SIZE)) {   /* player 0's own */
         seed_seen = 1; skipped++;
         log_event(E_SKIP, size);
+        return;
+    }
+    if (state == ST_SETUP && size == 2 && setup_blocks == 1 && is_master) {   /* leader IDs: ours below the game's */
+        setup_blocks++;
+        ours[0] = ours[1] = 0;
+        send_block(ours, 2);
+        log_event(E_MIRROR, 0);
         return;
     }
     if (state == ST_SETUP && size == 2 && setup_blocks == 2) category = blk[0];
@@ -288,6 +319,8 @@ static void process_command(void)
 {
     u32 game = is_master ? 1 : 0, ours_id = 1 - game;
     u16 c = frame[0][game];
+    if (frame[0][ours_id] == 0xCCCC && is_master)            /* our own request: our block too */
+        answer_request(frame[1][ours_id]);
     if (c == 0x2222 || frame[0][ours_id] == 0x2222)
         player_pending = 1;
     switch (c) {
@@ -319,6 +352,10 @@ static void process_command(void)
     case 0x2FFE:
         queue(0x2FFE, 0, 0);
         barriers++;
+        if (is_master && state == ST_SETUP) {                /* the set-up's steps after the contestants */
+            setup_barriers++;
+            if (setup_barriers == 1 || setup_barriers == 4) { lead_send = setup_barriers == 1 ? 1 : 2; lead_at = 0; }
+        }
         log_event(E_READY, barriers);
         break;
     case 0x5FFF:
@@ -332,6 +369,7 @@ static void process_command(void)
 
 static void new_session(void)
 {
+    lead_timer = card_asked = setup_barriers = lead_send = 0;
     rx_on = tx_on = player_pending = 0;
     qcount = 0;
 }
@@ -354,6 +392,7 @@ static void on_transfer(void)
             send_idx = recv_idx = 0; checksum_ready = 0; nonzero = 0;
             new_session();
             if (state < ST_CONNECTED) state = ST_CONNECTED;
+            if (is_master) queue(0x2222, LT_CONTEST_EMODE, 0);     /* as master: link players, please */
             loaded = 0;
             SIOMLT_SEND = loaded;
             return;
@@ -454,7 +493,7 @@ static int pc_service(api_t *api)
     case 10: v = log_lost; break;
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
-             blob_ready = put_at * 4 >= BLOB_MAX && NMOVES >= 1 && NMOVES <= 4;
+             blob_ready = put_at * 4 >= BLOB_MAX && NMOVES >= 1 && NMOVES <= 8;
              if (blob_ready) log_len = log_full = log_seq = 0;
              break;
     default: v = 0xFFFFFFFF; break;

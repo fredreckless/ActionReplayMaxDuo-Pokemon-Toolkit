@@ -59,7 +59,7 @@ AREAS = [
     ("duo_wireless.py", ["two tools"]),
     ("lab_runner.py", ["lab_runner"]),
     ("records.py", ["Record files"]),
-    ("duo_battle.py", ["battle:", "battle partner", "Battle Tower"]), ("battle_data.py", ["battle:", "battle partner", "Battle Tower"]), ("tools/make_battle_data.py", ["battle:"]),
+    ("duo_battle.py", ["battle:", "battle partner", "Battle Tower"]), ("battle_data.py", ["battle:", "battle partner", "Battle Tower"]), ("contest_data.py", CONTEST), ("tools/make_battle_data.py", ["battle:"]),
     ("tests/rfu_game_model.py", MYSTERY_GIFT),
     ("tests/link_game_model.py", EREADER),
     ("tests/mevent_model.py", EREADER),

@@ -43,11 +43,13 @@ def contest_mon(species, moves, cond=(10, 20, 30, 40, 50, 5), name=b"\xbb\xbc\xb
 
 class EmeraldLinkContest(RubyTrade):
     def __init__(self, category="cool", player_mon=None, partner_species=None, partner_moves=None, rounds=5,
-                 duo_place=1, language=LANG_ENGLISH, **kw):
+                 duo_place=1, language=LANG_ENGLISH, master=True, **kw):
         """category: the player's choice at the counter; partner_species / partner_moves: what the
         DUO's contestant must be (from its .pk3); duo_place: where the leader's figures put the DUO
         (0 first ... 3 fourth)."""
-        super().__init__(master=True, language=language, party=[bytes(100)], game="emerald", **kw)
+        # master False (11 November): the DUO is player 0 - it asks for the cards and sends the seed and
+        # the AI contestants - while the game, by the leader IDs, still works out the contest
+        super().__init__(master=master, language=language, party=[bytes(100)], game="emerald", **kw)
         self.category = CATEGORIES.index(category)
         self.player_mon = player_mon or contest_mon(25, (85, 86, 98, 0))
         self.partner_species, self.partner_moves = partner_species, partner_moves
@@ -116,8 +118,9 @@ class EmeraldLinkContest(RubyTrade):
             raise LinkError(f"the partner's game is version {partner['version'] & 0xFF}: E mode is Emerald only")
         s.stage = "Contest link-up: trainer cards"
         s.send_buffer = bytes(100)
-        s.link.send(0xCCCC, 2)
-        yield from self._partner_block(s, 100)
+        if self.master:
+            s.link.send(0xCCCC, 2)
+        yield from self._partner_block(s, 100, frames=900 if self.master else 2000)
         yield from self._wait(60)
         # the set-up
         s.stage = "Contest set-up: the contestants"
@@ -126,12 +129,18 @@ class EmeraldLinkContest(RubyTrade):
         self._check_mon(theirs)
         s.stage = "Contest set-up: the random seed"
         yield from self._barrier(s)
-        yield from self._leader_only(s, struct.pack("<I", 0x1234ABCD))
+        if self.master:
+            yield from self._leader_only(s, struct.pack("<I", 0x1234ABCD))
+        else:
+            seed = yield from self._partner_block(s, 4)
+            self.result["seed"] = seed
         s.stage = "Contest set-up: leader IDs"
         yield from self._barrier(s)
         lid = yield from self._exchange(s, struct.pack("<H", LEADER_ID))
-        if struct.unpack("<H", lid)[0] > LEADER_ID:
-            raise LinkError("the partner's leader ID makes it the leader: it would have to work out the contest")
+        ids = {self.my_id: LEADER_ID, self.other: struct.unpack("<H", lid)[0]}
+        leader = max((0, 1), key=lambda i: (ids[i], -i))             # LinkContest_GetLeaderIndex: the highest, the first on a tie
+        if leader != self.my_id:
+            raise LinkError(f"the leader IDs {ids} make the partner the leader: it would have to work out the contest")
         s.stage = "Contest set-up: the category"
         yield from self._barrier(s)
         cat = yield from self._exchange(s, struct.pack("<H", self.category))
@@ -139,7 +148,15 @@ class EmeraldLinkContest(RubyTrade):
             raise LinkError(f"the partner chose category {struct.unpack('<H', cat)[0]}, not {self.category}")
         s.stage = "Contest set-up: the AI contestants"
         yield from self._barrier(s)
-        yield from self._leader_only(s, contest_mon(300, (1, 2, 3, 4)) + contest_mon(301, (5, 6, 7, 8)))
+        if self.master:
+            yield from self._leader_only(s, contest_mon(300, (1, 2, 3, 4)) + contest_mon(301, (5, 6, 7, 8)))
+        else:
+            ai = yield from self._partner_block(s, 2 * MON_SIZE)
+            for k in (0, 1):
+                m = ai[k * MON_SIZE:(k + 1) * MON_SIZE]
+                if not struct.unpack_from("<H", m, 0)[0] or m[7] != 0xFF or not any(struct.unpack_from("<4H", m, 30)):
+                    raise LinkError(f"AI contestant {k + 1} from player 0 isn't a whole contestant: {m.hex()}")
+            self.result["ai_mons"] = ai
         s.stage = "Contest set-up: round-1 points"
         yield from self._barrier(s)
         yield from self._exchange(s, struct.pack("<4h", 40, 30, 20, 10))
@@ -172,8 +189,8 @@ class EmeraldLinkContest(RubyTrade):
         yield from self._wait(100)
         places = [0, 0, 0, 0]
         others = [p for p in range(4) if p != self.duo_place]
-        places[1] = self.duo_place
-        for i, c in zip((0, 2, 3), others):
+        places[self.other] = self.duo_place
+        for i, c in zip((self.my_id, 2, 3), others):
             places[i] = c
         for size in STANDINGS[:3]:
             yield from self._exchange(s, bytes(size))
