@@ -14,7 +14,12 @@ The challenge (docs/MULTI.md, section 1):
   3. after a win that isn't the seventh (field_specials.c Task_LinkRetireStatusWithBattleTowerPartner):
      the link again, the follower's choice (2 bytes), the leader's verdict (2 bytes), a "ready"
      barrier, closed.
-The game here is player 0 (the leader and the battle's master); the DUO must be player 1."""
+master=True: the game is player 0 (the leader and the battle's master), the DUO player 1.
+master=False (11 November): the DUO is player 0. Then the DUO asks for the trainer cards; the game
+keeps the DUO's trainers' list and Tower party (player 0's); the headers decide the battle's master
+(FindLinkBattleMaster: the game must win it, so the DUO's signature must be below 0x0300); the
+game's Pokemon are party slots 3-5 and battler 2, the DUO's 0-2 and battler 0; after a win the game
+sends its choice and takes the DUO's verdict."""
 import struct
 from link_game_model import LinkError
 from battle_game_model import (RubyColosseum, battle_block, mon_battle_fields, party_list, B_OUTCOME_WON,
@@ -31,20 +36,26 @@ PARTNER, MULTI_PARTY = 2, 3                      # the partner's battler; its Po
 
 class EmeraldTowerMulti(RubyColosseum):
     def __init__(self, party=None, enemy=None, open_level=False, battles=7, player_retires_after=None,
-                 trainer_ids=None, **kw):
+                 trainer_ids=None, master=True, **kw):
         """party: the player's two Pokemon (game form); enemy: the Tower trainers' Pokemon (four:
         trainer A's two, trainer B's two); player_retires_after: the battle after which the player
         retires (None: carries on); battles: how many the challenge is (7)."""
-        super().__init__(master=True, party=party, game="emerald", **kw)
+        super().__init__(master=master, party=party, game="emerald", **kw)
+        self.partner = PARTNER if master else 0        # (the DUO's battler: its link id, 2 or 0)
+        # (link.c LINKCMD_SEND_LINK_TYPE: the game answers 0x2222 with its own link player whatever type
+        # it names. A leader at the Tower can't tell the lobby's level before the game's link player,
+        # so any of the Tower's three types is taken here)
+        self.ask_types = (LT_TOWER_50, LT_TOWER_OPEN, LT_TOWER)
         self.tower_type = LT_TOWER_OPEN if open_level else LT_TOWER_50
         self.enemy = [bytes(m) for m in (enemy or [])]
         self.battles, self.retires_after = battles, player_retires_after
         self.trainer_ids = trainer_ids or list(range(1, 15)) + [0] * 6
         self.result.update(battles_won=0, battles_played=0, partner_status=[], retire_sessions=0,
-                           partner_cards=None, challenge_status=None, partner_species=None)
+                           partner_cards=None, challenge_status=None, partner_species=None,
+                           trainers_used=None, enemy_used=None, partner_verdicts=[])
 
     def _battler_side(self, b):                   # (who answers for a battler: the partner only for its own)
-        return self.other if b == PARTNER else self.my_id
+        return self.other if b == self.partner else self.my_id
 
     # ------------------------------------------------------------ the challenge
     def run(self):
@@ -69,9 +80,15 @@ class EmeraldTowerMulti(RubyColosseum):
             f = mon_battle_fields(m)
             struct.pack_into("<H", card, 0x54 + 2 * k, f["species"])
         s.send_buffer = bytes(card)
-        s.link.send(0xCCCC, 2)
-        while len(s.blocks_in) < 2:
+        if self.master:
+            s.link.send(0xCCCC, 2)
+        for _ in range(900 if self.master else 2000):  # (as player 1: the leader, the DUO, asks)
+            if len(s.blocks_in) >= 2:
+                break
             yield
+        else:
+            raise LinkError("no trainer cards: " + ("the partner never answered" if self.master else
+                                                    "the leader (the DUO) never asked for them"))
         theirs = s.blocks_in[self.other]
         if len(theirs) != BLOCK_REQUEST_SIZES[2]:
             raise LinkError(f"the partner's trainer card was {len(theirs)} bytes")
@@ -96,6 +113,12 @@ class EmeraldTowerMulti(RubyColosseum):
         got = yield from self._blocks(s, 1)
         if len(got[0]) < 40:
             raise LinkError(f"the partner's trainer list was {len(got[0])} bytes")
+        used = list(struct.unpack_from("<20H", got[0] if not self.master else struct.pack("<20H", *self.trainer_ids)))
+        if not self.master:                        # (everyone keeps player 0's list: the DUO's)
+            first = used[:14]
+            if len(set(first)) != 14 or 0 in first:
+                raise LinkError(f"the leader's trainer list isn't one the game makes (14 different trainers): {first}")
+        self.result["trainers_used"] = used
         s.close()
 
     def _tower_battle(self, s):
@@ -109,6 +132,7 @@ class EmeraldTowerMulti(RubyColosseum):
         s.stage = "Tower battle: headers"
         got = yield from self._blocks(s, 1)
         sig = {me: 0x0300, other: struct.unpack_from("<H", got[0], 0)[0]}
+        self.result["partner_header"] = got[0]
         if self._find_master(sig, me) != 12:
             raise LinkError(f"the partner's header (signature {sig[other]:#06x}) makes the partner run the battle")
         mine = b"".join(self.party).ljust(300, b"\0")
@@ -121,22 +145,31 @@ class EmeraldTowerMulti(RubyColosseum):
                 raise LinkError(f"the partner's party block {k + 1} was {len(got[0])} bytes, not {size}")
             theirs += got[0]
         enemy = b"".join(self.enemy[:2]).ljust(300, b"\0") + b"".join(self.enemy[2:4]).ljust(300, b"\0")
+        leaders = b""
         for k in range(3):
             s.stage = f"Tower battle: the Tower's trainers, block {k + 1}"
             s.link.send_block(enemy[200 * k:200 * k + 200])
             got = yield from self._blocks(s, 1)
             if len(got[0]) != 200:
                 raise LinkError(f"the partner's enemy block was {len(got[0])} bytes")
+            leaders += got[0]
+        if not self.master:                        # (player 1 keeps player 0's: the DUO's)
+            if not any(leaders[0:32]) or not any(leaders[300:332]):
+                raise LinkError("the leader's Tower party has no Pokemon for one of the trainers")
+            enemy = leaders
+        self.result["enemy_used"] = enemy
         s.stage = "Tower battle: the seed"
         s.link.send_block(struct.pack("<I", 0x12345678))
         got = yield from self._blocks(s, 1)
         self.result["partner_party"] = theirs
         mons = lambda raw: [mon_battle_fields(raw[100 * i:100 * i + 100]) if any(raw[100 * i:100 * i + 32]) else None
                             for i in range(len(raw) // 100)]
-        # party slots as the engine keeps them: the player's 0-2, the partner's 3-5; the trainers' 0-2, 3-5
-        self.tparty = {"player": (mons(mine) + [None] * 3)[:3] + (mons(theirs) + [None] * 3)[:3],
+        # party slots as the engine keeps them: link id 0's 0-2, id 2's 3-5; the trainers' 0-2, 3-5
+        first, second = (mine, theirs) if self.master else (theirs, mine)
+        self.tparty = {"player": (mons(first) + [None] * 3)[:3] + (mons(second) + [None] * 3)[:3],
                        "enemy": mons(enemy)}
-        if not any(self.tparty["player"][3:]):
+        dslots = slice(3, 6) if self.master else slice(0, 3)
+        if not any(self.tparty["player"][dslots]):
             raise LinkError("the partner sent no Pokemon")
         for _ in range(100):
             yield
@@ -150,17 +183,32 @@ class EmeraldTowerMulti(RubyColosseum):
         while not s.players_checked:
             yield
         self.result["retire_sessions"] += 1
-        s.stage = "Tower: the partner's choice"
-        got = yield from self._blocks(s, 1, frames=600)
-        if len(got[0]) < 2:
-            raise LinkError(f"the partner's choice was {len(got[0])} bytes")
-        theirs = struct.unpack_from("<H", got[0], 0)[0]
-        self.result["partner_status"].append(theirs)
         ours = LINK_RETIRE if self.retires_after == self.result["battles_played"] else LINK_CONTINUE
-        verdict = (LINKSTAT_BOTH_RETIRE if ours and theirs else LINKSTAT_MEMBER_RETIRE if theirs else
-                   LINKSTAT_LEADER_RETIRE if ours else LINKSTAT_CONTINUE)
-        self.result["challenge_status"] = verdict
-        s.link.send_block(struct.pack("<H", verdict))
+        if not self.master:                        # (as member: our choice, then the leader's verdict)
+            s.stage = "Tower: our choice, then the leader's verdict"
+            for _ in range(10):
+                yield
+            s.link.send_block(struct.pack("<H", ours))
+            got = yield from self._blocks(s, 1, frames=600)
+            if len(got[0]) < 2:
+                raise LinkError(f"the leader's verdict was {len(got[0])} bytes")
+            verdict = struct.unpack_from("<H", got[0], 0)[0]
+            allowed = (LINKSTAT_BOTH_RETIRE, LINKSTAT_MEMBER_RETIRE) if ours else (LINKSTAT_CONTINUE, LINKSTAT_LEADER_RETIRE)
+            if verdict not in allowed:
+                raise LinkError(f"the leader's verdict {verdict} doesn't fit the game's choice ({ours})")
+            self.result["partner_verdicts"].append(verdict)
+            self.result["challenge_status"] = verdict
+        else:
+            s.stage = "Tower: the partner's choice"
+            got = yield from self._blocks(s, 1, frames=600)
+            if len(got[0]) < 2:
+                raise LinkError(f"the partner's choice was {len(got[0])} bytes")
+            theirs = struct.unpack_from("<H", got[0], 0)[0]
+            self.result["partner_status"].append(theirs)
+            verdict = (LINKSTAT_BOTH_RETIRE if ours and theirs else LINKSTAT_MEMBER_RETIRE if theirs else
+                       LINKSTAT_LEADER_RETIRE if ours else LINKSTAT_CONTINUE)
+            self.result["challenge_status"] = verdict
+            s.link.send_block(struct.pack("<H", verdict))
         for _ in range(30):
             yield
         yield from s.barrier()
@@ -177,6 +225,7 @@ class EmeraldTowerMulti(RubyColosseum):
         hp = {id(p): [f["hp"] if f else 0 for f in p], id(e): [f["hp"] if f else 0 for f in e]}
         HP = lambda b, k=None: hp[id(team[b])][active[b] if k is None else k]
         live = lambda b: active[b] is not None and HP(b) > 0
+        PARTNER = self.partner                     # (the DUO's battler)
         own = lambda b: b != PARTNER
         foes = lambda b: (1, 3) if b in (0, 2) else (0, 2)
         s.stage = "Tower battle: the intro"

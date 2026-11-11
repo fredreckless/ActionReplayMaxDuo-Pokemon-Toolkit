@@ -661,7 +661,7 @@ class Session:
         for i in range(2):
             c = cmd[0][i]
             if c == 0x2222:
-                if cmd[1][i] != self.link_type:
+                if cmd[1][i] != self.link_type and cmd[1][i] not in getattr(g, "ask_types", ()):
                     raise LinkError(f"0x2222 asked for link type {cmd[1][i]:#06x}, expected {self.link_type:#06x}")
                 self.pending = {0, 1}
                 block = bytearray(link_player_block(language=g.language, link_type=self.link_type,

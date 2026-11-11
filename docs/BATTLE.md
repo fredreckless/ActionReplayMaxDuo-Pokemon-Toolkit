@@ -310,9 +310,10 @@ sends 0x0001).
 - ~~Emerald and FireRed/LeafGreen~~ **done in the simulator, 8 November** (below).
 - **Elite in doubles**: done as a one-turn plan (above). Full playouts over several turns would
   need a doubles version of the whole engine; not needed yet.
-- **Multi battles** (four players) and the **Battle Tower's link multi battle** (Emerald): a design
-  in [MULTI.md](MULTI.md) (the Tower's needs only two GBAs; four-player battles need the DUO to fill
-  three slots on the cable, an experiment first).
+- ~~The **Battle Tower's link multi battle** (Emerald)~~ **built in the simulator** (8 November, the DUO
+  as player 1; 11 November as player 0 too): [MULTI.md](MULTI.md) section 1.
+- **Multi battles** (four players): a design in [MULTI.md](MULTI.md); they need the DUO to fill three
+  slots on the cable, an experiment first.
 
 ## Steps
 

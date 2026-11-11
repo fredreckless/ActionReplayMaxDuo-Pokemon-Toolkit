@@ -1,7 +1,14 @@
 /* tower.c - the DUO as the player's partner in Emerald's Battle Tower link multi battle (8 November
  * 2026; docs/MULTI.md). Grown from colosseum.c: the same link engine, blocks, battle answers and PC
- * choices, without the room walk (the Tower's link-up is at the counter). The DUO must be player 1:
- * player 0's copy of the Tower trainers' list and party is the one the battle uses.
+ * choices, without the room walk (the Tower's link-up is at the counter). The DUO can be either
+ * player (11 November); the game always runs the battle:
+ *   - player 1 (the game's GBA on the master end): player 0's copy of the Tower trainers' list and
+ *     party is the one the battle uses, the game's; we answer the game's blocks as below;
+ *   - player 0 (the DUO's GBA on the master end): we ask for the trainer cards, send the game's own
+ *     trainers' list and Tower party straight back (player 1 keeps player 0's), send the header
+ *     signature 0x0001 (below Emerald's 0x0300: FindLinkBattleMaster makes the game, on the highest
+ *     version, the battle's master), and give the verdict on carrying on from both choices. Our
+ *     Pokemon are then party slots 0-2 and battler 0, the game's 3-5 and battler 2.
  *   - the lobby (LINKTYPE_BATTLE_TOWER_50 0x2266 / _OPEN 0x2277): link players (the game's version:
  *     Emerald), our trainer card (our two Pokemon's species at 0x54: the same species as the
  *     player's fails the link-up), the link save's three "ready" barriers, the win streaks (4 bytes
@@ -61,8 +68,8 @@ typedef struct {
 #define LT_TOWER_50   0x2266   /* the lobby's link-up, level 50 */
 #define LT_TOWER_OPEN 0x2277   /* ... open level */
 #define LT_TOWER      0x2288   /* each battle, and the link after it */
-#define PARTY_BASE    3        /* our Pokemon's party slots in the battle (MULTI_PARTY_SIZE) */
-#define OUR_BATTLER   2        /* the player's partner */
+#define PARTY_BASE    (is_master ? 0 : 3)   /* our Pokemon's party slots (link id 0: 0-2; id 2: 3-5) */
+#define OUR_BATTLER   (is_master ? 0 : 2)   /* our battler: the link player's id (0 or 2) */
 
 /* controller commands (pokeruby battle_controllers.h) and the replies we send */
 #define C_SWITCHINANIM    5
@@ -157,6 +164,8 @@ static u8 game_player[60];
 static u32 close_pending, close_at, battles, won, verdict, lobby_blocks, retire_next, choice_sent;
 static u8 small[40];                      /* our short blocks: the win streak, the trainers, our choice */
 static u32 barriers;
+static u32 card_asked, lead_timer;        /* as player 0: the trainer cards' request */
+static u8 mirror[200];                    /* as player 0: the game's Tower party block, to send back */
 static u32 start_in, start_out;           /* the battle's opening blocks: the game's, ours (seven each) */
 static u32 commands, ours_answered, outcome, choices;
 static u32 fainted, on_field[2], last_pick;
@@ -203,7 +212,7 @@ static void build_our_player(void)
     } else {
         lp[0x10] = OUR_GENDER;                               /* Ruby/Sapphire keep the gender here */
     }
-    lp[0x18] = 1;
+    lp[0x18] = is_master ? 0 : 1;
 }
 
 static void queue(u16 w0, u16 w1, u16 w2)
@@ -236,6 +245,9 @@ static void battle_block(const u8 *cmd, u32 state_, const u8 *data, u32 n)
 static void next_command(void)
 {
     for (u32 i = 0; i < CMD_LEN; i++) current[i] = 0;
+    if (is_master && !tx_on && !qcount && state == ST_LOBBY && game_player[16] && !card_asked && ++lead_timer > 40) {
+        queue(0xCCCC, 2, 0); card_asked = 1;                     /* (as player 0: cable_club.c, the cards) */
+    }
     if (qcount) {
         u16 *q = qcmd[qhead];
         current[0] = q[0]; current[1] = q[1]; current[2] = q[2];
@@ -281,7 +293,8 @@ static void opening_block(void)          /* our next opening block, once the gam
     if (start_out == 0) send_block(our_header, sizeof our_header - 1);   /* the header (31 bytes) */
     else if (start_out == 1) send_block(PARTY, 200);             /* our two Pokemon */
     else if (start_out == 2) send_block(PARTY + 200, 100);       /* a third (none) */
-    else if (start_out < 6) send_block(zeros, 200);              /* the Tower trainers' (the game's count) */
+    else if (start_out < 6) send_block(is_master ? mirror : zeros, 200);   /* the Tower trainers' (player 0's
+                                                                   are used: the game's own, back) */
     else send_block(zeros, 4);                                   /* the recorded battle's seed */
     if (start_out == 0) log_bytes(our_header, 31, K_OURS);
     start_out++;
@@ -291,7 +304,8 @@ static void opening_block(void)          /* our next opening block, once the gam
 static void game_header(const u8 *b)     /* the game's LinkPartnerHeader: our answer to it */
 {
     zero(our_header, sizeof our_header);
-    our_header[0] = b[0]; our_header[1] = b[1];                  /* its own: player 0 (the game) runs it */
+    if (is_master) { our_header[0] = 1; our_header[1] = 0; }     /* 0x0001: the game, on 0x0300, runs it */
+    else { our_header[0] = b[0]; our_header[1] = b[1]; }         /* its own: player 0 (the game) runs it */
     u32 fit = 0;
     for (u32 i = 0; i < TEAM_COUNT && i < 2; i++) fit |= 1u << (2 * i);   /* every Pokemon fit to battle */
     our_header[2] = fit; our_header[3] = fit >> 8;
@@ -381,7 +395,9 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         send_block(our_player, 60);
         player_pending = 0;
         log_event(E_SESSION, game_lp_type);
-        if (game_lp_type == LT_TOWER_50 || game_lp_type == LT_TOWER_OPEN) { state = ST_LOBBY; lobby_blocks = 0; }
+        if (game_lp_type == LT_TOWER_50 || game_lp_type == LT_TOWER_OPEN) {
+            state = ST_LOBBY; lobby_blocks = 0; card_asked = lead_timer = 0;
+        }
         else if (game_lp_type == LT_TOWER && retire_next) {      /* after a win: our choice first (each_cycle) */
             state = ST_RETIRE; choice_sent = 0;
         }
@@ -393,6 +409,16 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         else if (size == 40 && lobby_blocks == 1) { memcpy(small, b, 40); send_block(small, 40); lobby_blocks = 2; }
         return;
     }
+    if (state == ST_RETIRE && is_master) {                       /* the game's choice: our verdict */
+        u32 theirs = b[0] | b[1] << 8, ours = RETIRE_AFTER && battles >= RETIRE_AFTER;
+        verdict = ours && theirs ? 1 : theirs ? 2 : ours ? 3 : 0;     /* BOTH_ / MEMBER_ / LEADER_RETIRE, CONTINUE */
+        zero(small, 2);
+        small[0] = verdict;
+        send_block(small, 2);
+        choice_sent = 1;
+        log_event(E_VERDICT, verdict);
+        return;
+    }
     if (state == ST_RETIRE) {                                    /* the game's verdict */
         verdict = b[0] | b[1] << 8;
         log_event(E_VERDICT, verdict);
@@ -401,6 +427,10 @@ static void game_block(u32 size)          /* a whole block from the game has arr
     if (state < ST_STARTING || state > ST_OVER) return;
     if (start_in < 7) {                                    /* the opening: seven blocks */
         if (start_in == 0) { game_header(b); state = ST_TEAMS; }
+        if (start_in >= 3 && start_in < 6) {                     /* the Tower's trainers: kept to send back */
+            zero(mirror, sizeof mirror);
+            memcpy(mirror, b, kept < sizeof mirror ? kept : sizeof mirror);
+        }
         start_in++;
         return;
     }
@@ -457,7 +487,7 @@ static void process_command(void)
 static void each_cycle(void)              /* once a command cycle (a frame) */
 {
     opening_block();
-    if (state == ST_RETIRE && !choice_sent && !tx_on && !player_pending) {   /* (once our link player has gone) */
+    if (state == ST_RETIRE && !is_master && !choice_sent && !tx_on && !player_pending) {   /* (once our link player has gone) */
         zero(small, 2);
         small[0] = RETIRE_AFTER && battles >= RETIRE_AFTER;   /* BATTLE_TOWER_LINK_RETIRE : _CONTINUE */
         send_block(small, 2);
@@ -489,7 +519,9 @@ static void on_transfer(void)
             send_idx = recv_idx = 0; checksum_ready = 0; nonzero = 0;
             new_session();
             if (state < ST_CONNECTED) state = ST_CONNECTED;
-            if (is_master) queue(0x2222, LT_TOWER, 0);               /* (as player 0: not supported; the PC says so) */
+            if (is_master) queue(0x2222, battles || lobby_blocks == 2 ? LT_TOWER : LT_TOWER_50, 0);   /* as player 0:
+                                                       link players, please (the type: our best guess; the game
+                                                       answers whatever it says, link.c) */
             loaded = 0;
             SIOMLT_SEND = loaded;
             return;

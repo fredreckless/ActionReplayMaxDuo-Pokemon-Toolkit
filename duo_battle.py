@@ -2330,11 +2330,17 @@ class TowerLink(LinkBattle):
     player's partner; the player is battler 0; the Tower's trainers are 1 and 3. Party slots as the
     game keeps them: the player's 0-2 and ours 3-5 on our side, trainer A's 0-2 and trainer B's 3-5 on
     the other. The opening blocks: the header, the player's party (two Pokemon, then a third), the
-    Tower trainers' (three blocks), the seed."""
+    Tower trainers' (three blocks), the seed.
+    leader=True (11 November): the DUO is player 0, so battler 0 with party slots 0-2, and the player
+    battler 2 with 3-5; the game still runs the battle."""
     OUR_SIDE, CONTROLLED, FOES = (0, 2), (2,), (1, 3)
 
-    def __init__(self, ours, level="medium", seed=None):
+    def __init__(self, ours, level="medium", seed=None, leader=False):
         super().__init__(ours, level=level, double=True, seed=seed)
+        self.leader = leader
+        self.me = 0 if leader else 2                   # (our battler)
+        self.base = 0 if leader else 3                 # (our first party slot)
+        self.CONTROLLED = (self.me,)
         self.mine = self.ours                          # (our own Pokemon, in order)
         self.ally = [None] * 3
         self.enemy = [None] * 6
@@ -2343,7 +2349,8 @@ class TowerLink(LinkBattle):
 
     def side_team(self, battler):
         if battler in (0, 2):
-            return self.ally + (self.mine + [None] * 3)[:3]
+            mine = (self.mine + [None] * 3)[:3]
+            return mine + self.ally if self.leader else self.ally + mine
         return self.enemy
 
     def _party(self, raw):
@@ -2403,7 +2410,7 @@ class TowerLink(LinkBattle):
             idx = next((i for i, (k, _) in enumerate(mons) if k == active), 0)
             return [m.clone() for _, m in mons] or [Mon(1, 5, [1])], idx
         c = Battle.__new__(Battle)
-        mt, mi = half(self.side_team(battler), self.active.get(battler, 3))
+        mt, mi = half(self.side_team(battler), self.active.get(battler, self.base))
         ft, fi = half(self.side_team(foe_battler), self.active.get(foe_battler, 0))
         c.sides = [Side(mt, "DUO"), Side(ft, "Tower")]
         c.sides[0].active, c.sides[1].active = mi, fi
@@ -2412,8 +2419,9 @@ class TowerLink(LinkBattle):
         return c
 
     def choose(self, battler):
-        """As LinkBattle.choose, for battler 2: fight (no switching in the Tower's multi battle), a
-        move at one of the Tower's trainers, a replacement from our own two (party slots 3-4)."""
+        """As LinkBattle.choose, for our battler (2, or 0 as leader): fight (no switching in the Tower's
+        multi battle), a move at one of the Tower's trainers, a replacement from our own two (party
+        slots 3-4, or 0-1 as leader)."""
         cmd, d = self.pending[battler]
         if not self.theirs:
             raise ValueError("the Tower trainers' party isn't in the record yet")
@@ -2428,12 +2436,12 @@ class TowerLink(LinkBattle):
             if slot not in usable:
                 slot = usable[0] if usable else 0
             return slot, target if target in self.FOES else self.FOES[0]
-        bench = [3 + k for k, m in enumerate(self.mine) if not m.fainted and 3 + k != self.active.get(battler)]
+        bench = [self.base + k for k, m in enumerate(self.mine) if not m.fainted and self.base + k != self.active.get(battler)]
         if not bench:
             return 6, 0
         foes = [f for f in self.FOES if self.mon(f) and not self.mon(f).fainted] or [self.FOES[0]]
         def score(slot):
-            return sum(matchup(self._battle_for(battler, f), 0, slot - 3) for f in foes)
+            return sum(matchup(self._battle_for(battler, f), 0, slot - self.base) for f in foes)
         return max(bench, key=score), 0
 
 

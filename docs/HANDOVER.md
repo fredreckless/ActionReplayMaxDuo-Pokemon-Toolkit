@@ -68,9 +68,11 @@ then a double battle; Record Mixing with the player in the DUO's way.
   sizes) with the base's entrance pinned, the other spots of its kind clickable, and directions.
   With the user's ROM loaded it also draws the route itself round the entrance (gMapLayouts entries
   16-49, the rooms' own drawing code); `duo_rom.py` now copies the routes with bases too.
-- **The DUO can lead** the Berry Blender and the Contest (player 0, its GBA on the master end).
-  The Battle Tower still needs the game on the master end (player 0 picks the Tower's trainers and
-  their teams, and the battle roles change): not yet.
+- **The DUO can lead** the Berry Blender, the Contest and the Battle Tower (player 0, its GBA on
+  the master end). At the Tower the game still runs the battles: the DUO asks for the cards, sends
+  the game's own trainers' list and Tower party back (player 1 keeps player 0's), says 0x0001 in the
+  header (below Emerald's 0x0300, so `FindLinkBattleMaster` picks the game), plays battler 0 from
+  party slots 0-2, and gives the verdict on carrying on from both choices.
 - **Contest moves planned by the PC** (`contest_data.py`, from pret's contest moves).
 - **link_core.h / link_tail.h**: blender.c and contest.c share their link layer (byte-identical builds).
 - **The hardware checklist page** (the "DUO Hardware Checklist" artifact): the queue to tick at the

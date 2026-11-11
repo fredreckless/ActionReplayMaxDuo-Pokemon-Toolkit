@@ -3871,6 +3871,43 @@ def _():
     assert "didn't get as far as the Tower's trainers" in hw.text, hw.text[-800:]
 
 
+@test("Battle Tower, the DUO as player 0 (11 November): it asks for the cards, sends the game's own trainers' list and Tower party back (player 1 keeps player 0's), a header signature below Emerald's so the game runs the battles, plays battler 0 from party slots 0-2, and gives the verdict 'carry on' between battles")
+def _():
+    hw, game, report = tower_run(battles=3, duo_wins=True, master=False)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["battles_played"] == 3 and r["battles_won"] == 3 and r["retire_sessions"] == 2, r
+    assert struct.unpack_from("<H", r["partner_header"], 0)[0] == 0x0001, r["partner_header"][:4].hex()
+    assert r["trainers_used"] == game.trainer_ids, r["trainers_used"]
+    enemy = b"".join(game.enemy[:2]).ljust(300, b"\0") + b"".join(game.enemy[2:4]).ljust(300, b"\0")
+    assert r["enemy_used"] == enemy
+    assert r["partner_verdicts"] == [TWG.LINKSTAT_CONTINUE] * 2, r["partner_verdicts"]
+    assert r["partner_choices"] and all(b == 0 and t in (1, 3) for _, b, _, t in r["partner_choices"]), r["partner_choices"]
+    assert report["battles"] == 3 and report["won"] == 3 and report["pc_answers"] > 0 and report["fallbacks"] == 0, report
+    assert "The DUO is player 0" in hw.text and "3 battles, 3 won" in hw.text, hw.text[-1200:]
+
+
+@test("Battle Tower, the DUO as player 0: the verdicts - the DUO retiring after the first battle (the leader retires: the game says its partner has retired), and the player retiring while the DUO would carry on (the member retires)")
+def _():
+    hw, game, report = tower_run(battles=7, duo_wins=True, master=False, retire_after=1)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["battles_played"] == 1 and r["partner_verdicts"] == [TWG.LINKSTAT_LEADER_RETIRE], r
+    assert report["verdict"] == TWG.LINKSTAT_LEADER_RETIRE and report["state"] == W.TOWER_ST["DONE"], report
+    hw, game, report = tower_run(battles=7, duo_wins=True, master=False, player_retires_after=1)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert game.result["partner_verdicts"] == [TWG.LINKSTAT_MEMBER_RETIRE] and report["verdict"] == TWG.LINKSTAT_MEMBER_RETIRE
+
+
+@test("Battle Tower, the DUO as player 0: its first Pokemon faints - the PC sends in its second from party slot 1 (its own half, 0-2, as link id 0), the game takes it, and the DUO's own choice is never needed")
+def _():
+    hw, game, report = tower_run(battles=1, master=False, hit_share=0.3, partner_hit_share=0.55)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["partner_switches"] and all(b == 0 and pick == 1 for _, b, pick in r["partner_switches"]), r["partner_switches"]
+    assert report["fallbacks"] == 0, report
+
+
 # ---------------------------------------------------------------- the Berry Blender (8 November)
 import blender_game_model as BBG
 

@@ -26,13 +26,27 @@ pret's sources (cable_club.c, battle_tower.c, field_specials.c, start_menu.c, sa
    `--retire-after`), the game its verdict, a "ready" barrier, closed. A loss, the seventh win or a
    verdict to stop ends the challenge.
 
-**The DUO must be player 1** (the game's GBA on the master end): player 0's copy of the trainers'
-list and of their party is the one the battle uses, which the DUO can't make. The tool says so if
-the cable is the other way round.
+**The DUO as player 0 (11 November)**, its GBA on the master end. Player 0's copy of the trainers'
+list and of their party is the one the battle uses; the DUO has no Tower data of its own, but the
+game, as player 1, sends its own copies first, so the DUO sends them straight back and the game
+battles the trainers it chose itself. The rest of player 0's jobs:
+- the lobby: it asks for the trainer cards (0xCCCC 2), as a link-up's leader does;
+- the header: signature 0x0001. `FindLinkBattleMaster` (two players on different versions): the
+  lowest-numbered player on 0x0300 or above is master, so the game, player 1 on 0x0300, runs the
+  battle (0x0100 would have made player 0 the master; 0x0300 too, as the same version);
+- the battle: the link players' ids are fixed (`gLinkPlayers[0].id = 0`, `[1].id = 2`), so the DUO
+  is battler 0 with party slots 0-2, and the player battler 2 with 3-5. The game's engine sends every
+  command; the DUO answers battler 0's;
+- after a win: the game, the member, sends its choice; the DUO, the leader, sends the verdict
+  (`BOTH_RETIRE` 1, `MEMBER_RETIRE` 2 when only the player retires, `LEADER_RETIRE` 3 when only the
+  DUO does, else `CONTINUE` 0), and the game says "your partner has retired" for 3.
+The recorded battle's seed is the master's, the game's, so the DUO's zeros are never read.
 
 Tested in the simulator: a three-battle challenge (with the carry-on exchanges), the DUO retiring
 after the first battle, a lost battle, a link-up refused for the same species, one battle at the
-impossible level; planted bugs for each. Hardware next: Emerald with the Battle Frontier open.
+impossible level; as player 0, a three-battle challenge (the model checking the DUO's header, its
+trainers' list and Tower party, its card request and its battler) and the verdicts both ways;
+planted bugs for each. Hardware next: Emerald with the Battle Frontier open.
 
 ### The design, as first written
 

@@ -289,7 +289,7 @@ Everything the game sends is recorded and kept in a `battles` folder beside the 
 python duo_events.py tower --pk3 "mine\METAGROSS.pk3" "mine\SALAMENCE.pk3" --level elite
 ```
 
-Talk to the attendant for the LINK MULTI BATTLE and choose two Pokemon of other species than the DUO's. The game's GBA must be on the cable's master end (the DUO is player 1). `--retire-after N` has the DUO retire after battle N. Tested in the simulator; hardware next.
+Talk to the attendant for the LINK MULTI BATTLE and choose two Pokemon of other species than the DUO's. The cable can go either way round: the game always runs the battles, and with the DUO's GBA on the master end the DUO asks for the trainer cards and decides "carry on?" from both your choices. `--retire-after N` has the DUO retire after battle N. Tested in the simulator; hardware next.
 
 **The Berry Blender.** The DUO can blend berries with you at a link Berry Blender in Ruby, Sapphire or Emerald (Lilycove City), pressing A as its arrow passes; afterwards the tool says which Pokéblock you made:
 
@@ -315,7 +315,7 @@ python duo_battle.py --pk3 "mine\*.pk3" --level elite         (your .pk3 files a
 python duo_battle.py --tournament 40 --level medium --opponent easy
 ```
 
-**Status (8 November 2026):** the battle link worked on hardware with the probe on 7 November (a single battle against English Ruby, to the end and out of the room). The PC's choosing, the impossible level, double battles, and Emerald and FireRed/LeafGreen are tested in the simulator against a model of each game; hardware next. Not yet: multi battles (four players) and the Battle Tower's link multi battle.
+**Status (8 November 2026):** the battle link worked on hardware with the probe on 7 November (a single battle against English Ruby, to the end and out of the room). The PC's choosing, the impossible level, double battles, and Emerald and FireRed/LeafGreen are tested in the simulator against a model of each game; hardware next. The Battle Tower's link multi battle is built too (below); not yet: multi battles with four players.
 
 ## Logs of every run
 
