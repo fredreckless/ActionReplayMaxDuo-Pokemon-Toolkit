@@ -73,7 +73,9 @@ then a double battle; Record Mixing with the player in the DUO's way.
   the game's own trainers' list and Tower party back (player 1 keeps player 0's), says 0x0001 in the
   header (below Emerald's 0x0300, so `FindLinkBattleMaster` picks the game), plays battler 0 from
   party slots 0-2, and gives the verdict on carrying on from both choices.
-- **Contest moves planned by the PC** (`contest_data.py`, from pret's contest moves).
+- **Contest moves planned by the PC** (`contest_data.py`, from pret's contest moves), and then
+  **chosen live** each round from the appeals' state: the applause meter, the turn order, the
+  rounds left (`ContestWatch`, `choose_live`; the DUO's poll 11).
 - **link_core.h / link_tail.h**: blender.c and contest.c share their link layer (byte-identical builds).
 - **The hardware checklist page** (the "DUO Hardware Checklist" artifact): the queue to tick at the
   console; the results are kept with the page for Claude to read back (the `results` collection).

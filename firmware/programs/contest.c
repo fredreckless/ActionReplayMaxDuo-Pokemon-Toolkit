@@ -194,11 +194,13 @@ static void answer_request(u32 n)         /* 0xCCCC n: our block of that size */
 }
 
 /* ------------------------------------------------------------------ the contest */
-static u32 our_move(void)                 /* this round's move: the next in the PC's order */
+static u8 live[8];                        /* the PC's choice for a round, made during the contest (bit 7: set) */
+
+static u32 our_move(void)                 /* this round's move: the PC's live choice, else the next in its order */
 {
-    u32 n = NMOVES ? NMOVES : 1, i = rounds++;
+    u32 n = NMOVES ? NMOVES : 1, r = rounds++, i = r;
     while (i >= n) i -= n;
-    u32 k = ORDER[i] & 3, m = MON[30 + 2 * k] | MON[31 + 2 * k] << 8;
+    u32 k = r < 8 && live[r] & 0x80 ? live[r] & 3 : ORDER[i] & 3, m = MON[30 + 2 * k] | MON[31 + 2 * k] << 8;
     for (k = 0; !m && k < 4; k++) m = MON[30 + 2 * k] | MON[31 + 2 * k] << 8;   /* (an empty slot: the first move) */
     return m;
 }
@@ -377,10 +379,16 @@ static int pc_service(api_t *api)
     case 8: v = max_gap; break;
     case 9: v = have_standings ? standings[0] | standings[1] << 8 | standings[2] << 16 | (u32)standings[3] << 24 : 0xFFFFFFFF; break;
     case 10: v = log_lost; break;
+    case 11: {                                                   /* the PC's choice for a round still to come */
+        u32 r = idx & 7, k = idx >> 4 & 3;
+        v = r >= rounds && (MON[30 + 2 * k] | MON[31 + 2 * k]);
+        if (v) live[r] = 0x80 | k;
+        break;
+    }
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && NMOVES >= 1 && NMOVES <= 8;
-             if (blob_ready) log_len = log_full = log_seq = 0;
+             if (blob_ready) { log_len = log_full = log_seq = 0; zero(live, sizeof live); }
              break;
     default: v = 0xFFFFFFFF; break;
     }

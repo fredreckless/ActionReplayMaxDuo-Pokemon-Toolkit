@@ -70,6 +70,8 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 }
 
 PC_MUTANTS = {
+    "contest: the applause meter never empties": ("        self.meter = max(0, self.meter + r3)\n        if self.meter > 4:\n            self.meter = 0\n", "        self.meter = max(0, self.meter + r3)\n", "Contest, live moves"),
+    "contest: the DUO always taken to appeal last": ("        mine = order[self.me]\n", "        mine = 3\n", "Contest, live moves"),
     "tower: as player 0, the PC still chooses for battler 2": ("        self.me = 0 if leader else 2                   # (our battler)\n", "        self.me = 2\n", "Battle Tower, the DUO as player 0 (11 November)"),
     "contest: the plan without combos": ("            if prev is not None and is_combo(moves[prev], m):\n                s += appeal\n", "            if prev is not None and is_combo(moves[prev], m):\n                s += 0\n", "Contest planning"),
     "contest: the names not in the link's form": ("        name[length - 1], name[5] = name[5], 0xFF\n", "        name[length - 1] = name[5]\n", "Contest (8 November)"),
@@ -352,7 +354,8 @@ BLENDER_MUTANTS = {        # firmware/programs/blender.c: the Berry Blender part
     "blender: the link's close not answered": ("        queue(0x5FFF, 0, 0);\n        log_event(E_CLOSE, state);", "        log_event(E_CLOSE, state);", "Berry Blender (8 November)"),
 }
 
-CONTEST_MUTANTS = {        # firmware/programs/contest.c: Emerald's link Contest (8 November)
+CONTEST_MUTANTS = {
+    "contest: the PC's live choice ignored": ("    u32 k = r < 8 && live[r] & 0x80 ? live[r] & 3 : ORDER[i] & 3, m = MON[30 + 2 * k] | MON[31 + 2 * k] << 8;", "    u32 k = ORDER[i] & 3, m = MON[30 + 2 * k] | MON[31 + 2 * k] << 8;", "Contest, live moves"),        # firmware/programs/contest.c: Emerald's link Contest (8 November)
     "contest: as player 0, a leader ID equal to the game's (the DUO would lead)": ("        ours[0] = ours[1] = 0;", "        ours[0] = 0x6E; ours[1] = 0;", "Contest, the DUO as player 0"),
     "contest: as player 0, never sends the random seed": ("            if (setup_barriers == 1 || setup_barriers == 4)", "            if (setup_barriers == 4)", "Contest, the DUO as player 0"),
     "contest: says it's a Ruby player": ("    lp[0] = 3; lp[1] = game_player[17];", "    lp[0] = 2; lp[1] = game_player[17];", "Contest (8 November)"),

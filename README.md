@@ -305,7 +305,7 @@ The cable can go either way round: whichever GBA is on the master end leads the 
 python duo_events.py contest --pk3 "mine\SKITTY.pk3" --category cute
 ```
 
-The game works out the contest; the PC plans the DUO's five moves from their contest effects (combos, the crowd, no repeats; `--order` to choose them yourself), and the tool says where each of you came. Either way round on the cable: with the DUO on the master end, give it `--rivals A.pk3 B.pk3` for the other two contestants. Ruby and Sapphire's link contests need four players, so they wait for the four-player experiment. Details in [docs/CONTEST.md](docs/CONTEST.md); tested in the simulator, hardware next.
+The game works out the contest; the PC plans the DUO's five moves from their contest effects (combos, the crowd, no repeats) and then picks each round's as the contest goes, following the applause meter and the turn order (`--order` to choose them yourself), and the tool says where each of you came. Either way round on the cable: with the DUO on the master end, give it `--rivals A.pk3 B.pk3` for the other two contestants. Ruby and Sapphire's link contests need four players, so they wait for the four-player experiment. Details in [docs/CONTEST.md](docs/CONTEST.md); tested in the simulator, hardware next.
 
 The thinking half can also battle on its own, on the PC:
 

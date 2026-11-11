@@ -43,7 +43,9 @@ def contest_mon(species, moves, cond=(10, 20, 30, 40, 50, 5), name=b"\xbb\xbc\xb
 
 class EmeraldLinkContest(RubyTrade):
     def __init__(self, category="cool", player_mon=None, partner_species=None, partner_moves=None, rounds=5,
-                 duo_place=1, language=LANG_ENGLISH, master=True, **kw):
+                 duo_place=1, language=LANG_ENGLISH, master=True, crowd=False, ai_moves=((17,), (17,)), orders=None,
+                 player_moves=(85,),
+                 **kw):
         """category: the player's choice at the counter; partner_species / partner_moves: what the
         DUO's contestant must be (from its .pk3); duo_place: where the leader's figures put the DUO
         (0 first ... 3 fourth)."""
@@ -54,6 +56,16 @@ class EmeraldLinkContest(RubyTrade):
         self.player_mon = player_mon or contest_mon(25, (85, 86, 98, 0))
         self.partner_species, self.partner_moves = partner_species, partner_moves
         self.rounds, self.duo_place = rounds, duo_place
+        # crowd (11 November): the appeals' state worked out as the leader does, in part - each appeal's
+        # move, the crowd's excitement and the applause meter (contest.c CalculateAppealMoveImpact,
+        # APPEALSTATE_UPDATE_CROWD), the bonus (+10, or +60 filling the meter), the turn order - so
+        # that a partner choosing from it can be checked. player_moves, ai_moves: the player's and the
+        # two other contestants' moves, round by round in turn;
+        # orders: each round's turn order (contestant -> position), default 0, 1, 2, 3
+        self.crowd, self.ai_moves, self.player_moves = crowd, ai_moves, player_moves
+        self.orders = orders or [(0, 1, 2, 3)] * rounds
+        self.meter, self.status = 0, [dict(prev=0, curr=0, appeal=0, total=0, repeated=0) for _ in range(4)]
+        self.result.update(crowd=[])
         self.result.update(partner_mon=None, partner_moves=[], partner_index=[], standings=None, closed=False,
                            blocks_answered=0)
 
@@ -171,20 +183,28 @@ class EmeraldLinkContest(RubyTrade):
         for r in range(self.rounds):
             s.stage = f"Contest round {r + 1}: the moves"
             yield from self._wait(90)                               # (the player choosing)
-            got = yield from self._exchange(s, struct.pack("<H", 85))
+            mine = self.player_moves[r % len(self.player_moves)]
+            got = yield from self._exchange(s, struct.pack("<H", mine))
             move = struct.unpack("<H", got)[0]
             if move not in [m for m in self.partner_moves if m]:
                 raise LinkError(f"the partner's move {move} isn't one of its contestant's {self.partner_moves}")
             self.result["partner_moves"].append(move)
+            picks = {self.my_id: mine, self.other: move, 2: self.ai_moves[0][r % len(self.ai_moves[0])],
+                     3: self.ai_moves[1][r % len(self.ai_moves[1])]}
+            order = self.orders[r]
             for turn in range(4):
                 s.stage = f"Contest round {r + 1}: appeal {turn + 1}"
-                yield from self._appeals_state(s)
+                if self.crowd:
+                    self._appeal(r, order, order.index(turn), picks)
+                yield from self._appeals_state(s, order)
                 yield from self._wait(60)
             s.stage = f"Contest round {r + 1}: the round's end"
-            yield from self._appeals_state(s)
+            yield from self._appeals_state(s, order)
             if r + 1 < self.rounds:
                 s.stage = f"Contest round {r + 1}: before the next"
-                yield from self._appeals_state(s)
+                for st in self.status:
+                    st["prev"], st["curr"] = st["curr"], 0
+                yield from self._appeals_state(s, self.orders[r + 1])
         s.stage = "Contest: the final standings"
         yield from self._wait(100)
         places = [0, 0, 0, 0]
@@ -207,9 +227,36 @@ class EmeraldLinkContest(RubyTrade):
         s.close()
         self.result["closed"] = True
 
-    def _appeals_state(self, s):
-        for size in APPEALS:
-            yield from self._exchange(s, bytes(range(size)))
+    def _appeal(self, r, order, c, picks):
+        import contest_data as CD
+        move, st = picks[c], self.status[c]
+        cat, appeal = CD.CONTEST_MOVES[move][:2] if move in CD.CONTEST_MOVES else (0, 10)
+        exc = CD.EXCITEMENT[self.category][cat]
+        st["repeated"] = int(move == st["prev"])
+        bonus = (60 if self.meter + exc > 4 else 10) if exc > 0 else 0
+        r3 = 0 if exc > 0 and st["repeated"] else exc
+        before = self.meter
+        self.meter = max(0, self.meter + r3)
+        if self.meter > 4:
+            self.meter = 0
+        st["curr"], st["appeal"] = move, appeal + bonus
+        st["total"] += st["appeal"]
+        self._exc = bytes([exc & 0xFF, 0, bonus])
+        self.result["crowd"].append(dict(round=r, contestant=c, move=move, meter_before=before, bonus=bonus))
+
+    def _appeals_state(self, s, order=(0, 1, 2, 3)):
+        if not self.crowd:
+            blocks = [bytes(range(size)) for size in APPEALS]
+        else:
+            status = bytearray(112)
+            for c, st in enumerate(self.status):
+                struct.pack_into("<hhhHH", status, 28 * c, st["appeal"], st["appeal"], st["total"], st["curr"], st["prev"])
+                status[28 * c + 21] = st["repeated"]
+                status[28 * c + 25] = order[c]
+            results = bytes(order) + bytes(13) + bytes([0])
+            blocks = [bytes(status), results, getattr(self, "_exc", bytes(3)), bytes(order)]
+        for b in blocks:
+            yield from self._exchange(s, b)
             yield from self._wait(11)
 
     def _check_mon(self, b):

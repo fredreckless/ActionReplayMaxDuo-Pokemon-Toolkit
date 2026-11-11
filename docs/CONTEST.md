@@ -25,6 +25,21 @@ again), half its jam, the crowd's excitement (+/-10 for a move in or against the
 category) and the judges' mark-down for the same move twice running. What the other contestants
 will do can't be known beforehand, so the plan doesn't guess at it.
 
+**Live moves (11 November).** During the contest the PC reads the appeals' state as it arrives in
+the DUO's record (`contest_data.ContestWatch`) and, before each round from the second, sends the
+DUO that round's move (poll 11; the DUO keeps to the plan for any round the PC hasn't answered in
+time, and the tool says if it was too late). What it follows:
+- the applause meter, as every GBA keeps it (`APPEALSTATE_UPDATE_CROWD`): each appeal's excitement,
+  nothing while another's move has frozen the crowd, 1 for a move that overrides it, 0 for a liked
+  move used twice running; at 5 it empties. A move the crowd likes adds 10 to its appeal, or 60 when
+  it fills the meter (`excitementAppealBonus`);
+- the next round's turn order (the last 4-byte block), and so how many appeal before the DUO: its
+  jam only counts when someone does, and the meter at its turn is guessed by assuming each of those
+  uses a move of the same category as last time (not the same move: that would excite no one);
+- then the plan's rules for the rounds left, from the move it just used (combos, repeats).
+So a weaker move in the contest's category can win the +60 that the plan, knowing nothing of the
+crowd, would never have used.
+
 - `--category`: the category you'll choose. The DUO then gives its ribbon rank in that category, as
   the game does for its own Pokémon (the leader picks the other two contestants from the highest
   rank, less one). Without it the DUO says it has no ribbons there.
@@ -78,5 +93,9 @@ whole contest (the DUO's contestant checked field by field, nothing sent where o
 sends, every block answered at its size, the DUO's own move each round), and a beauty contest with
 the moves in a given order; planted bugs for each. **Hardware next** (docs/HARDWARE_QUEUE.md).
 
-Not yet: choosing each round's move during the contest from what the others did (the appeals'
-state blocks carry it; the PC would need to answer in time), and wireless contests.
+A whole contest with the crowd worked out (the appeals' state filled in as the leader does: each
+move's excitement, the meter, the bonus, the turn order), where the PC must follow the meter exactly
+and play its weaker cool move only when it fills the meter; planted bugs for it.
+
+Not yet: wireless contests; a deeper model of the others' moves (what the game's own contest AI
+would pick) for the guess at the meter.

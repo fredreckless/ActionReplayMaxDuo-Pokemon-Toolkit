@@ -379,6 +379,29 @@ def is_combo(prev, move):
     return bool(p and m and p[3] and p[3] in m[4])
 
 
+def _score(seq, moves, category, prev=None, rep=0, first_bonus=None, jam_share=0.5):
+    """A sequence's score by the plan's rules (plan_moves). first_bonus: the crowd's bonus for the
+    first move instead of 10 x excitement, once the applause meter is known (choose_live);
+    jam_share: the share of the first move's jam that lands (none when it appeals first)."""
+    score = 0
+    for n, k in enumerate(seq):
+        m = moves[k]
+        cat, appeal, jam, _, _, _ = CONTEST_MOVES[m]
+        exc = EXCITEMENT[category][cat]
+        crowd = first_bonus(exc) if n == 0 and first_bonus else 10 * exc
+        s = appeal + jam * (jam_share if n == 0 else 0.5) + crowd
+        if prev is not None and is_combo(moves[prev], m):
+            s += appeal
+        if prev == k:
+            rep += 1
+            s -= (rep + 1) * 10
+        else:
+            rep = 0
+        score += s
+        prev = k
+    return score
+
+
 def plan_moves(moves, category, rounds=5):
     """The DUO's moves for the five rounds, from what it knows before the contest: each move's
     appeal, a combo after its starter (its appeal again), a share of its jam, the crowd's
@@ -391,23 +414,132 @@ def plan_moves(moves, category, rounds=5):
         return [0] * rounds, 0, ["no move this table knows: in slot order"]
     best = None
     for seq in itertools.product(slots, repeat=rounds):
-        score, prev, rep = 0, None, 0
-        for k in seq:
-            m = moves[k]
-            cat, appeal, jam, _, _, _ = CONTEST_MOVES[m]
-            s = appeal + jam / 2 + 10 * EXCITEMENT[category][cat]
-            if prev is not None and is_combo(moves[prev], m):
-                s += appeal
-            if prev == k:
-                rep += 1
-                s -= (rep + 1) * 10
-            else:
-                rep = 0
-            score += s
-            prev = k
+        score = _score(seq, moves, category)
         key = (score, len(set(seq)), [-x for x in seq])
         if best is None or key > best[0]:
             best = (key, list(seq))
     seq = best[1]
     notes = [f"{moves[a]} then {moves[b]}: a combo" for a, b in zip(seq, seq[1:]) if is_combo(moves[a], moves[b])]
     return seq, best[0][0], notes
+
+
+def choose_live(moves, category, rounds_left, prev=None, rep=0, meter=0, before=0):
+    """This round's move once the contest so far is known (11 November): the plan's rules for the
+    rounds left, with the first move's crowd bonus as the game gives it - a move the crowd likes
+    adds 10, or 60 when it fills the applause meter (meter: where the meter will stand at the DUO's
+    turn, 0-4; ContestExcitement's excitementAppealBonus) - and its jam counted only when someone
+    appeals before the DUO (before: how many). Returns (slot, score, why)."""
+    import itertools
+    slots = [k for k, m in enumerate(moves) if m in CONTEST_MOVES]
+    if not slots:
+        return 0, 0, "no move this table knows"
+    fills = lambda exc: (60 if meter + exc > 4 else 10) if exc > 0 else 10 * exc
+    best = None
+    for seq in itertools.product(slots, repeat=max(1, rounds_left)):
+        score = _score(seq, moves, category, prev, rep, fills, 0.5 if before else 0)
+        key = (score, len(set(seq)), [-x for x in seq])
+        if best is None or key > best[0]:
+            best = (key, seq)
+    k = best[1][0]
+    cat = CONTEST_MOVES[moves[k]][0]
+    why = ("it fills the applause meter (+60)" if EXCITEMENT[category][cat] > 0 and meter + 1 > 4 else
+           f"a combo after {moves[prev]}" if prev is not None and is_combo(moves[prev], moves[k]) else "the best for the rounds left")
+    return k, best[0][0], why
+
+
+E_MOVE = 7                                   # contest.c's log: the DUO's move, as sent
+APPEALS_STATE = (112, 18, 3, 4)              # Task_LinkContest_CommunicateAppealsState's four blocks
+STATUS_SIZE = 28                             # struct ContestantStatus
+
+
+class ContestWatch:
+    """The contest so far, from the DUO's record (11 November), and the DUO's move for the next round.
+    Each round: the moves, the appeals' state after each of the four appeals, at the round's end
+    and before the next (contest.c Task_DoAppeals, Task_EndAppeals, Task_UpdateContestantBoxOrder):
+    six groups of four blocks, the leader's copy. From the appeals it follows the applause meter as
+    every GBA does (APPEALSTATE_UPDATE_CROWD: the move's excitement, nothing while another's move has
+    frozen the crowd, 1 for a move that overrides it, 0 for a liked move repeated; at 5 it empties);
+    from the last group it reads the next round's turn order (gContestantTurnOrder) and what the
+    others used, and guesses where the meter will be at the DUO's turn if they use their moves'
+    categories again."""
+
+    def __init__(self, moves, category, me, rounds=5):
+        self.moves, self.category, self.me, self.rounds = list(moves), category, me, rounds
+        self.n, self.round, self.groups, self.meter = 0, -1, 0, 0
+        self.blocks, self.last = [], None          # (the group being read; the last whole one)
+        self.prev, self.rep, self.decided = None, 0, set()
+        self.notes = []
+
+    def feed(self, entries):
+        for kind, seq, b in entries[self.n:]:
+            self.n += 1
+            if kind == 2:
+                if b[0] | b[1] << 8 == E_MOVE:
+                    move = b[2] | b[3] << 8
+                    slot = self.moves.index(move) if move in self.moves else None
+                    self.rep = self.rep + 1 if slot is not None and slot == self.prev else 0
+                    self.prev, self.round, self.groups, self.blocks = slot, self.round + 1, 0, []
+                continue
+            if kind != 0 or self.round < 0:
+                continue
+            want = APPEALS_STATE[len(self.blocks)]
+            if len(b) != want:
+                self.blocks = [b] if len(b) == APPEALS_STATE[0] else []
+                continue
+            self.blocks.append(b)
+            if len(self.blocks) == 4:
+                self.groups += 1
+                self.last = self.blocks
+                if self.groups <= 4:
+                    self._appeal(self.blocks)
+                self.blocks = []
+
+    def _status(self, status, c):
+        return status[STATUS_SIZE * c:STATUS_SIZE * c + STATUS_SIZE]
+
+    def _appeal(self, group):
+        status, results, exc, _ = group
+        k = self.groups - 1
+        c = next((i for i in range(4) if results[i] == k), None)
+        if c is None:
+            return
+        st = self._status(status, c)
+        if st[12] & 1 or st[17] >> 2 & 1:          # (nervous, or its turn skipped: no crowd)
+            return
+        if exc[1] & 1 and c != exc[1] >> 1 & 7:    # (the crowd frozen by another's move)
+            return
+        r3 = exc[0] - 256 if exc[0] > 127 else exc[0]
+        if st[17] >> 4 & 1:                        # overrideCategoryExcitementMod
+            r3 = 1
+        if r3 > 0 and st[21] & 1:                  # repeatedMove
+            r3 = 0
+        self.meter = max(0, self.meter + r3)
+        if self.meter > 4:
+            self.meter = 0
+
+    def ready(self):
+        """True once the next round's turn order is known and no choice has been made for it."""
+        return (self.groups >= 6 and self.last is not None and 0 <= self.round < self.rounds - 1
+                and self.round + 1 not in self.decided)
+
+    def choose(self):
+        """(round, slot, why) for the next round."""
+        status, _, _, order = self.last
+        nxt = self.round + 1
+        mine = order[self.me]
+        before = sorted((order[c], c) for c in range(4) if c != self.me and order[c] < mine)
+        meter = self.meter
+        for _, c in before:                        # (the others before us, using their last move's category again)
+            st = self._status(status, c)
+            move = st[8] | st[9] << 8 or st[6] | st[7] << 8
+            if move in CONTEST_MOVES:
+                meter = max(0, meter + EXCITEMENT[self.category][CONTEST_MOVES[move][0]])
+                if meter > 4:
+                    meter = 0
+        slot, score, why = choose_live(self.moves, self.category, self.rounds - nxt, self.prev, self.rep,
+                                       meter, len(before))
+        self.decided.add(nxt)
+        note = (f"round {nxt + 1}: appealing {('first', 'second', 'third', 'fourth')[mine & 3]}, the meter at "
+                f"{meter} by its turn: {self.moves[slot]} ({why})")
+        self.notes.append(note)
+        return nxt, slot, note

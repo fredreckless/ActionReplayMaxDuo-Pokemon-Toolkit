@@ -3991,6 +3991,24 @@ def _():
     assert "your Pokemon came" in hw.text and "its --rivals" in hw.text, hw.text[-800:]
 
 
+@test("Contest, live moves (11 November): the PC follows the applause meter through the appeals' state and, when the crowd is one cool move from bursting at the DUO's turn, sends in its weaker cool move for the +60 its plan would never have used; each round's choice reaches the DUO before its move is due")
+def _():
+    import contest_data as CD
+    moves = (52, 53, 129, 0)                     # two beauty moves of 40 (no help in a cool contest), a cool one of 20
+    assert 2 not in CD.plan_moves(list(moves), 0)[0]
+    orders = [(0, 3, 1, 2), (0, 1, 2, 3), (0, 3, 1, 2), (0, 1, 2, 3), (0, 3, 1, 2)]
+    hw, game, report = contest_run(moves=moves, crowd=True, player_moves=(85, 49), ai_moves=((17, 24), (211, 224)), orders=orders)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    duo = [c for c in game.result["crowd"] if c["contestant"] == 1]
+    assert [c["move"] for c in duo] == game.result["partner_moves"], (duo, game.result["partner_moves"])
+    assert any(c["move"] == 129 and c["bonus"] == 60 for c in duo), duo
+    assert all((c["move"] == 129) == (c["meter_before"] == 4) for c in duo[1:]), duo   # (round 1: the plan's)
+    assert len(report["live"]) == 4 and all(ok == 1 for _, _, ok in report["live"]), report["live"]
+    assert "fills the applause meter" in hw.text, hw.text[-1500:]
+    said = {int(n) - 1: int(m) for n, m in re.findall(r"round (\d): appealing \w+, the meter at (\d) by its turn", hw.text)}
+    assert said == {c["round"]: c["meter_before"] for c in duo[1:]}, (said, duo)   # (the PC's meter: the game's)
+
+
 @test("Contest planning (11 November): the PC's five rounds take a combo after its starter (Focus Energy, then Karate Chop) and avoid the same move twice running")
 def _():
     import contest_data as CD
