@@ -73,7 +73,7 @@ PC_MUTANTS = {
     "contest: the applause meter never empties": ("        self.meter = max(0, self.meter + r3)\n        if self.meter > 4:\n            self.meter = 0\n", "        self.meter = max(0, self.meter + r3)\n", "Contest, live moves"),
     "contest: the DUO always taken to appeal last": ("        mine = order[self.me]\n", "        mine = 3\n", "Contest, live moves"),
     "tower: as player 0, the PC still chooses for battler 2": ("        self.me = 0 if leader else 2                   # (our battler)\n", "        self.me = 2\n", "Battle Tower, the DUO as player 0 (11 November)"),
-    "contest: the plan without combos": ("            if prev is not None and is_combo(moves[prev], m):\n                s += appeal\n", "            if prev is not None and is_combo(moves[prev], m):\n                s += 0\n", "Contest planning"),
+    "contest: the plan without combos": ("        if prev is not None and is_combo(moves[prev], m):\n            s += appeal\n", "        if prev is not None and is_combo(moves[prev], m):\n            s += 0\n", "Contest planning"),
     "contest: the names not in the link's form": ("        name[length - 1], name[5] = name[5], 0xFF\n", "        name[length - 1] = name[5]\n", "Contest (8 November)"),
     "contest: --order ignored (the PC's plan instead)": ("    if order:                                          # (--order: the slots in turn, five rounds)\n", "    if False:\n", "Contest: the DUO's moves"),
     "blender: the Pokeblock's strength without the best RPM": ("    factor = max_rpm // 333 + 100\n", "    factor = 100\n", "Berry Blender (8 November)"),
