@@ -72,7 +72,7 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 PC_MUTANTS = {
     "contest: the plan without combos": ("            if prev is not None and is_combo(moves[prev], m):\n                s += appeal\n", "            if prev is not None and is_combo(moves[prev], m):\n                s += 0\n", "Contest planning"),
     "contest: the names not in the link's form": ("        name[length - 1], name[5] = name[5], 0xFF\n", "        name[length - 1] = name[5]\n", "Contest (8 November)"),
-    "contest: the moves always in slot order": ("    order = [k for k in (order or slots) if 0 <= k < 4 and moves[k]] or slots\n", "    order = slots\n", "Contest: the DUO's moves"),
+    "contest: --order ignored (the PC's plan instead)": ("    if order:                                          # (--order: the slots in turn, five rounds)\n", "    if False:\n", "Contest: the DUO's moves"),
     "blender: the Pokeblock's strength without the best RPM": ("    factor = max_rpm // 333 + 100\n", "    factor = 100\n", "Berry Blender (8 November)"),
     "blender: the DUO's berry block with the flavours shifted": ("    return struct.pack(\"<H\", item) + SB.encode_name(row[0], 2) + bytes(row[1:7]) + b\"\\0\"", "    return struct.pack(\"<H\", item) + SB.encode_name(row[0], 2) + bytes(row[2:7]) + b\"\\0\\0\"", "Berry Blender (8 November)"),
     "mix: the gift item left out of our record": ("    parts[\"gift\"] = gift\n", "    parts[\"gift\"] = 0\n", "Record Mixing, the DUO as master"),
