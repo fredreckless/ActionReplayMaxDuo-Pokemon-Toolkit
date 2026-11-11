@@ -11,8 +11,13 @@ python duo_events.py blender --berry Oran Sitrus --skill expert --blends 3
 ```
 
 Use one of the link Berry Blenders in Lilycove City (Emerald: the Contest Lobby), with a Pokéblock
-Case. **The game's GBA must be on the cable's master end**: the game is the blend's leader and the
-DUO player 1. The tool says so if the cable is the other way round.
+Case. The cable can go either way round (11 November): whichever GBA is on the master end leads.
+When the DUO leads it asks for the trainer cards and, after each blend's barrier, the berries;
+sends the leader's block (the time and best RPM, by its own count); and gives the verdict on
+"another berry?" from both answers (naming the first player, in order, who said no). As master the
+DUO sets the link's pace while the game keeps its own frames, so its copy of the arrow can be a
+frame or two out; the game takes the DUO's time and RPM, and the tool's Pokéblock then matches it
+exactly.
 
 - `--berry`: the DUO's berries in order of choice, up to four. It waits for yours, then puts in the
   first that isn't the same (the same berry twice makes a black Pokéblock). The default is Oran,
@@ -71,5 +76,5 @@ frames before it arrived, and the DUO's count of frames matching the game's), tw
 player bringing the DUO's first berry, a casual DUO with a player who misses, and the DUO leaving
 while the player wants more; planted bugs for each. **Hardware next** (docs/HARDWARE_QUEUE.md).
 
-Not yet: the DUO as player 0 (the leader), three or four players (the four-player cable experiment,
+Not yet: three or four players (the four-player cable experiment,
 docs/MULTI.md), and Emerald's wireless blending.

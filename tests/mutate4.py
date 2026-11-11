@@ -70,6 +70,7 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 }
 
 PC_MUTANTS = {
+    "contest: the plan without combos": ("            if prev is not None and is_combo(moves[prev], m):\n                s += appeal\n", "            if prev is not None and is_combo(moves[prev], m):\n                s += 0\n", "Contest planning"),
     "contest: the names not in the link's form": ("        name[length - 1], name[5] = name[5], 0xFF\n", "        name[length - 1] = name[5]\n", "Contest (8 November)"),
     "contest: the moves always in slot order": ("    order = [k for k in (order or slots) if 0 <= k < 4 and moves[k]] or slots\n", "    order = slots\n", "Contest: the DUO's moves"),
     "blender: the Pokeblock's strength without the best RPM": ("    factor = max_rpm // 333 + 100\n", "    factor = 100\n", "Berry Blender (8 November)"),
@@ -225,7 +226,8 @@ def run(kind, name):
     else:
         old, new, pick = PC_MUTANTS[name]
         tools = {f: open(os.path.join(paths.ROOT, f), encoding="utf-8").read()
-                 for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py", "records.py", "runlog.py", "duo_battle.py")}
+                 for f in ("maxduo_saves.py", "duo_events.py", "secret_bases.py", "records.py", "runlog.py", "duo_battle.py",
+                           "contest_data.py")}
         shutil.copy(os.path.join(paths.ROOT, "battle_data.py"), work)
         if old == "ADAPTER_IMAGE":                     # rebuild the embedded program with a wrong ID (valid CRC)
             sys.path.insert(0, paths.FIRMWARE)
@@ -331,6 +333,9 @@ TOWER_MUTANTS = {          # firmware/programs/tower.c: the Battle Tower's link 
 }
 
 BLENDER_MUTANTS = {        # firmware/programs/blender.c: the Berry Blender partner (8 November)
+    "blender: as leader, asks for the next berries after the first save barrier": ("            if (go) barriers_to_go = 5;", "            if (go) barriers_to_go = 1;", "the DUO leading: two blends"),
+    "blender: as leader, blends again though the player said no": ("            u32 go = r == PLAY_AGAIN && answered == PLAY_AGAIN;", "            u32 go = answered == PLAY_AGAIN;", "the DUO leading: the player says no"),
+    "blender: as leader, never asks for the cards": ("        queue(0xCCCC, 2, 0); card_asked = 1; lead_timer = 0;", "        card_asked = 1; lead_timer = 0;", "Berry Blender, the DUO leading (11 November)"),
     "blender: the arrow drifts from the game's": ("    arrow = (arrow + speed) & 0xFFFF;                        /* UpdateBlenderCenter */", "    arrow = (arrow + speed + 0x300) & 0xFFFF;", "Berry Blender (8 November)"),
     "blender: claims the best spot whatever the arrow": ("code = prox == 2 ? HIT_BEST : HIT_GOOD;", "code = HIT_BEST;", "Berry Blender (8 November)"),
     "blender: a good hit speeds the arrow above 1500 too": ("    else if (code == HIT_GOOD) { if (speed < 1500) speed += 256;", "    else if (code == HIT_GOOD) { speed += 256;", "Berry Blender (8 November)"),
@@ -342,6 +347,8 @@ BLENDER_MUTANTS = {        # firmware/programs/blender.c: the Berry Blender part
 }
 
 CONTEST_MUTANTS = {        # firmware/programs/contest.c: Emerald's link Contest (8 November)
+    "contest: as player 0, a leader ID equal to the game's (the DUO would lead)": ("        ours[0] = ours[1] = 0;", "        ours[0] = 0x6E; ours[1] = 0;", "Contest, the DUO as player 0"),
+    "contest: as player 0, never sends the random seed": ("            if (setup_barriers == 1 || setup_barriers == 4)", "            if (setup_barriers == 4)", "Contest, the DUO as player 0"),
     "contest: says it's a Ruby player": ("    lp[0] = 3; lp[1] = game_player[17];", "    lp[0] = 2; lp[1] = game_player[17];", "Contest (8 November)"),
     "contest: answers the leader's random seed": ("((size == 4 && !seed_seen) || size == 2 * MON_SIZE)", "(size == 2 * MON_SIZE)", "Contest (8 November)"),
     "contest: answers the leader's AI contestants": ("((size == 4 && !seed_seen) || size == 2 * MON_SIZE)", "(size == 4 && !seed_seen)", "Contest (8 November)"),

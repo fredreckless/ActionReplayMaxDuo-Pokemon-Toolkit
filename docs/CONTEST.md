@@ -11,15 +11,25 @@ python duo_events.py contest --pk3 "mine\MILOTIC.pk3" --category beauty --order 
 ```
 
 At Lilycove City's Contest Lobby, use the link contest counter, choose **E MODE**, the same
-category you gave the DUO, and your Pokémon. **The game's GBA must be on the cable's master end**:
-the game is the contest's leader and the DUO player 1. The other two contestants are the game's own,
-chosen by the leader as for any two-player link contest.
+category you gave the DUO, and your Pokémon. The cable can go either way round (11 November); the
+game always works out the contest:
+- the game's GBA on the master end: the game is player 0 and picks the other two contestants;
+- the DUO's GBA on the master end: the DUO is player 0, so it asks for the trainer cards and sends
+  the random seed and the two other contestants (player 0's jobs: `--rivals A.pk3 B.pk3`, each with
+  the game's full contest AI; without them, two more of its own Pokémon), and a leader ID of 0,
+  below the game's 0x6E, so that the game still leads.
+
+**The moves (11 November).** Unless `--order` is given, the PC plans the five rounds from pret's
+contest move data (`contest_data.py`): each move's appeal, a combo after its starter (its appeal
+again), half its jam, the crowd's excitement (+/-10 for a move in or against the contest's
+category) and the judges' mark-down for the same move twice running. What the other contestants
+will do can't be known beforehand, so the plan doesn't guess at it.
 
 - `--category`: the category you'll choose. The DUO then gives its ribbon rank in that category, as
   the game does for its own Pokémon (the leader picks the other two contestants from the highest
   rank, less one). Without it the DUO says it has no ribbons there.
-- `--order`: the move slots in the order the DUO uses them, one a round (five rounds). The default,
-  1, 2, 3, 4, never uses the same move twice running, which the judges mark down.
+- `--order`: the move slots in the order the DUO uses them, one a round (five rounds), in place of
+  the PC's plan.
 - The Pokémon is checked against the games' rules first, as for a battle (`--allow-unchecked` to
   enter one anyway). Its condition (cool, beauty, cute, smart, tough, sheen) comes from the `.pk3`,
   with a matching scarf's +20, as the game works it out.
@@ -68,5 +78,5 @@ whole contest (the DUO's contestant checked field by field, nothing sent where o
 sends, every block answered at its size, the DUO's own move each round), and a beauty contest with
 the moves in a given order; planted bugs for each. **Hardware next** (docs/HARDWARE_QUEUE.md).
 
-Not yet: the PC choosing each round's move from what the judges and the other contestants did (it
-would need the contest moves' effects), the DUO as the leader, and wireless contests.
+Not yet: choosing each round's move during the contest from what the others did (the appeals'
+state blocks carry it; the PC would need to answer in time), and wireless contests.

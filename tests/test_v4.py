@@ -3944,6 +3944,19 @@ def _():
     assert "your Pokemon came" in hw.text and "its --rivals" in hw.text, hw.text[-800:]
 
 
+@test("Contest planning (11 November): the PC's five rounds take a combo after its starter (Focus Energy, then Karate Chop) and avoid the same move twice running")
+def _():
+    import contest_data as CD
+    seq, score, notes = CD.plan_moves([116, 2, 0, 0], 4)
+    pairs = list(zip(seq, seq[1:]))
+    assert (0, 1) in pairs and notes, (seq, notes)
+    # Karate Chop 30 + 10 (tough in a tough contest) three times, Focus Energy 10 + half its 30 jam twice,
+    # and Karate Chop's 30 again for each of its two combos
+    assert score == 3 * 40 + 2 * 25 + 2 * 30, score
+    assert all(a != b for a, b in pairs), seq
+    assert CD.is_combo(116, 2) and not CD.is_combo(2, 116)
+
+
 # ---------------------------------------------------------------- the four-player cable experiment (8 November)
 import gp_link_model as GPL
 

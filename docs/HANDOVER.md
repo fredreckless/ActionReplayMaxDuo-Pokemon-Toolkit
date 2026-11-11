@@ -62,6 +62,22 @@ multiplayer feature of the five games (ROADMAP Stage 12).
 **Hardware next:** docs/HARDWARE_QUEUE.md, from the top: a single battle at medium, then impossible,
 then a double battle; Record Mixing with the player in the DUO's way.
 
+## What changed on 11 November
+
+- **The Record Workshop's map**: a sketch of Hoenn (from the game's region-map grid and the routes'
+  sizes) with the base's entrance pinned, the other spots of its kind clickable, and directions.
+- **The DUO can lead** the Berry Blender and the Contest (player 0, its GBA on the master end).
+  The Battle Tower still needs the game on the master end (player 0 picks the Tower's trainers and
+  their teams, and the battle roles change): not yet.
+- **Contest moves planned by the PC** (`contest_data.py`, from pret's contest moves).
+- **link_core.h / link_tail.h**: blender.c and contest.c share their link layer (byte-identical builds).
+- **The hardware checklist page** (the "DUO Hardware Checklist" artifact): the queue to tick at the
+  console; the results are kept with the page for Claude to read back (the `results` collection).
+- Emerald's own Record Mixing layout: looked at and left for now. With an Emerald partner, Emerald
+  copies the partner's Lilycove lady straight into its save and keeps its apprentices, hall records
+  and Tower record, so the DUO must send real ones; until it can build them, Ruby's layout is the
+  safe way.
+
 ## What changed on 8 November
 
 - **The four-player experiment** (`firmware/programs/lab4p.c`, `duo_events.py lab4p`,

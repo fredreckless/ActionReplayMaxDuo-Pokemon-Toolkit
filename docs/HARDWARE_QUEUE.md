@@ -1,6 +1,7 @@
 # What's waiting for real hardware
 
-Everything the simulator has passed but a real GBA hasn't seen yet, in one list (8 November 2026).
+Everything the simulator has passed but a real GBA hasn't seen yet, in one list (11 November 2026).
+There's also a page to tick them off at the console: the "DUO Hardware Checklist" artifact.
 It's ordered around the GBA link cable staying fitted (it's tight to remove), so the wireless tests
 come last. Each run writes `logs\latest.log`; battles also keep `battles\*.txt`, Record Mixing
 `records\*.rm3`. Keep the DUO's GBA switched on until the tool says it's safe to switch off.
@@ -17,7 +18,9 @@ When a test has been done, move it to "Done" with the date and what was seen (or
 | 3a | **A battle with Emerald, then LeafGreen** | as 1 | The same as with Ruby. To Emerald the DUO is a Ruby player (its card and sprite); LeafGreen sees a LeafGreen player |
 | 3b | **Emerald's Battle Tower link multi battle** (the Battle Frontier open; the game's GBA on the cable's master end) | `python duo_events.py tower --pk3 A.pk3 B.pk3` | The link-up at the counter, the trainers, the battles with the DUO as your partner, "carry on?" between them |
 | 3c | **The Berry Blender** (Ruby or Emerald, Lilycove; the game's GBA on the master end; a berry and a Pokéblock Case) | `python duo_events.py blender --blends 2` | The DUO's arrow presses as it passes the top (mostly the best spot); the blend ends; "another berry?" once more, then the link closes. The tool's Pokéblock matches the one in your case |
-| 3d | **Emerald's link Contest, E MODE** (Lilycove's Contest Lobby, the link counter; the game's GBA on the master end) | `python duo_events.py contest --pk3 X.pk3 --category cool` | The DUO's Pokémon appears with its name and trainer; it appeals each round with a different move; the results match what the tool says |
+| 3c+ | **The Berry Blender, the DUO leading** (as 3c, but the DUO's GBA on the master end) | `python duo_events.py blender --blends 2` | The tool says the DUO leads; the game shows the trainer cards and the bag; the blend, the time and RPM on the results screen match the tool's; "another berry?" is decided as both answered |
+| 3d | **Emerald's link Contest, E MODE** (Lilycove's Contest Lobby, the link counter; the game's GBA on the master end) | `python duo_events.py contest --pk3 X.pk3 --category cool` | The DUO's Pokémon appears with its name and trainer; its moves follow the tool's plan; the results match what the tool says |
+| 3d+ | **The Contest, the DUO as player 0** (the DUO's GBA on the master end) | `python duo_events.py contest --pk3 X.pk3 --category cool --rivals A.pk3 B.pk3` | The other two contestants are the --rivals; the contest runs to its results; nothing looks wrong on the results screen |
 | 3e | **Record Mixing with Emerald** (the DUO a Ruby player) | `python duo_events.py mix --base X.sb3` | The 24 rounds go across, Emerald saves; the base appears on its route (with Secret Power) |
 | 4 | **Record Mixing, standing in the DUO's way** on purpose on its way to the table | `python duo_events.py mix --base X.sb3` | The DUO waits a moment, then goes round the other side of the table to its seat: no pacing along a wall |
 | 5 | **A trade, standing in the way out** | `python duo_events.py trade --pk3 X.pk3` | The DUO goes round you to the door, and the received Pokemon is kept straight after the trade |
