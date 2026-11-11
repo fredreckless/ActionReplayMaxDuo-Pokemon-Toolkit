@@ -2287,7 +2287,14 @@ def secret_base_rom(code=b"AXVE", revision=1, seed=5):
     for k, (w, h) in enumerate(duo_rom.ROOM_SIZES):
         blocks = b"".join(struct.pack("<H", rng.choice([rng.randrange(512), 512 + rng.randrange(512)])) for _ in range(w * h))
         put(where["rooms"][k], struct.pack("<IIIIII", w, h, new(bytes(8)), new(blocks), primary, seconds[k % 6]))
-    put(where["layouts"], struct.pack("<6I", *[0] * 6) + struct.pack("<24I", *where["rooms"]))
+    # the layout table: Routes 101-134 at entries 16-49 (a made-up map for each, at its real size), the
+    # rooms from entry 197, as in Ruby and Sapphire
+    routes = []
+    for r, (w, h) in sorted(duo_rom.ROUTE_TILES.items()):
+        blocks = b"".join(struct.pack("<H", rng.choice([rng.randrange(512), 512 + rng.randrange(512)])) for _ in range(w * h))
+        routes.append(new(struct.pack("<IIIIII", w, h, new(bytes(8)), new(blocks), primary, seconds[r % 6])))
+    put(where["layouts"], struct.pack("<16I", *[0] * 16) + struct.pack("<34I", *routes) + struct.pack(f"<{197 - 50}I", *[0] * (197 - 50))
+        + struct.pack("<24I", *where["rooms"]))
     gfx_at, gfx_size = where["gfx"]
     pal_at, pal_size = where["pals"]
     for i in range(pal_size // 8):
@@ -2348,7 +2355,7 @@ def _():
     hw.stop(); clean(hw)
     assert path.endswith("rev 1 - workshop parts.gba") and len(data) == len(g) and hw.save_writes == 0, path
     got = sum(1 for i in range(0, len(data), 4096) if any(data[i:i + 4096]))
-    assert got < 400, f"read {got} 4 KB blocks: more than the workshop needs"
+    assert got < 600, f"read {got} 4 KB blocks: more than the workshop needs"
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -2368,6 +2375,8 @@ def _():
                 const r = readRom(rom), out = [];
                 for (const id of [1, 61, 103, 162, 183, 233]) out.push(r.picture(id, [{d: 3, x: 1, y: 3}, {d: 77, x: 2, y: 2}, {d: 66, x: 2, y: 0}]));
                 for (let d = 1; d <= 120; d++) out.push(r.preview(d));
+                out.push(String(r.hasRoutes()));
+                for (const l of T.locations.values()) out.push(JSON.stringify(r.routePicture(l.route, l.x, l.y)));
                 out.push(JSON.stringify(readEasyChat(rom).groups));
                 const t = readRomText(rom);
                 out.push(JSON.stringify({tv: t.tv, std: t.std, places: t.places, stories: t.stories, d: t.dewford, b: t.bard, c: t.classOf(4), p: t.price(13)}));
@@ -2378,6 +2387,7 @@ def _():
         finally:
             browser.close()
     assert a == b, [k for k, (x, y) in enumerate(zip(a, b)) if x != y][:10]
+    assert a.count("true") >= 1 and all(x != "null" for x in a[-75:]), "the routes round the bases weren't drawn"
 
 
 @test("ROM copy (duo_rom.py): a game without Secret Bases (LeafGreen) is turned away before anything is read, unless --whole")

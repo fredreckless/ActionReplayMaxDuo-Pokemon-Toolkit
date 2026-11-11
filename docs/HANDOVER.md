@@ -66,6 +66,8 @@ then a double battle; Record Mixing with the player in the DUO's way.
 
 - **The Record Workshop's map**: a sketch of Hoenn (from the game's region-map grid and the routes'
   sizes) with the base's entrance pinned, the other spots of its kind clickable, and directions.
+  With the user's ROM loaded it also draws the route itself round the entrance (gMapLayouts entries
+  16-49, the rooms' own drawing code); `duo_rom.py` now copies the routes with bases too.
 - **The DUO can lead** the Berry Blender and the Contest (player 0, its GBA on the master end).
   The Battle Tower still needs the game on the master end (player 0 picks the Tower's trainers and
   their teams, and the battle roles change): not yet.

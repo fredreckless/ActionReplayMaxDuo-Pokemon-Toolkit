@@ -38,6 +38,14 @@ ROOM_SIZES = [(11, 9)] * 6 + [(7, 16), (14, 9), (15, 7), (14, 9), (7, 16), (15, 
                               (15, 8), (15, 11), (10, 17), (12, 11), (17, 8), (13, 11),
                               (9, 15), (14, 12), (9, 17), (13, 14), (14, 14), (14, 11)]
 SPRITE_DECORATIONS = range(76, 121)      # the dolls and cushions (objects, not map tiles)
+# The routes with Secret Bases, and every route's size in tiles (pret's layouts.json): gMapLayouts
+# entries 16-49 are Routes 101-134 in all three games. The workshop draws the route round a base's
+# entrance from them (11 November).
+ROUTE_TILES = {101: (20, 20), 102: (50, 20), 103: (80, 22), 104: (40, 80), 105: (40, 80), 106: (80, 20), 107: (60, 20),
+               108: (60, 20), 109: (40, 63), 110: (40, 100), 111: (40, 140), 112: (40, 60), 113: (100, 20), 114: (40, 80),
+               115: (40, 80), 116: (100, 20), 117: (60, 20), 118: (80, 20), 119: (40, 140), 120: (40, 100), 121: (80, 20),
+               122: (40, 40), 123: (140, 20), 124: (80, 80), 125: (80, 40), 126: (80, 80), 127: (80, 80), 128: (120, 40),
+               129: (80, 40), 130: (80, 40), 131: (60, 40), 132: (80, 40), 133: (80, 40), 134: (80, 40)}
 
 # Where each game keeps what the workshop reads (pret/pokeruby and pret/pokeemerald, the symbols
 # branch: gMapLayouts, gDecorations, gObjectEventGraphicsInfoPointers and sObjectEventSpritePalettes
@@ -208,7 +216,15 @@ def workshop_parts(lab, mapping, info, header):
             break
     else:
         raise DuoError("the layout table doesn't list the Secret Base rooms as expected")
-    # each room's map and border, and its two tilesets: tiles (often compressed), palettes, metatiles
+    # the routes with Secret Bases (gMapLayouts entries 16-49), checked by their sizes; any that
+    # aren't as expected are left out (the workshop then shows only its sketch for them)
+    import secret_bases
+    base_routes = sorted({l["route"] for l in secret_bases.tables().locations.values()})
+    ptrs = [u32(table, 4 * (16 + r - 101)) for r in base_routes]
+    routes = [lay for r, lay in zip(base_routes, p.read([(a, 24) for a in ptrs if ok(a)]) if all(ok(a) for a in ptrs) else [])
+              if (u32(lay, 0), u32(lay, 4)) == ROUTE_TILES[r] and all(ok(u32(lay, f)) for f in (8, 12, 16, 20))]
+    layouts = layouts + routes
+    # each room's (and route's) map and border, and its two tilesets: tiles (often compressed), palettes, metatiles
     p.read([(u32(l, 8), 8) for l in layouts] + [(u32(l, 12), 2 * u32(l, 0) * u32(l, 4)) for l in layouts])
     sets = sorted({u32(l, f) for l in layouts for f in (16, 20)})
     for ts in p.read([(a, 24) for a in sets]):
