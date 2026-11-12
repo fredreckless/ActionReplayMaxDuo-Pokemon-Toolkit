@@ -45,6 +45,51 @@ byte repeated from `duo_read` (as the real chip does), where Unicorn's memory sh
 either way it's recorded as a failure, as before. And `duo_result.cycles` is always 0: the core
 doesn't model bus timing yet (build step 6).
 
+## The proof (12 November 2026)
+
+With Datel's 1.06 update built (v4.1 CRC A5303402, v4.2 DD59ED8A, both matching the releases) and
+the core in place of the Python models, the toolkit's `python3 tests/check.py full` gave
+**202 of 202 tests passed, 146 of 146 planted bugs caught, ALL GOOD**, with no simulator crashes.
+
+Besides that:
+
+- `tests/diff_hwsim.py` drove the original and new `hwsim.py` through about 1,600 random bus
+  programs (some 190,000 operations: mapping swaps, every Flash command sequence and broken ones,
+  save and ROM reads at every width, WAITCNT changes, flash ID mode, USB packets from both ends).
+  Every byte of the cartridge as the CPU sees it, every value read, every violation, failure and
+  its wording, and the USB link's state matched.
+- `tests/fuzz_core.c` ran 1.2 million operations through the core under AddressSanitizer and UBSan:
+  clean, with its invariants holding.
+
+### A Unicorn fault the comparison found
+
+Long comparison runs crashed now and then inside Unicorn's own memory code (`load_helper` in
+`libunicorn.so`, a load from JIT-compiled code, with no core frame on the stack), or a CPU load
+returned a wrong value while the memory itself was right. What we learned:
+
+- **It's in Unicorn, and the original has it too.** Some bus programs make the untouched original
+  `hwsim.py` crash, or disagree with itself about a value read, with one simulated DUO and no core
+  loaded (seed 6, program 2 does it every time). Shrinking the program found no single DUO operation
+  responsible: it depends on how much code has run, the mark of a fault in Unicorn's JIT and TLB
+  bookkeeping. The toolkit's note that Unicorn crashes after very many DUOs in one process is
+  probably the same fault.
+- **The first version of the new glue made it much more likely.** It rendered two fresh 31 MB
+  buffers for the open-bus space above the cartridge for every simulated DUO; the original built
+  that image once and reused it. On one stretch of programs: the original against itself, no
+  failures in 8 runs; the new glue, 11 in 28; the new glue rendering the space once per process and
+  reusing it (what `hwsim.py` now does), none in 20. The space is identical for every DUO with the
+  same span, and the core still renders it, so nothing a test can see changed.
+- **The harness had two slips of its own**, both fixed: it built DUOs for programs it then skipped
+  (leaving dead Unicorn instances for the collector to free at any moment, even mid-emulation), and
+  `DIFF_DUMP` saved the previous program. A Unicorn instance is freed only by Python's cyclic
+  collector (checked), so the comparison now collects between programs.
+- `diff_hwsim.py --batch N` runs the programs in fresh processes and, when one crashes or the CPU
+  misreads, runs the original against itself over the same programs: if the original misbehaves
+  too, the program is counted as Unicorn's and skipped; if not, the comparison fails.
+
+Worth remembering for step 2: the hooks that rewrite Unicorn's memory from inside other hooks are
+where Unicorn is fragile, and they become thin glue there.
+
 ## Using it
 
 ```

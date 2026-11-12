@@ -1,5 +1,5 @@
 diff --git a/tests/hwsim.py b/tests/hwsim.py
-index ff07ceb..0031e7a 100644
+index ff07ceb..550c72e 100644
 --- a/tests/hwsim.py
 +++ b/tests/hwsim.py
 @@ -35,11 +35,26 @@ Models what we learned on real hardware:
@@ -30,7 +30,26 @@ index ff07ceb..0031e7a 100644
  ROM, ROMSZ = 0x08000000, 0x02000000
  SAVE = 0x0E000000
  STOP = 0x02000F00
-@@ -119,31 +134,25 @@ class Hw:
+@@ -76,6 +91,18 @@ assert len(LOGO) == 156
+ 
+ 
+ _OPEN_BUS = {}
++_BEYOND = {}
++
++
++def beyond_cartridge(core, view):
++    """What reads above the cartridge return (open bus), as the core renders it. It's the same for
++    every DUO with the same span, so it's rendered once per process and reused, as the original
++    reused its open-bus image. (Rendering two fresh 31 MB buffers for every simulated DUO shifts the
++    heap enough to expose a crash inside Unicorn's own memory code: 11 failures in 28 runs of one
++    test stretch, against none in 20 with this cache.)"""
++    if view not in _BEYOND:
++        _BEYOND[view] = core.render(ROM + view, ROMSZ - view)
++    return _BEYOND[view]
+ 
+ 
+ def open_bus(start, length):
+@@ -119,31 +146,25 @@ class Hw:
          self.game = game_rom
          self.save_type = save_type
          size = {"sanyo": 0x20000, "macronix": 0x20000, "flash512": 0x10000, "sram": 0x8000}.get(save_type, 0)
@@ -68,7 +87,7 @@ index ff07ceb..0031e7a 100644
          self.link_errors = []
          self.pc_packets = 0
          self.powered = powered
-@@ -152,8 +161,7 @@ class Hw:
+@@ -152,8 +173,7 @@ class Hw:
          self.boot_snapshot = None            # worst case: the start-up check runs the instant the GBA resets
          self.usb_latency = 0.0               # seconds before a PC packet is visible to the GBA (real USB: ~8-10 ms polling)
          self.h2d_times = []                  # when each queued PC packet becomes visible
@@ -78,18 +97,18 @@ index ff07ceb..0031e7a 100644
  
          mu = self.mu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
          mu.ctl_set_cpu_model(UC_CPU_ARM_926)       # Thumb-1 only, like the GBA's ARM7TDMI
-@@ -165,8 +173,8 @@ class Hw:
+@@ -165,8 +185,8 @@ class Hw:
          mu.mem_map(0x07000000, 0x1000)
          mu.mem_map(ROM, ROMSZ, UC_PROT_READ | UC_PROT_EXEC)
          mu.mem_map(SAVE, 0x10000, UC_PROT_READ)
 -        # open bus beyond the cartridge: the GBA returns the address bits
 -        mu.mem_write(ROM + self.view, open_bus(ROM + self.view, ROMSZ - self.view))
 +        # beyond the cartridge (open bus: the GBA returns the address bits), as the core reads it
-+        mu.mem_write(ROM + self.view, self.core.render(ROM + self.view, ROMSZ - self.view))
++        mu.mem_write(ROM + self.view, beyond_cartridge(self.core, self.view))
          self.show_duo()
          self.save_view()
          mu.mem_write(0x04000208, struct.pack("<H", 1))
-@@ -458,33 +466,50 @@ class Hw:
+@@ -458,33 +478,50 @@ class Hw:
              cnt = struct.unpack("<H", mu.mem_read(0x04000128, 2))[0]
              mu.mem_write(0x04000128, struct.pack("<H", cnt & ~0x80))
  
@@ -159,7 +178,7 @@ index ff07ceb..0031e7a 100644
                  self.pending_view = True
                  mu.emu_stop()
  
-@@ -559,15 +584,7 @@ class Hw:
+@@ -559,15 +596,7 @@ class Hw:
          return self
  
      def save_view(self):
@@ -176,7 +195,7 @@ index ff07ceb..0031e7a 100644
  
      # ------------------------------------------------------------ hooks
      def ret(self, value=None):
-@@ -625,10 +642,10 @@ class Hw:
+@@ -625,10 +654,10 @@ class Hw:
              self.ret(0)
          elif addr == F_USB_SEND8:
              pkt = bytes(mu.mem_read(mu.reg_read(UC_ARM_REG_R0), 8))
@@ -190,7 +209,7 @@ index ff07ceb..0031e7a 100644
              self.deliver(pkt)
              self.ret(0)
  
-@@ -653,47 +670,39 @@ class Hw:
+@@ -653,47 +682,39 @@ class Hw:
          self.d2h.put(pkt)
  
      def on_rom_write(self, mu, access, addr, size, value, _):
@@ -260,7 +279,7 @@ index ff07ceb..0031e7a 100644
  
      def on_save_read_after(self, mu, access, addr, size, value, _):
          if self.restore:
-@@ -702,9 +711,9 @@ class Hw:
+@@ -702,9 +723,9 @@ class Hw:
              mu.mem_write(a, bytes([b]))
  
      def on_save_read(self, mu, access, addr, size, value, _):
@@ -273,7 +292,7 @@ index ff07ceb..0031e7a 100644
          self.save_reads += 1
          if self.restore:
              a, b = self.restore
-@@ -722,47 +731,8 @@ class Hw:
+@@ -722,47 +743,8 @@ class Hw:
              self.bad.append(f"save read with WAITCNT {wc:#x}")
  
      def on_save_write(self, mu, access, addr, size, value, _):
@@ -323,7 +342,7 @@ index ff07ceb..0031e7a 100644
          return True
  
      # ------------------------------------------------------------ run
-@@ -961,12 +931,12 @@ class Transport:
+@@ -961,12 +943,12 @@ class Transport:
  
      def write(self, data, timeout=5000):
          hw = self.hw

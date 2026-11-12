@@ -9,7 +9,7 @@ The library is built on first use, beside this file, when it's missing or older 
 (a C compiler is needed: cc/gcc/clang on Linux and macOS, gcc from MSYS2 or clang on Windows).
 DUOCORE_LIB names a ready-built library instead.
 """
-import ctypes, os, subprocess, sys
+import ctypes, os, subprocess, sys, threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCES = [os.path.join(HERE, f) for f in ("duocore.c", "duocore.h")]
@@ -63,7 +63,9 @@ def _load():
             tmp = f"{path}.{os.getpid()}.tmp"
             build(tmp)
             os.replace(tmp, path)
-    lib = ctypes.CDLL(path)
+    # PyDLL keeps the GIL during each call: hwsim calls the core from the emulator's thread and
+    # the PC's at once, and the Python models it replaced were atomic under the GIL in the same way
+    lib = ctypes.PyDLL(path)
     P, R = ctypes.c_void_p, ctypes.POINTER(Result)
     u8p, sz, u32, i32 = ctypes.c_char_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_int
     sig = {
@@ -112,8 +114,20 @@ class Core:
         self.h = L.duo_new(fw, len(fw), game, len(game), SAVE_TYPES[save_type], save, len(save))
         if not self.h:
             raise MemoryError("duo_new failed")
-        self.r = Result()
-        self._rp = ctypes.byref(self.r)
+        self._tls = threading.local()       # a result buffer per thread (the emulator's and the PC's)
+
+    @property
+    def r(self):
+        t = self._tls
+        if not hasattr(t, "r"):
+            t.r = Result()
+            t.rp = ctypes.byref(t.r)
+        return t.r
+
+    @property
+    def _rp(self):
+        self.r
+        return self._tls.rp
 
     def __del__(self):
         h, self.h = getattr(self, "h", None), None

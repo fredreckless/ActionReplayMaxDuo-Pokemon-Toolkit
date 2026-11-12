@@ -9,7 +9,7 @@ and their wording, and the USB link's turn and errors. No firmware is needed: th
 run by a small Thumb interpreter in RAM, so the mapping register is written from RAM as Datel's
 code does.
 """
-import argparse, importlib.util, os, random, struct, sys
+import argparse, gc, importlib.util, os, random, struct, sys
 
 from keystone import Ks, KS_ARCH_ARM, KS_MODE_THUMB
 from unicorn.arm_const import UC_ARM_REG_PC, UC_ARM_REG_R4, UC_ARM_REG_R5, UC_ARM_REG_R6, UC_ARM_REG_SP
@@ -200,6 +200,63 @@ def snapshot(hw, rom_samples):
     return s
 
 
+def _one(a, old, new, extra, progress=False):
+    import subprocess
+    env = dict(os.environ, DIFF_PROGRESS="1") if progress else os.environ
+    return subprocess.run([sys.executable, __file__, old, new, "--programs", str(a.programs), "--ops", str(a.ops),
+                           "--seed", str(a.seed)] + extra, capture_output=True, text=True, env=env)
+
+
+def original_crashes_too(a, i, lo=None):
+    """Does the original hwsim.py misbehave against itself on program i (crash, or disagree with
+    itself about a value read)? Then it's Unicorn's fault (seen with the original alone: a crash
+    in libunicorn's own memory code, or a CPU load returning the wrong value), not the core's."""
+    span = ["--only", str(i)] if lo is None else ["--range", f"{lo}:{i + 1}"]   # with the same history
+    return any(_one(a, a.old, a.old, span).returncode != 0 for _ in range(3))
+
+
+def batches(a):
+    """Run the programs N at a time, each batch in its own process. A program that crashes is
+    checked against the original on its own: if the original crashes there too, it's counted as
+    Unicorn's and skipped; otherwise the comparison fails."""
+    import re
+    totals, unicorn = {}, []
+    todo = [(lo, min(a.programs, lo + a.batch)) for lo in range(0, a.programs, a.batch)]
+    while todo:
+        lo, hi = todo.pop(0)
+        if lo >= hi:
+            continue
+        r = _one(a, a.old, a.new, ["--range", f"{lo}:{hi}"], progress=True)
+        if r.returncode < 0:                                    # crashed: in which program?
+            got = [int(x) for x in re.findall(r"starting program (\d+)", r.stdout)]
+            i = got[-1] if got and lo <= got[-1] < hi else lo
+            if not original_crashes_too(a, i, lo):
+                print(r.stderr[-1500:])
+                print(f"FAILED: program {i} crashes with the new hwsim.py; the original against itself doesn't")
+                return 1
+            unicorn.append(i)
+            todo[:0] = [(lo, i), (i + 1, hi)]                   # the rest of the batch, around it
+            continue
+        if r.returncode != 0 or "IDENTICAL" not in r.stdout:
+            print(r.stdout[-3000:] + r.stderr[-1500:])
+            print(f"FAILED in programs {lo}-{hi - 1} (exit code {r.returncode})")
+            return 1
+        _add(totals, r.stdout)
+    if unicorn:
+        totals["skipped: Unicorn misbehaves with the original too"] = len(unicorn)
+    print("IDENTICAL: " + ", ".join(f"{v} {k}" for k, v in totals.items()))
+    if unicorn:
+        print("(Unicorn crashed or misread on programs " + ", ".join(map(str, sorted(unicorn)))
+              + " with the original hwsim.py against itself as well)")
+    return 0
+
+
+def _add(totals, out):
+    import re
+    for n, k in re.findall(r"(\d+) ([a-z -]+?)(?:,|$)", out.split("IDENTICAL:", 1)[1].strip().splitlines()[0]):
+        totals[k] = totals.get(k, 0) + int(n)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("old")
@@ -209,7 +266,15 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--only", type=int, help="run just this program (the others are drawn, not run)")
     ap.add_argument("--trace", action="store_true", help="with --only: print each operation and what each side read")
+    ap.add_argument("--range", help="START:STOP: run just these programs (the others are drawn, not run)")
+    ap.add_argument("--batch", type=int, default=0,
+                    help="run N programs per fresh process (Unicorn crashes after very many simulated DUOs in one)")
     a = ap.parse_args()
+    if a.batch:
+        return batches(a)
+    lo, hi = (int(x) for x in a.range.split(":")) if a.range else (0, a.programs)
+    if os.environ.get("DIFF_NOGC"):
+        gc.disable()                     # experiments: no collection in the middle of emulation
     global CODE_BYTES, DONE
     enc, _ = Ks(KS_ARCH_ARM, KS_MODE_THUMB).asm(INTERP, CODE)
     CODE_BYTES = bytes(enc)
@@ -228,11 +293,17 @@ def main():
         game = games[i % len(games)]
         t = types[(i // len(games)) % len(types)]
         save = bytes(rng.getrandbits(8) for _ in range(rng.choice([0, 0x8000, 0x20000])))
-        hws = [make(m, fw, game, t, save) for m in (old, new)]
+        if os.environ.get("DIFF_PROGRESS"):
+            print(f"starting program {i}", flush=True)
         chunks = [program(rng.__class__(rng.random()), a.ops) for _ in range(rng.randrange(1, 4))]
         pcs = [rng.random() for _ in chunks]
-        if a.only is not None and i != a.only:
+        if os.environ.get("DIFF_DUMP") and a.only == i:
+            import json
+            json.dump({"chunks": chunks, "pcs": pcs, "type": t, "game": i % len(games), "save": save.hex()},
+                      open(os.environ["DIFF_DUMP"], "w"))
+        if (a.only is not None and i != a.only) or not lo <= i < hi:
             continue
+        hws = [make(m, fw, game, t, save) for m in (old, new)]
         outs = [[], []]
         for c, ops in enumerate(chunks):
             for j, hw in enumerate(hws):
@@ -267,6 +338,9 @@ def main():
             if r.returncode == 0 and "IDENTICAL" in r.stdout:
                 counts["re-run fresh"] += 1
                 differ = []
+            elif original_crashes_too(a, i):
+                counts["re-run fresh"] += 1          # Unicorn's trouble with the original too
+                differ = []
         for k in differ:
             if True:
                 print(f"DIFFERENT in program {i} ({t}, game {i % len(games)}): {k}")
@@ -277,6 +351,9 @@ def main():
                 else:
                     print(f"  old: {v0!r}\n  new: {v1!r}")
                 return 1
+        if os.environ.get("DIFF_RSS") and i % 25 == 0:
+            rss = int(open("/proc/self/statm").read().split()[1]) * os.sysconf("SC_PAGE_SIZE") >> 20
+            print(f"program {i}: {rss} MB resident", flush=True)
         counts["programs"] += 1
         counts["ops"] += sum(len(c) for c in chunks)
         counts["fails"] += bool(s0["bad"])
@@ -288,6 +365,10 @@ def main():
         counts["link errors"] += len(s0["link_errors"])
         for hw in hws:
             hw.mu = None
+        # A Unicorn instance is freed only by Python's cyclic collector, which can otherwise run in
+        # the middle of another instance's emulation (inside a hook) and crash it. Free them here.
+        del hws, s0, s1
+        gc.collect()
     print("IDENTICAL: " + ", ".join(f"{v} {k}" for k, v in counts.items()))
     return 0
 

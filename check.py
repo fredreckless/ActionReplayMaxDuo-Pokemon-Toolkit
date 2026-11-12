@@ -50,7 +50,7 @@ def main():
             open(old, "wb").write(src.stdout)
         step("hwsim.py: the original against the core (random bus programs)",
              [sys.executable, os.path.join(TESTS, "diff_hwsim.py"), old, os.path.join(TOOLKIT, "tests", "hwsim.py"),
-              "--programs", "200"])
+              "--programs", "200", "--batch", "50"])
     if "--toolkit" in sys.argv:
         step("the toolkit's check.py full", [sys.executable, os.path.join("tests", "check.py"), "full"], cwd=TOOLKIT)
     print("ALL GOOD")
