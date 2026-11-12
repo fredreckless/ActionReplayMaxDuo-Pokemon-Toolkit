@@ -18,7 +18,7 @@ python3 "$TOP/mgba/apply_lockstep.py" "$MGBA"        # (does nothing once applie
 if [ ! -f "$LIB/libmgba.a" ] || [ "$MGBA/src/gba/memory.c" -nt "$LIB/libmgba.a" ] \
         || [ "$MGBA/src/gba/sio/lockstep.c" -nt "$LIB/libmgba.a" ]; then
     mkdir -p "$LIB"
-    (cd "$LIB" && cmake "$MGBA" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    (cd "$LIB" && cmake "$MGBA" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_GL=OFF -DBUILD_GLES2=OFF -DBUILD_GLES3=OFF \
         -DBUILD_LIBRETRO=OFF -DBUILD_PERF=OFF -DBUILD_TEST=OFF -DBUILD_SUITE=OFF -DBUILD_CINEMA=OFF \
         -DBUILD_EXAMPLE=OFF -DBUILD_PYTHON=OFF -DBUILD_STATIC=ON -DBUILD_SHARED=OFF -DM_CORE_GB=OFF \
@@ -30,8 +30,12 @@ fi
 mkdir -p "$HERE/build"
 # Compile exactly as mGBA itself was compiled: its structs change shape with NDEBUG and its
 # feature definitions, and a mismatch corrupts memory silently (the link-cable state, first).
-DEFS=$(grep -A1 "src/gba/memory.c.o: C_COMPILER" "$LIB/build.ninja" | sed -n 's/.*DEFINES = //p' | head -1)
-NDEBUG=$(grep -A3 "src/gba/memory.c.o: C_COMPILER" "$LIB/build.ninja" | grep -q -- "-DNDEBUG" && echo -DNDEBUG)
+# (Read from memory.c's block in build.ninja, which runs to the next blank line: its layout differs
+# between CMake versions, so look for the DEFINES and FLAGS lines rather than counting.)
+BLOCK=$(awk '/src\/gba\/memory\.c\.o: C_COMPILER/ {on = 1; next} on && /^$/ {exit} on' "$LIB/build.ninja")
+DEFS=$(printf '%s\n' "$BLOCK" | sed -n 's/^ *DEFINES = //p' | head -1)
+NDEBUG=""
+if printf '%s\n' "$BLOCK" | grep -q -- "-DNDEBUG"; then NDEBUG=-DNDEBUG; fi
 [ -n "$DEFS" ] || { echo "can't read mGBA's compile definitions from $LIB/build.ninja"; exit 1; }
 ${CC:-cc} -std=gnu99 -O2 -Wall -Wextra -Wno-unused-parameter $DEFS $NDEBUG \
     -include "$LIB/include/mgba/flags.h" -I"$MGBA/include" -I"$LIB/include" -I"$TOP/core" \
