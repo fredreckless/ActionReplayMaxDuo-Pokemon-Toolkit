@@ -211,7 +211,12 @@ From the repository's top folder:
 python3 virtual/check.py              # build, fuzz, compare (no firmware needed)
 python3 virtual/check.py --toolkit    # and the full tier with the core behind hwsim.py (needs the firmware built)
 virtual/runner/build.sh               # fetch mGBA 0.10.5, patch it, build it and vduo
+python3 virtual/runner/prepare_flash.py   # once, after the firmware build: the DUO's formatted flash
 ```
+
+`prepare_flash.py` boots the freshly built v4.2 once, lets Datel's start-up format its codes
+database, and keeps the result as `firmware/build/duo_flash.bin` (git-ignored: it is Datel's
+firmware). That image is what `--duo-fw` and the rehearsals' `--duo-flash` take.
 
 A rehearsal needs a save state of the game standing at the attendant's question (made once with
 `vduo.py`'s `state_save`), the game and its save, and the formatted flash image:
