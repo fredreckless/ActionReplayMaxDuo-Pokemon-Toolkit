@@ -208,6 +208,9 @@ struct Player {
 	unsigned waitMask;
 	int32_t cyclesPosted;
 	int powered;
+	int64_t timeOffset;     /* so a GBA switched on later keeps pace from then on */
+	int64_t clock;          /* emulated cycles run (mGBA's own 64-bit count needs its debuggers) */
+	uint32_t lastMaster;
 	struct VFile* save;     /* in memory: the files on disk are never written */
 };
 
@@ -217,6 +220,56 @@ static struct GBASIOLockstep lockstep;
 static struct Duo duo;
 static struct Player* duoPlayer;
 static struct Player* partnerPlayer;
+
+static uint32_t masterOf(struct Player* p) {
+	return ((struct GBA*) p->core->board)->timing.masterCycles;
+}
+
+static void tick(struct Player* p) {             /* after running: count the cycles (wrap-safe) */
+	uint32_t m = masterOf(p);
+	p->clock += (uint32_t) (m - p->lastMaster);
+	p->lastMaster = m;
+}
+
+static void resync(struct Player* p) {           /* after a reset or a state load */
+	p->lastMaster = masterOf(p);
+}
+
+static int64_t timeOf(struct Player* p) {
+	return p->clock + p->timeOffset;
+}
+
+static void switchOn(struct Player* p) {
+	/* line its clock up with the GBAs already running, so it neither races nor waits */
+	int64_t now = -1;
+	for (int i = 0; i < nPlayers; ++i) {
+		if (&players[i] != p && players[i].powered && (now < 0 || timeOf(&players[i]) < now)) {
+			now = timeOf(&players[i]);
+		}
+	}
+	if (now >= 0) {
+		p->timeOffset = now - p->clock;
+	}
+	p->powered = 1;
+}
+
+static FILE* linkLog;           /* --log-link: every change in what each GBA received on the cable */
+static uint16_t lastMulti[2][5];
+
+static void logLink(struct Player* p) {
+	if (!linkLog) {
+		return;
+	}
+	struct GBA* g = p->core->board;
+	int i = p - players;
+	uint16_t now[5] = { g->memory.io[REG_SIOMULTI0 >> 1], g->memory.io[REG_SIOMULTI1 >> 1],
+	                    g->memory.io[REG_SIOMULTI2 >> 1], g->memory.io[REG_SIOMULTI3 >> 1], g->memory.io[REG_SIOMLT_SEND >> 1] };
+	if (memcmp(now, lastMulti[i], sizeof(now))) {
+		memcpy(lastMulti[i], now, sizeof(now));
+		fprintf(linkLog, "%-7s f%-6u got %04x %04x %04x %04x  sends %04x  siocnt %04x\n", p->name,
+		        p->core->frameCounter(p->core), now[0], now[1], now[2], now[3], now[4], g->sio.siocnt);
+	}
+}
 
 static struct Player* byId(int id) {
 	for (int i = 0; i < nPlayers; ++i) {
@@ -524,13 +577,27 @@ static void command(char* line) {
 		      duoPlayer->powered, duo_mapped(duo.core), duo_awake(duo.core), duo_usb_turn(duo.core) ? "gba" : "pc",
 		      duo.packetsFromPc, duo.packetsFromGba, duo.violations, duo.bad, duo.failures,
 		      duo_flash_programs(duo.core), duo_flash_erases(duo.core), duo.nEvents);
+	} else if (!strcmp(c, "link")) {
+		char out[600];
+		int n = snprintf(out, sizeof(out), "ok transfer=%d attached=%d multi=%d", lockstep.d.transferActive,
+		                 lockstep.d.attached, lockstep.attachedMulti);
+		for (int i = 0; i < nPlayers; ++i) {
+			struct Player* q = &players[i];
+			struct GBA* g = q->core->board;
+			n += snprintf(out + n, sizeof(out) - n, " | %s id=%d awake=%d wait=%u posted=%d next=%d diff=%d mode=%d siocnt=%04x frames=%u time=%lld",
+			              q->name, q->node.id, q->awake, q->waitMask, q->cyclesPosted, q->node.nextEvent, q->node.eventDiff,
+			              q->node.mode, g->sio.siocnt, q->core->frameCounter(q->core), (long long) timeOf(q));
+		}
+		reply("%s", out);
 	} else if (!strcmp(c, "events")) {
 		for (int i = 0; i < duo.nEvents; ++i) {
 			fprintf(stdout, "event %u %s\n", duo.events[i].count, duo.events[i].text);
 		}
 		reply("ok %d", duo.nEvents);
 	} else if (!strcmp(c, "power_on")) {
-		duoPlayer->powered = 1;
+		if (!duoPlayer->powered) {
+			switchOn(duoPlayer);
+		}
 		reply("ok");
 	} else if (!p) {
 		reply("err unknown command or player: %s %s", c, argv[1] ? argv[1] : "");
@@ -607,6 +674,7 @@ static void command(char* line) {
 		} else if (!p->core->loadState(p->core, buf + 12)) {
 			reply("err mGBA refused the state");
 		} else {
+			resync(p);
 			if (p == duoPlayer) {
 				if (duo_state_load(duo.core, buf + 12 + hdr[1], hdr[2]) != DUO_OK) {
 					reply("err the DUO's part of the state doesn't fit this DUO");
@@ -656,6 +724,7 @@ static void command(char* line) {
 		reply(ok ? "ok" : "err can't write %s", argv[2]);
 	} else if (!strcmp(c, "reset")) {
 		p->core->reset(p->core);
+		resync(p);
 		if (p == duoPlayer) {
 			duoAfterReset();
 		}
@@ -718,6 +787,7 @@ int main(int argc, char** argv) {
 		else if (!strcmp(a, "--duo-player") && v) { duoId = atoi(v); ++i; }
 		else if (!strcmp(a, "--usb-port") && v) { usbPort = atoi(v); ++i; }
 		else if (!strcmp(a, "--log-ctrl") && v) { ctrlLog = v; ++i; }
+		else if (!strcmp(a, "--log-link") && v) { linkLog = fopen(v, "w"); setvbuf(linkLog, NULL, _IOLBF, 0); ++i; }
 		else if (!strcmp(a, "--wait-for-hello")) { waitHello = 1; }
 		else usage();
 	}
@@ -788,6 +858,7 @@ int main(int argc, char** argv) {
 	}
 	for (int i = 0; i < nPlayers; ++i) {
 		players[i].core->reset(players[i].core);
+		resync(&players[i]);
 		attachLink(&players[i]);
 	}
 	duoAfterReset();
@@ -804,16 +875,23 @@ int main(int argc, char** argv) {
 			usbService();
 			stdinService();
 			if (waitHello && !duoPlayer->powered && duo_usb_pending(duo.core)) {
-				duoPlayer->powered = 1;              /* the hello is waiting: switch the GBA on */
+				switchOn(duoPlayer);                 /* the hello is waiting: switch the GBA on */
+			}
+		}
+		/* run whichever GBA is behind in emulated time (real GBAs share one clock rate) */
+		struct Player* next = NULL;
+		for (int i = 0; i < nPlayers; ++i) {
+			struct Player* p = &players[i];
+			if (p->awake > 0 && p->powered && (!next || timeOf(p) < timeOf(next))) {
+				next = p;
 			}
 		}
 		int ran = 0;
-		for (int i = 0; i < nPlayers; ++i) {
-			struct Player* p = &players[i];
-			if (p->awake > 0 && p->powered) {
-				p->core->runLoop(p->core);
-				ran = 1;
-			}
+		if (next) {
+			next->core->runLoop(next->core);
+			tick(next);
+			logLink(next);
+			ran = 1;
 		}
 		if (waitPlayer && waitPlayer->core->frameCounter(waitPlayer->core) >= waitUntil) {
 			waitPlayer = NULL;
@@ -827,7 +905,7 @@ int main(int argc, char** argv) {
 			usbService();
 			stdinService();
 			if (waitHello && !duoPlayer->powered && duo_usb_pending(duo.core)) {
-				duoPlayer->powered = 1;
+				switchOn(duoPlayer);
 			}
 		}
 	}

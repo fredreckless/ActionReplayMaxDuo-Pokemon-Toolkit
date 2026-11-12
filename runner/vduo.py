@@ -39,12 +39,12 @@ def binary():
 
 class Runner:
     def __init__(self, duo_fw, slot=None, slot_save=None, slot_type="none", partner=None, partner_save=None,
-                 duo_player=0, wait_for_hello=False, usb_port=None, log_ctrl=None):
+                 duo_player=0, wait_for_hello=False, usb_port=None, log_ctrl=None, log_link=None):
         self.usb_port = usb_port or free_port()
         cmd = [binary(), "--duo-fw", duo_fw, "--slot-type", slot_type, "--usb-port", str(self.usb_port),
                "--duo-player", str(duo_player)]
         for flag, val in (("--slot", slot), ("--slot-save", slot_save), ("--partner", partner),
-                          ("--partner-save", partner_save), ("--log-ctrl", log_ctrl)):
+                          ("--partner-save", partner_save), ("--log-ctrl", log_ctrl), ("--log-link", log_link)):
             if val:
                 cmd += [flag, val]
         if wait_for_hello:

@@ -16,7 +16,7 @@ if ! grep -q "struct GBACartBus" "$MGBA/include/mgba/internal/gba/memory.h"; the
 fi
 if [ ! -f "$LIB/libmgba.a" ] || [ "$MGBA/src/gba/memory.c" -nt "$LIB/libmgba.a" ]; then
     mkdir -p "$LIB"
-    (cd "$LIB" && cmake "$MGBA" -DCMAKE_BUILD_TYPE=Release \
+    (cd "$LIB" && cmake "$MGBA" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_GL=OFF -DBUILD_GLES2=OFF -DBUILD_GLES3=OFF \
         -DBUILD_LIBRETRO=OFF -DBUILD_PERF=OFF -DBUILD_TEST=OFF -DBUILD_SUITE=OFF -DBUILD_CINEMA=OFF \
         -DBUILD_EXAMPLE=OFF -DBUILD_PYTHON=OFF -DBUILD_STATIC=ON -DBUILD_SHARED=OFF -DM_CORE_GB=OFF \
@@ -26,7 +26,12 @@ if [ ! -f "$LIB/libmgba.a" ] || [ "$MGBA/src/gba/memory.c" -nt "$LIB/libmgba.a" 
         cmake --build . --target mgba-static > build.log)
 fi
 mkdir -p "$HERE/build"
-${CC:-cc} -std=gnu99 -O2 -Wall -Wextra -Wno-unused-parameter \
+# Compile exactly as mGBA itself was compiled: its structs change shape with NDEBUG and its
+# feature definitions, and a mismatch corrupts memory silently (the link-cable state, first).
+DEFS=$(grep -A1 "src/gba/memory.c.o: C_COMPILER" "$LIB/build.ninja" | sed -n 's/.*DEFINES = //p' | head -1)
+NDEBUG=$(grep -A3 "src/gba/memory.c.o: C_COMPILER" "$LIB/build.ninja" | grep -q -- "-DNDEBUG" && echo -DNDEBUG)
+[ -n "$DEFS" ] || { echo "can't read mGBA's compile definitions from $LIB/build.ninja"; exit 1; }
+${CC:-cc} -std=gnu99 -O2 -Wall -Wextra -Wno-unused-parameter $DEFS $NDEBUG \
     -include "$LIB/include/mgba/flags.h" -I"$MGBA/include" -I"$LIB/include" -I"$TOP/core" \
     "$HERE/vduo.c" "$TOP/core/duocore.c" \
     "$LIB/libmgba.a" -lpng -lz -lpthread -lm -o "$HERE/build/vduo"
