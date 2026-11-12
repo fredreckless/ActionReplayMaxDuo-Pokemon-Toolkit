@@ -345,6 +345,7 @@ This repository holds the whole project, not just the finished tool.
 | [`lab/`](lab/) | Every experiment run on the real DUO, session by session, with the scripts, the complete output log and the conclusions |
 | [`docs/`](docs/) | How it works, the hardware (with board photos), the USB protocol, the findings and the project history |
 | `tools/reverse-engineering/` | The small scripts used to study Datel's firmware: Ghidra export, disassembly and cross-references |
+| [`virtual/`](virtual/) | The Virtual DUO: an emulated DUO in mGBA, so the tool can be rehearsed against a real game before the hardware (Linux, or WSL2 on Windows; `duo_events.py --virtual`) |
 
 ### Building and testing
 
@@ -378,4 +379,4 @@ Developed by fredreckless, working with Claude (Anthropic). Thanks to earlier Ac
 
 ## Licence
 
-MIT, for the code and documents in this repository; see [LICENSE](LICENSE). Datel's firmware remains Datel's, and is never included.
+MIT, for the code and documents in this repository; see [LICENSE](LICENSE). Datel's firmware remains Datel's, and is never included. The changes to mGBA in `virtual/mgba/` are under mGBA's own licence, the MPL 2.0.

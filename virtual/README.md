@@ -224,3 +224,9 @@ python3 virtual/rehearsals/colosseum.py --rom RUBY.gba --sav RUBY.sav --duo-flas
 With the patch applied, `hwsim.py` finds the core in `virtual/core`, or wherever
 `VIRTUAL_DUO_CORE` points. On Windows the core needs a C compiler once (MSYS2's gcc, or clang), or
 `DUOCORE_LIB` pointing at a built `duocore.dll`.
+
+## Licence
+
+The toolkit's MIT licence, except `mgba/`: those patches change mGBA's own files, so they (and the
+scripts that make them) are under mGBA's licence, the Mozilla Public License 2.0. mGBA itself is
+fetched by `runner/build.sh`, never copied in.

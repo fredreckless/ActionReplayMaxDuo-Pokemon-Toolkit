@@ -28,7 +28,7 @@ import zlib
 import maxduo_saves
 import runlog
 import secret_bases as SB
-from maxduo_saves import DuoError, MaxDuo, UsbTransport, SAFE_COMMANDS, Lab, LAB_STAGE
+from maxduo_saves import DuoError, MaxDuo, UsbTransport, VirtualTransport, SAFE_COMMANDS, Lab, LAB_STAGE
 
 # ===================================================================== v4.2
 # Reckless v4.2 can run a program from the GBA's RAM (command 0x23). The tool
@@ -3867,6 +3867,8 @@ def parser():
         epilog="Examples:  duo_events.py gift --card \"E - Item Old Sea Map (JPN).wc3\"    "
                "duo_events.py event --event \"RS - Item Eon Ticket (ENG) (UK).me3\"")
     ap.add_argument("--wait", type=int, default=120, help="seconds to wait for the DUO's GBA to be switched on (default 120)")
+    ap.add_argument("--virtual", metavar="HOST:PORT",
+                    help="talk to a Virtual DUO (the emulated DUO in mGBA) at this address instead of over USB")
     sub = ap.add_subparsers(dest="command", metavar="COMMAND")
 
     def common(p, seconds=600):
@@ -4006,9 +4008,10 @@ def wrong_route(command, path):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if "--wait" in argv[1:]:                     # a global option: it goes before the command
-        k = argv.index("--wait")
-        argv = argv[k:k + 2] + argv[:k] + argv[k + 2:]
+    for opt in ("--wait", "--virtual"):          # global options: they go before the command
+        if opt in argv[1:]:
+            k = argv.index(opt)
+            argv = argv[k:k + 2] + argv[:k] + argv[k + 2:]
     if any(a in LEGACY for a in argv):
         new = translate_legacy(argv)
         print(f"(The old options still work. Next time: python duo_events.py {' '.join(new)})")
@@ -4046,7 +4049,7 @@ def main(argv=None):
     for name in ("serial", "keep_going"):
         if not hasattr(args, name):
             setattr(args, name, None if name == "serial" else False)
-    t = UsbTransport()
+    t = VirtualTransport(args.virtual) if args.virtual else UsbTransport()
     try:
         run(MaxDuo(t), args)
     except KeyboardInterrupt:

@@ -115,6 +115,73 @@ class UsbTransport:
         self.usb.util.dispose_resources(self.dev)
 
 
+class USBTimeoutError(Exception):
+    """A virtual DUO's timeout, named like pyusb's so every handler treats it the same."""
+
+
+class VirtualTransport:
+    """The Virtual DUO (an emulated MAX DUO in mGBA) over a local socket instead of USB.
+    Frames of 9 bytes: 'W' + packet to the DUO, answered 'A' (taken) or 'N' (refused, as the
+    real USB chip refuses a second PC packet in a row: the write times out); 'R' + packet from
+    the DUO. Unused unless --virtual HOST:PORT is given."""
+
+    def __init__(self, where):
+        import socket
+        host, _, port = where.rpartition(":")
+        try:
+            self.sock = socket.create_connection((host or "127.0.0.1", int(port)), timeout=10)
+        except (OSError, ValueError) as err:
+            sys.exit(f"Virtual DUO not reachable at {where} ({err}).")
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.buf = b""
+        self.packets = []                        # DUO packets that arrived while waiting for an answer
+
+    def _frame(self, timeout_ms):
+        import socket, time
+        end = time.monotonic() + timeout_ms / 1000
+        while True:
+            if self.buf[:1] == b"R" and len(self.buf) >= 9:
+                f, self.buf = self.buf[:9], self.buf[9:]
+                return f
+            if self.buf[:1] in (b"A", b"N"):
+                f, self.buf = self.buf[:1], self.buf[1:]
+                return f
+            if self.buf and self.buf[:1] not in (b"R",):
+                raise OSError(f"Virtual DUO: unexpected data {self.buf[:9]!r}")
+            left = end - time.monotonic()
+            if left <= 0:
+                raise USBTimeoutError("timeout")
+            self.sock.settimeout(left)
+            try:
+                got = self.sock.recv(4096)
+            except socket.timeout:
+                raise USBTimeoutError("timeout")
+            if not got:
+                raise OSError("Virtual DUO closed the connection")
+            self.buf += got
+
+    def write(self, data, timeout=SHORT_TIMEOUT):
+        self.sock.sendall(b"W" + bytes(data).ljust(8, b"\0")[:8])
+        while True:
+            f = self._frame(timeout)
+            if f[:1] == b"R":
+                self.packets.append(f[1:])
+                continue
+            if f == b"N":
+                import time
+                time.sleep(timeout / 1000)       # as a real write the DUO never takes
+                raise USBTimeoutError("timeout")
+            return
+
+    def read(self, timeout=SHORT_TIMEOUT):
+        if self.packets:
+            return self.packets.pop(0)
+        return self._frame(timeout)[1:]
+
+    def close(self):
+        self.sock.close()
+
+
 # ----------------------------------------------------------- protocol layer
 
 def packet(cmd, arg=0):

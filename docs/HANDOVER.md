@@ -74,6 +74,24 @@ then a double battle; Record Mixing with the player in the DUO's way.
 - Open: LeafGreen's hang when the player blocked the DUO (3a); the double battle's end freeze
   (retest after the id fix).
 
+## Also on 12 November: the Virtual DUO (`virtual/`)
+
+- **An emulated MAX DUO** in mGBA, moved in with its history (see virtual/README.md): a shared C
+  core for the DUO's chips, USB at register level so Datel's own code runs, and `vduo`, two GBAs on
+  a link cable with the DUO's USB on a TCP port. It needs Linux (WSL2 on Windows) and changes
+  nothing outside its folder: tests and the release are as they were.
+- **`duo_events.py --virtual HOST:PORT`** (and `VirtualTransport` in maxduo_saves.py): the tool
+  talks to the emulated DUO instead of USB. Nothing else in the tool changes.
+- **Rehearsals against Fred's English Ruby** (virtual/rehearsals, `all.sh`): trade, single and
+  double battle, Record Mixing, Mystery Event, the Blender from either end: all pass, and match
+  the hardware's own records where they exist (the trade's .pk3 byte for byte).
+- **Two blender bugs the hardware logs show too:** as the child the DUO counts a blend for each of
+  the game's three copies of the verdict ("Blend 3 done"; `blends++` in blender.c); as the leader
+  the summary reads the game's berry block as the leader's block ("RPM in 893801:51",
+  `blender_blends`). Not fixed yet.
+- **Still to decide:** putting the core behind tests/hwsim.py (virtual/toolkit/hwsim.patch; it
+  passes the full tier and the old-against-new comparison, but needs a C compiler or a built DLL).
+
 ## What changed on 11 November
 
 - **The Record Workshop's map**: a sketch of Hoenn (from the game's region-map grid and the routes'
@@ -160,6 +178,8 @@ then a double battle; Record Mixing with the player in the DUO's way.
 
 - **Repository:** `fredreckless/ActionReplayMaxDuo-Pokemon-Toolkit`. Push with
   `git push origin v42-local && git push origin v42-local:main`.
+- **virtual/** is the Virtual DUO: its own check is `python3 virtual/check.py` (Linux); run it when
+  anything under virtual/ changes. It never needs to pass for an ordinary toolkit push.
 - **Programs** (`firmware/programs/*.c`, clang 18 + lld; `firmware/programs.py`): `adapter`,
   `adapter_lab`, `adapter_probe`, `ereader`, `trade`, `mix`, `colosseum`, `tower`; `room_walk.h` is shared.
   Everything must end below `0x0203AE00`. No hardware divide: no `/` or `%` on variables.
