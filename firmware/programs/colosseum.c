@@ -159,6 +159,7 @@ static void log_event(u32 code, u32 arg)
 enum { ST_WAITING, ST_HANDSHAKE, ST_CONNECTED, ST_ROOM, ST_WALKING, ST_SEATED, ST_STARTING, ST_TEAMS,
        ST_BATTLE, ST_OVER, ST_BACK, ST_WALKING_OUT, ST_EXITING, ST_DONE };
 static u32 state, is_master, transfers, bad_checksums, game_lp_type, game_lp_lang, stop_requested;
+static u16 bad_in[16];                    /* checksum mismatches by our state (12 November: where they happen) */
 static u32 role_known, si_low_run, sessions, hs_run, max_gap;
 static u8 game_player[60];
 
@@ -198,6 +199,8 @@ static u32 our_version(void)              /* the version we give in our link pla
     return v == 3 ? 2 : v;                                   /* (Emerald: Ruby, above) */
 }
 
+static u32 our_spot = 0xFF;               /* the spot we sat on: 0 left (x 3), 1 right (x 10) */
+
 static void build_our_player(void)
 {
     static const char magic[] = "GameFreak inc.";
@@ -221,7 +224,10 @@ static void build_our_player(void)
     } else {
         lp[0x10] = OUR_GENDER;                               /* Ruby/Sapphire keep the gender here */
     }
-    lp[0x18] = is_master ? 0 : 1;                            /* id: our spot (VAR_0x8005) */
+    /* id: our spot (VAR_0x8005: 0 the left, 1 the right; SetLocalLinkPlayerId). 12 November, hardware:
+     * with the player on our usual spot we sat on the other but still said our usual id; the battle
+     * finds each battler's trainer by id, so the names came out garbled */
+    lp[0x18] = our_spot != 0xFF ? our_spot : is_master ? 0 : 1;
 }
 
 static void queue(u16 w0, u16 w1, u16 w2)
@@ -267,9 +273,9 @@ static u16 room_key(void)                 /* our key for this frame in the Colos
      * each once the last has finished; waiting while the way is blocked); on it, "seated" (22) */
     u32 me = is_master ? 0 : 1, other = 1 - me;
     u32 f = walk_frame++;
-    if (f == 0) { rw_start(colo_room, 0, 14, 9, 8, 6, 7, 6, 7, colo_spots, 2); sat = 0; }
+    if (f == 0) { rw_start(colo_room, 0, 14, 9, 8, 6, 7, 6, 7, colo_spots, 2); sat = 0; our_spot = 0xFF; }
     if (sat) {
-        if (f == sat_at + 10) { state = ST_SEATED; log_event(E_SEATED, rw[me].x); return 22; }
+        if (f == sat_at + 10) { state = ST_SEATED; our_spot = rw[me].x == 3 ? 0 : 1; log_event(E_SEATED, rw[me].x); return 22; }
         return 17;
     }
     if (f < 40 || !rw_free(me)) return 17;
@@ -609,7 +615,7 @@ static void on_transfer(void)
     }
     if (send_idx == 0) {
         if (checksum_ready && (w[0] != checksum || w[1] != checksum) && !hs_run)   /* (not a new link starting) */
-            bad_checksums++;
+            { bad_checksums++; bad_in[state & 15]++; }
         checksum = 0; checksum_ready = 1;
     } else {
         frame[recv_idx][0] = w[0]; frame[recv_idx][1] = w[1];
@@ -743,6 +749,7 @@ static int pc_service(api_t *api)
              blob_ready = put_at * 4 >= BLOB_MAX && TEAM_COUNT >= 1 && TEAM_COUNT <= 6;
              if (blob_ready) { log_len = log_full = log_seq = 0; on_field[0] = 0; on_field[1] = 6; pend_on[0] = pend_on[1] = 0; }
              break;
+    case 30: v = bad_in[2 * (idx & 7)] | (u32)bad_in[2 * (idx & 7) + 1] << 16; break;   /* mismatches by state */
     default: v = 0xFFFFFFFF; break;
     }
     api->reply(0x2A, v);

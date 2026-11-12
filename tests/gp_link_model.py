@@ -27,7 +27,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None):
+                 link_player=None, garble=0.0):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -48,6 +48,10 @@ class GpLinkGame:
         self.blocks_in, self.rx = {}, {}
         self.result = dict(handshake_players=None, link_players={}, refused=None, closed=False, checksum_errors=0)
         self.lp = link_player or bytes(60)
+        # garble (12 November, hardware: the DUO read the game's handshake only now and then): the share of
+        # the game's words whose bit 5 the DUO reads wrongly (the game itself reads its own word right)
+        import random
+        self.garble, self.rng, self.garbled_t0 = garble, random.Random(5), {}
         hw.mu.hook_add(UC_HOOK_BLOCK, self.on_block)
         hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
@@ -89,7 +93,13 @@ class GpLinkGame:
         elif addr in (VCOUNT, VCOUNT + 1):
             mu.mem_write(VCOUNT, struct.pack("<H", int(t // 1232) % 228))
         else:
-            v = self.rcnt & ~(P_SD | P_SI) | (P_SD if self.sd(t) else 0)    # (the master's SI: low)
+            level = self.sd(t)
+            if self.garble and self.game_t0 is not None and not self.duo_driving:
+                if self.game_t0 not in self.garbled_t0:
+                    self.garbled_t0[self.game_t0] = self.rng.random() < self.garble
+                if self.garbled_t0[self.game_t0] and int((t - self.game_t0) / BIT) == 6:
+                    level ^= 1
+            v = self.rcnt & ~(P_SD | P_SI) | (P_SD if level else 0)    # (the master's SI: low)
             mu.mem_write(RCNT, struct.pack("<H", v))
 
     def on_write(self, mu, access, addr, size, value, _):
@@ -132,7 +142,7 @@ class GpLinkGame:
         words, t = [], self.t_start
         for slot in range(4):
             start = None
-            limit = t + self.window * BIT if slot else t + 40 * BIT
+            limit = t + self.window * BIT if slot >= 2 else t + 40 * BIT   # (slot 1 is the game's own word)
             probe = t
             while probe < min(limit, t_end):
                 if self.level_at(probe) == 0:

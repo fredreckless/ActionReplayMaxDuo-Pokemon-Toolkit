@@ -8,6 +8,20 @@ come last. Each run writes `logs\latest.log`; battles also keep `battles\*.txt`,
 
 When a test has been done, move it to "Done" with the date and what was seen (or ask Claude to).
 
+## Results of 11 November (the checklist page), and what changed for them
+
+| # | Result | What was seen | Done about it (12 November) |
+|---|---|---|---|
+| 1 | pass | A single battle at medium, two DUO Pokémon, to the end | - |
+| 2 | pass | A single battle at impossible | - |
+| 3 | **fail** | Double battle, the player on the DUO's usual spot: garbled "fainted" text with Japanese characters, then a black screen after the battle; 14 checksum mismatches | **Fixed:** the DUO sat on the other spot but still said its usual link-player id, so both said 1 and the battle found no trainer for battler 0 (names read past `gLinkPlayers`). Its id is now the spot it sat on (`SetLocalLinkPlayerId(VAR_0x8005)`). Retest as before |
+| 3a | partly | Japanese Emerald fine; LeafGreen hung at the battle's start after the player blocked the DUO's way (the second try worked). Asked: show the PC's thinking | **Added:** each PC choice is printed ("PC (medium): FLYGON uses EARTHQUAKE on ... (about 45% of its HP, 10% to knock it out)"). The LeafGreen hang isn't explained yet: please retest, blocking the DUO once, and note whether you sat down before it did |
+| 3c, 3c+ | pass | The Berry Blender both ways round | - |
+| 3d | pass | The E MODE contest with Japanese Emerald (then its battery died) | - |
+| 3d+ | **not a fault** | Tried with Ruby: Ruby's link contest counter needs four players (link type 0x6601) | The tool now says so. Retest 3d+ with Emerald |
+| 3e | **fail** | Japanese Emerald mixed and saved but showed an error message; 700 and 1,230 checksum mismatches (the battery was low) | **Diagnostics:** the tool now says in which of the DUO's states the mismatches happened. Retest with fresh batteries |
+| 12a, 12b | **fail** | The handshake never finished; the figures mixed in the half-minute before the game's GBA was on | **Changed:** the DUO answers as master after about 20 of the game's handshakes, not 20 in a row; the figures are given again from the game's first real word, with its first 32 words in the record and the line's idle level. Retest 12a first |
+
 ## With the link cable as fitted
 
 | # | Test | Command | What to look for |

@@ -62,6 +62,18 @@ multiplayer feature of the five games (ROADMAP Stage 12).
 **Hardware next:** docs/HARDWARE_QUEUE.md, from the top: a single battle at medium, then impossible,
 then a double battle; Record Mixing with the player in the DUO's way.
 
+## What changed on 12 November (the first checklist results)
+
+- **Colosseum link-player id = the spot sat on** (`colosseum.c`): the double-battle garbling of
+  test 3. The battle model now checks it.
+- **The PC's choices printed** in battles and the Battle Tower (`LinkBattle.explain`).
+- **Contest:** Ruby's four-player counter (0x6601) is named as such.
+- **Checksum mismatches by state** (trade, mix, colosseum: poll 30), for the Japanese Emerald mix.
+- **lab4p:** handshake after ~20 of the game's (not 20 in a row); figures from the game's first real
+  word; the line-level model reads slot 1 as the game's own word.
+- Open: LeafGreen's hang when the player blocked the DUO (3a); the double battle's end freeze
+  (retest after the id fix).
+
 ## What changed on 11 November
 
 - **The Record Workshop's map**: a sketch of Hoenn (from the game's region-map grid and the routes'

@@ -113,6 +113,12 @@ static void log_event(u32 code, u32 arg)
 static u32 bit_fp;                        /* the bit time in 1/256 cycles: 16777216 / 115200 = 145.64 */
 static u16 rc;                            /* RCNT as we last set it */
 static u32 timeouts, stop_errors, words_ok, edge_min = 0xFFFF, edge_max;
+/* 12 November (hardware, rows 12a/12b): every figure above mixed in the 30 s before the game's GBA was
+ * on (no pull-up then: SD read low, words of 0 with no stop bit), and the handshake never finished.
+ * So the same figures again from the game's first real word on, the first 32 of its words logged, its
+ * handshakes counted, and the line's idle level between transfers (it should be high: pulled up) */
+static u32 game_on, words2, stop2, timeouts2, edge_min2 = 0xFFFF, edge_max2, hs_reads, hs_run_best, hs_run, logged2;
+static u32 sd_low_after, sd_checks;
 
 static inline u16 tnow(void) { return TM0CNT_L; }
 static inline void until(u16 t) { while ((s16)(tnow() - t) < 0) ; }
@@ -133,23 +139,29 @@ static void put_word(u16 t0, u32 w)       /* our word on SD: start, 16 bits from
     set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */
 }
 
+static u32 sample(u16 te, u32 k256)        /* SD at that point of a word */
+{
+    until(at_bit(te, k256));
+    return !!(RCNT & P_SD);
+}
+
 static u32 get_word(u16 from, u16 *end)   /* the game's word off SD: 0xFFFF if it never starts */
 {
     u16 limit = at_bit(from, 12 << 8);
     while (RCNT & P_SD)
-        if ((s16)(tnow() - limit) >= 0) { timeouts++; return 0xFFFF; }
+        if ((s16)(tnow() - limit) >= 0) { timeouts++; timeouts2 += game_on; return 0xFFFF; }
     u16 te = tnow(), d = te - from;
     if (d < edge_min) edge_min = d;
     if (d > edge_max) edge_max = d;
+    if (game_on) { if (d < edge_min2) edge_min2 = d; if (d > edge_max2) edge_max2 = d; }
     u32 w = 0;
-    for (u32 i = 0; i < 16; i++) {
-        until(at_bit(te, (i << 8) + 384));                   /* the middle of bit i (after a start bit) */
-        if (RCNT & P_SD) w |= 1u << i;
-    }
-    until(at_bit(te, 17 * 256 + 128));
-    if (!(RCNT & P_SD)) stop_errors++;
+    for (u32 i = 0; i < 16; i++)
+        if (sample(te, (i << 8) + 384)) w |= 1u << i;        /* the middle of bit i (after a start bit) */
+    u32 stop_ok = sample(te, 17 * 256 + 128);
+    if (!stop_ok) { stop_errors++; stop2 += game_on; }
     *end = at_bit(te, 18 << 8);
     words_ok++;
+    words2 += game_on;
     return w;
 }
 
@@ -177,6 +189,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
         until(at_bit(end, 3 << 8));                          /* (the timeout after the last unit) */
     }
     set_pins(GP | OUT(P_SC | P_SO) | P_SC | P_SO);          /* SC high, SO high: done */
+    if (game_on) { sd_checks++; if (!(RCNT & P_SD)) sd_low_after++; }   /* SD idle: pulled up by the game, high */
     REG_IME = saved_ime;
 }
 
@@ -277,6 +290,9 @@ static void on_words(void)                /* after each transfer: the link layer
 {
     transfers++;
     if (transfers <= 8) { game_first[transfers - 1] = words[1]; log_event(E_WORD, words[1]); }
+    if (!game_on && words[1] != 0 && words[1] != 0xFFFF) game_on = 1;   /* (the game's GBA is on: its first real word) */
+    if (game_on && logged2 < 32) { logged2++; log_event(E_WORD, words[1]); }
+    if ((words[1] & ~3) == SLAVE_HS) { hs_reads++; if (++hs_run > hs_run_best) hs_run_best = hs_run; } else hs_run = 0;
     if (state < ST_LINKED) {
         static u32 prev, seen_all;
         u32 n = 0;
@@ -320,7 +336,9 @@ static void our_words(u16 *mine)          /* what our slots send in the next tra
     if (state < ST_LINKED) {
         static u32 sent;
         u32 ready = words[1] != 0xFFFF && (words[1] & ~3) == SLAVE_HS;
-        sent = ready ? sent + 1 : 0;
+        /* the game's handshake about 20 times (not 20 in a row: on hardware, 12 November, the reads were
+         * patchy and a run of 20 never came), then ours as master */
+        sent = ready ? sent + 1 : sent > 2 && sent < 20 ? sent - 2 : sent >= 20 ? sent : 0;
         mine[0] = sent >= 20 ? MASTER_HS : SLAVE_HS;
         mine[2] = SLAVE_HS | 2; mine[3] = SLAVE_HS | 3;
         return;
@@ -366,6 +384,12 @@ static int pc_service(api_t *api)
     case 7: v = (ck_game_two & 0xFFFF) | ck_game_four << 16; break;
     case 8: v = ck_neither | cycles << 16; break;
     case 9: v = game_block[16] | game_block[16 + 0x14] << 8 | game_block[16 + 0x15] << 16; break;
+    case 10: v = (words2 & 0xFFFF) | stop2 << 16; break;                 /* from the game's first real word */
+    case 11: v = (timeouts2 & 0xFFFF) | (hs_reads & 0xFFFF) << 16; break;
+    case 12: v = (edge_min2 & 0xFFFF) | edge_max2 << 16; break;
+    case 13: v = hs_run_best; break;
+    case 14: v = sd_low_after; break;                        /* SD read low just after we let go of it... */
+    case 15: v = sd_checks; break;                           /* ...out of so many (the PC works out the share) */
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && (PLAYERS == 1 || PLAYERS == 3);

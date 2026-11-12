@@ -2057,6 +2057,31 @@ class LinkBattle:
         elif cmd == C_CHOOSEPOKEMON and d[0] == 34 and len(d) > 1 and self.player_action.get(battler) == 2:
             self.player_choice[battler] = ("switch", d[1])
 
+    # ------------------------------------------------------------ saying what it chose
+    def explain(self, battler, value, target):
+        """A line for the console on the PC's choice (12 November, asked for at the console): the move and
+        what it expects of it, or the Pokemon sent in. None for a plain 'fight' (the move follows)."""
+        cmd = self.pending.get(battler, (None,))[0]
+        mon = self.mon(battler)
+        who = mon.name if mon else f"battler {battler}"
+        try:
+            if cmd == C_CHOOSEACTION:
+                return None if value == 0 else f"{who}: switches out" if value == 2 else f"{who}: action {value}"
+            if cmd == C_CHOOSEMOVE and mon and value < len(mon.moves):
+                move = mon.moves[value]
+                foe = self.mon(target)
+                line = f"{who} uses {move_name(move)}" + (f" on {foe.name}" if foe else "")
+                if foe and MOVES[move][1]:
+                    frac, ko = expected_hit(self._battle_for(battler, target), 0, move)
+                    line += f" (about {round(100 * frac)}% of its HP" + (f", {round(100 * ko)}% to knock it out)" if ko >= 0.05 else ")")
+                return line
+            team = self.side_team(battler) or []
+            if value < len(team) and team[value]:
+                return f"sends in {team[value].name}"
+        except Exception:                                # (the line is only for show)
+            pass
+        return f"{who}: choice {value}"
+
     # ------------------------------------------------------------ choosing
     def player_known(self, our_battler):
         """The player's choices this turn (for the impossible level): {battler: choice} once every

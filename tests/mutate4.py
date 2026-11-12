@@ -308,7 +308,8 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "mix: the room's \"ready\" (0x2FFE) never answered - the game stays black (lab session 31)": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Record Mixing, the game as master"),
 }
 
-COLOSSEUM_MUTANTS = {      # firmware/programs/colosseum.c: the battle probe
+COLOSSEUM_MUTANTS = {
+    "colosseum: the id from our player number, not the spot we sat on": ("    lp[0x18] = our_spot != 0xFF ? our_spot : is_master ? 0 : 1;", "    lp[0x18] = is_master ? 0 : 1;", "the player stands on the DUO's usual spot"),      # firmware/programs/colosseum.c: the battle probe
     "colosseum: as player 0, sends the game's own signature - the DUO would have to run the battle": ("    if (is_master) { our_header[0] = 1; our_header[1] = 0; }", "    if (0) { our_header[0] = 1; our_header[1] = 0; }", "battle probe, the DUO as master"),
     "colosseum: its done carries the game's player ID": ("    u8 done[4] = { is_master ? 0 : 1, 0, 0, 0 };", "    u8 done[4] = { is_master ? 1 : 0, 0, 0, 0 };", "battle probe, the game as master"),
     "colosseum: to Emerald, an Emerald player (the recorded battle's steps follow)": ("    return v == 3 ? 2 : v;", "    return v;", "battle partner: Emerald"),
@@ -367,7 +368,8 @@ CONTEST_MUTANTS = {
     "contest: a \"ready\" barrier not answered": ("        queue(0x2FFE, 0, 0);\n        barriers++;", "        barriers++;", "Contest (8 November)"),
 }
 
-LAB4P_MUTANTS = {          # firmware/programs/lab4p.c: the four-player cable experiment (8 November)
+LAB4P_MUTANTS = {
+    "lab4p: the game's handshake needed 20 in a row again": ("        sent = ready ? sent + 1 : sent > 2 && sent < 20 ? sent - 2 : sent >= 20 ? sent : 0;", "        sent = ready ? sent + 1 : 0;", "with a third of the game's words misread"),          # firmware/programs/lab4p.c: the four-player cable experiment (8 November)
     "lab4p: bits sent from the highest": ("        set_pins(w >> i & 1 ? rc | P_SD : rc & ~P_SD);", "        set_pins(w >> (15 - i) & 1 ? rc | P_SD : rc & ~P_SD);", "lab4p (8 November)"),
     "lab4p: no stop bit": ("    set_pins(rc | P_SD);                                     /* the stop bit: high */", "    set_pins(rc & ~P_SD);", "lab4p (8 November)"),
     "lab4p: the game never given its turn (SO)": ("    set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */", "    set_pins(rc);", "lab4p (8 November)"),

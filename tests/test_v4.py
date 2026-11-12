@@ -3837,6 +3837,8 @@ def _():
     assert r["partner_choices"] and all(t in (1, 3) for _, b, _, t in r["partner_choices"] if b == 2), r["partner_choices"]
     assert report["battles"] == 3 and report["won"] == 3 and report["pc_answers"] > 0 and report["fallbacks"] == 0, report
     assert "3 battles, 3 won" in hw.text and report.get("file")
+    # (12 November, asked for at the console: each of the PC's choices shown, the move and what it expects)
+    assert re.search(r"PC \(medium\): \S+ uses [A-Z][A-Z -]+ on \S+ \(about \d+% of its HP", hw.text), hw.text[-1500:]
 
 
 @test("Battle Tower link multi battle: the DUO retires after the first battle (--retire-after 1) - the game hears it, says the partner has retired, and the challenge ends")
@@ -4009,6 +4011,14 @@ def _():
     assert said == {c["round"]: c["meter_before"] for c in duo[1:]}, (said, duo)   # (the PC's meter: the game's)
 
 
+@test("Contest: Ruby's link contest counter (12 November, hardware) - Ruby links for a four-player contest (0x6601) and closes with only two; the tool says the DUO can only enter Emerald's E MODE for now")
+def _():
+    hw, game, report = contest_run(ruby=True, seconds=120)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    assert report["game_type"] == 0x6601 and not report["rounds"], report
+    assert "needs exactly four players" in hw.text and "E MODE" in hw.text, hw.text[-800:]
+
+
 @test("Contest planning (11 November): the PC's five rounds take a combo after its starter (Focus Energy, then Karate Chop) and avoid the same move twice running")
 def _():
     import contest_data as CD
@@ -4057,6 +4067,15 @@ def _():
     r = game.result
     assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, r
     assert report["game_version"] == 2 and report["ck_two"] + report["ck_four"] > 0, report
+
+
+@test("lab4p (12 November, hardware: the handshake never finished): with a third of the game's words misread by the DUO, the control still links - the DUO answers as master after about 20 of the game's handshakes, not 20 in a row - and the tool reports the figures from the game's first real word on")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", garble=0.33)
+    r = game.result
+    assert r["handshake_players"] == 2, (r, hw.text[-1200:])
+    assert report["hs_reads"] > 20 and report["hs_run_best"] < 20, report
+    assert "From the game's first real word on" in hw.text and "at best" in hw.text, hw.text[-1200:]
 
 
 @test("lab4p: a game whose hardware waits less for the next child than the DUO's gap (0.8 bits, the gap one bit) - slots 2 and 3 arrive too late and stay 0xFFFF, so the game counts two players: what --gap is there to try")

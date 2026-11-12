@@ -255,6 +255,14 @@ class RubyColosseum(RubyTrade):
         while not s.players_checked:
             yield
         me, other = self.my_id, self.other
+        # (12 November, hardware: the player took the DUO's usual spot, the DUO sat on the other and still
+        # said id 1. Each link player's id is its spot (SetLocalLinkPlayerId(VAR_0x8005)); the battle finds
+        # a battler's trainer by id (GetBattlerMultiplayerId), so two ids of 1 left battler 0 with none:
+        # names read past gLinkPlayers - garbled text, a freeze at the end)
+        spot = self.result.get("partner_spot")
+        if spot in SPOTS and self.link_players[other].get("id") != SPOTS[spot]:
+            raise LinkError(f"the partner sat on spot {SPOTS[spot]} but its link player says id "
+                            f"{self.link_players[other].get('id')}")
         # CB2_HandleStartBattle case 0: the header (versionSignature 0x0101, the fit Pokemon, the berry)
         fit = 0
         for i, mon in enumerate(self.party):

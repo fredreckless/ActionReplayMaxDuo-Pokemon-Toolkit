@@ -44,7 +44,7 @@ def contest_mon(species, moves, cond=(10, 20, 30, 40, 50, 5), name=b"\xbb\xbc\xb
 class EmeraldLinkContest(RubyTrade):
     def __init__(self, category="cool", player_mon=None, partner_species=None, partner_moves=None, rounds=5,
                  duo_place=1, language=LANG_ENGLISH, master=True, crowd=False, ai_moves=((17,), (17,)), orders=None,
-                 player_moves=(85,),
+                 player_moves=(85,), ruby=False,
                  **kw):
         """category: the player's choice at the counter; partner_species / partner_moves: what the
         DUO's contestant must be (from its .pk3); duo_place: where the leader's figures put the DUO
@@ -66,11 +66,17 @@ class EmeraldLinkContest(RubyTrade):
         self.orders = orders or [(0, 1, 2, 3)] * rounds
         self.meter, self.status = 0, [dict(prev=0, curr=0, appeal=0, total=0, repeated=0) for _ in range(4)]
         self.result.update(crowd=[])
+        # ruby (12 November, hardware): Ruby's link contest counter instead - link type 0x6601, which
+        # wants four players (sub_808363C: CreateLinkupTask(4, 4)): with two, it closes after the cards
+        self.ruby = ruby
         self.result.update(partner_mon=None, partner_moves=[], partner_index=[], standings=None, closed=False,
                            blocks_answered=0)
 
     def run(self):
         yield ("until_ready",)
+        if self.ruby:
+            yield from self._session(0x6601, self._ruby_counter, max_frames=6000)
+            return self.result
         yield from self._session(LT_EMODE, self._contest, max_frames=60000)
         return self.result
 
@@ -121,6 +127,19 @@ class EmeraldLinkContest(RubyTrade):
             yield
 
     # ------------------------------------------------------------ the contest
+    def _ruby_counter(self, s):
+        s.stage = "Ruby's contest counter: link players"
+        while not s.players_checked:
+            yield
+        s.send_buffer = bytes(100)
+        if self.master:
+            s.link.send(0xCCCC, 2)
+        yield from self._partner_block(s, 100, frames=900 if self.master else 2000)
+        s.stage = "Ruby's contest counter: two players, not four: closing"
+        yield from self._wait(60)
+        s.close()
+        self.result["closed"] = True
+
     def _contest(self, s):
         s.stage = "Contest link-up: link players"
         while not s.players_checked:

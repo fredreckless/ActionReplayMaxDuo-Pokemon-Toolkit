@@ -47,7 +47,7 @@ def parse_link_player(block):
     lp = block[16:44]
     return dict(version=int.from_bytes(lp[0:2], "little"), trainer_id=int.from_bytes(lp[4:8], "little"),
                 name=bytes(lp[8:19]), link_type=int.from_bytes(lp[0x14:0x18], "little"),
-                language=int.from_bytes(lp[0x1A:0x1C], "little"))
+                language=int.from_bytes(lp[0x1A:0x1C], "little"), id=lp[0x18])
 
 
 class LinkLayer:

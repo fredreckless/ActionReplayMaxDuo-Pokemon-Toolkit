@@ -110,6 +110,7 @@ static u32 put_at, blob_ready;
 enum { ST_WAITING, ST_HANDSHAKE, ST_CONNECTED, ST_ROOM, ST_WALKING, ST_SEATED, ST_MIXING, ST_MIXED,
        ST_REOPENING, ST_BACK, ST_WALKING_OUT, ST_EXITING, ST_DONE };
 static u32 state, is_master, transfers, bad_checksums, game_lp_type, game_lp_lang, stop_requested;
+static u16 bad_in[16];                    /* checksum mismatches by our state (12 November: where they happen) */
 static u32 role_known, si_low_run, sessions, hs_run, max_gap;
 static u8 game_player[60];
 
@@ -496,7 +497,7 @@ static void on_transfer(void)
     }
     if (send_idx == 0) {
         if (checksum_ready && (w[0] != checksum || w[1] != checksum) && !hs_run)   /* (not a new link starting) */
-            bad_checksums++;
+            { bad_checksums++; bad_in[state & 15]++; }
         checksum = 0; checksum_ready = 1;
     } else {
         frame[recv_idx][0] = w[0]; frame[recv_idx][1] = w[1];
@@ -586,6 +587,7 @@ static int pc_service(api_t *api)
              blob_ready = put_at * 4 >= BLOB_MAX && BASE_COUNT <= 20;
              if (blob_ready) zero(RECORD + RECORD_SIZE, ROUNDS * CHUNK - RECORD_SIZE);
              break;
+    case 30: v = bad_in[2 * (idx & 7)] | (u32)bad_in[2 * (idx & 7) + 1] << 16; break;   /* mismatches by state */
     default: v = 0xFFFFFFFF; break;
     }
     api->reply(0x2A, v);
