@@ -19,6 +19,9 @@
 #define LINK_IN      0x09FE01C0u /* read: a byte from the USB chip, its strobe in bit 8 */
 #define LINK_OUT     0x09FE01E0u /* write: a byte from the GBA, the GBA's strobe in bit 8 */
 #define STROBE       0x0100u
+#define AT_SWITCH_ON 0x6000u    /* LINK_IN bits 13 and 14: the DUO's AT switch, ON (see below) */
+#define REG_0160     0x09FE0160u /* reads 0x0000 on hardware (lab probe, 22 October 2026) */
+#define REG_E140     0x09FFE140u /* reads 0xF0A0 on hardware (same probe); Datel writes 0x0FF0 */
 
 /* The USB chip's side of the link (the Cypress, as observed: strict alternation). */
 enum cy_state {
@@ -64,6 +67,13 @@ struct duo {
     int from_gba_n;
     uint8_t sent[8];            /* the GBA's last complete packet, waiting for the host */
     int sent_ready;
+
+    int at_switch;              /* the DUO's ON/OFF switch: 1 = ON */
+
+    /* the SST flash's command decoder */
+    int fcmd_n;
+    uint8_t fcmd_val[6];
+    uint32_t flash_programs, flash_erases;
 };
 
 const char *duo_version(void) { return "duocore 0.2 (USB at register level, 12 November 2026)"; }
@@ -75,6 +85,7 @@ static void clear(duo_result *r) {
     r->status = DUO_OK;
     r->flags = 0;
     r->rom_lo = r->rom_hi = 0;
+    r->rom_lo2 = r->rom_hi2 = 0;
     r->cycles = 0;
     r->msg[0] = 0;
 }
@@ -144,6 +155,7 @@ duo_t *duo_new(const uint8_t *fw, size_t fw_len, const uint8_t *game, size_t gam
     memcpy(d->save, save, save_len < d->save_size ? save_len : d->save_size);
     d->waitcnt = 0x4314;
     d->cy = CY_PC_TURN;                 /* both strobes low, nothing waiting */
+    d->at_switch = 1;
     return d;
 }
 
@@ -172,7 +184,10 @@ static uint8_t rom_byte(const duo_t *d, uint32_t off) {
         return off >= MAPREG_OFF ? MAPREG_READ[off - MAPREG_OFF] : 0;
     if (!d->mapped) {                                        /* the DUO's own flash */
         if (off == LINK_IN - DUO_ROM_BASE) return (uint8_t)d->link_in;
-        if (off == LINK_IN - DUO_ROM_BASE + 1) return (uint8_t)(d->link_in >> 8);
+        if (off == LINK_IN - DUO_ROM_BASE + 1)
+            return (uint8_t)((d->link_in | (d->at_switch ? AT_SWITCH_ON : 0)) >> 8);
+        if ((off & ~1u) == REG_0160 - DUO_ROM_BASE) return 0x00;
+        if ((off & ~1u) == REG_E140 - DUO_ROM_BASE) return (off & 1) ? 0xF0 : 0xA0;
         if (d->flash_id && off < 4) return FLASH_ID[off];
         return off < MIRROR_END ? d->flash[off & (FLASH_SIZE - 1)] : open_bus(off);
     }
@@ -252,9 +267,79 @@ uint32_t duo_read(duo_t *d, uint32_t addr, int width, duo_result *r) {
 
 static void link_write(duo_t *d, uint16_t v, duo_result *r);
 
+/*
+ * The SST 39VF400A's command set (x16; command addresses are word addresses 0x5555 and 0x2AAA,
+ * i.e. bytes 0xAAAA and 0x5554; only the low byte of a command matters):
+ *   AA 55 90            software ID entry      AA 55 F0, or F0 alone   ID exit
+ *   AA 55 A0 data@addr  program a word (bits can only go from 1 to 0)
+ *   AA 55 80 AA 55 30@SA  erase a 2 KWord (4 KB) sector;  50@BA  a 32 KWord block;  10@5555  the chip
+ * Program and erase finish at once (Datel's data polling sees the final value straight away).
+ * A write that fits no sequence returns 0: an unexpected write, as before.
+ */
+static void flash_changed(duo_t *d, uint32_t lo, uint32_t hi, duo_result *r) {
+    (void)d;
+    rom_changed(r, lo, hi);                     /* the flash ... */
+    if (r) {                                    /* ... and its mirror above it */
+        r->rom_lo2 = lo + FLASH_SIZE;
+        r->rom_hi2 = hi + FLASH_SIZE;
+        r->flags |= DUO_F_FLASH_CHANGED;
+    }
+}
+
+static int flash_command(duo_t *d, uint32_t off, uint32_t value, duo_result *r) {
+    uint32_t w = (off & (FLASH_SIZE - 1)) >> 1;        /* the chip's word address */
+    uint8_t c = (uint8_t)value;
+    int n = d->fcmd_n;
+    if (n == 0 && c == 0xF0) {                          /* reset / ID exit, any address */
+        if (d->flash_id) { d->flash_id = 0; rom_changed(r, 0, 4); }
+        return 1;
+    }
+    if (n == 3 && d->fcmd_val[2] == 0xA0) {             /* the data of a word program */
+        uint32_t b = w << 1;
+        uint16_t old = (uint16_t)(d->flash[b] | d->flash[b + 1] << 8);
+        uint16_t now = (uint16_t)(old & value);
+        d->flash[b] = (uint8_t)now;
+        d->flash[b + 1] = (uint8_t)(now >> 8);
+        d->fcmd_n = 0;
+        d->flash_programs++;
+        flash_changed(d, b, b + 2, r);
+        return 1;
+    }
+    static const uint32_t ADDR[6] = {0x5555, 0x2AAA, 0x5555, 0x5555, 0x2AAA, 0};
+    static const uint8_t VAL[6] = {0xAA, 0x55, 0, 0xAA, 0x55, 0};
+    if (n == 5) {                                       /* the last cycle of an erase */
+        d->fcmd_n = 0;
+        uint32_t lo, len;
+        if (c == 0x30) { lo = (w & ~0x7FFu) << 1; len = 0x1000; }
+        else if (c == 0x50) { lo = (w & ~0x7FFFu) << 1; len = 0x10000; }
+        else if (c == 0x10 && w == 0x5555) { lo = 0; len = FLASH_SIZE; }
+        else return 0;
+        memset(d->flash + lo, 0xFF, len);
+        d->flash_erases++;
+        flash_changed(d, lo, lo + len, r);
+        return 1;
+    }
+    if (w != ADDR[n] || (n != 2 && c != VAL[n]) || (n == 3 && d->fcmd_val[2] != 0x80)) {
+        d->fcmd_n = 0;
+        return 0;
+    }
+    d->fcmd_val[n] = c;
+    d->fcmd_n = n + 1;
+    if (n == 2) {
+        switch (c) {
+        case 0x90: d->fcmd_n = 0; if (!d->flash_id) { d->flash_id = 1; rom_changed(r, 0, 4); } break;
+        case 0xF0: d->fcmd_n = 0; if (d->flash_id) { d->flash_id = 0; rom_changed(r, 0, 4); } break;
+        case 0xA0: case 0x80: break;
+        default: d->fcmd_n = 0; return 0;
+        }
+    }
+    return 1;
+}
+
 static void rom_write(duo_t *d, uint32_t addr, int width, uint32_t value, duo_result *r) {
     char a[16], b[16];
     uint32_t v = value & 0xFFFF;
+    if (!d->mapped && (addr & ~1u) == REG_E140) return;    /* Datel writes 0x0FF0 after each swap back: meaning unknown */
     if (!d->mapped && (addr & ~1u) == LINK_OUT) {           /* a byte (and strobe) to the USB chip */
         uint16_t out = d->link_out;
         if (width == 1)
@@ -281,18 +366,8 @@ static void rom_write(duo_t *d, uint32_t addr, int width, uint32_t value, duo_re
         if (r) r->flags |= DUO_F_SAVE_CHANGED;
         return;
     }
-    if (!d->mapped && (addr == 0x0800AAAAu || addr == 0x08005554u)) {
-        if (v == 0x9090) {                      /* SST software-ID entry */
-            d->flash_id = 1;
-            rom_changed(r, 0, 4);
-        }
-        return;                                 /* unlock cycles are taken quietly */
-    }
-    if (!d->mapped && addr == DUO_ROM_BASE && v == 0xF0F0) {   /* ID exit */
-        d->flash_id = 0;
-        rom_changed(r, 0, 4);
+    if (!d->mapped && addr - DUO_ROM_BASE < MIRROR_END && flash_command(d, addr - DUO_ROM_BASE, v, r))
         return;
-    }
     if (r) r->status = DUO_FAIL;
     if (d->mapped)
         say(r, "unexpected write %s to %s (mapped=%u)", hx(a, v), hx(b, addr), d->mapped);
@@ -482,7 +557,12 @@ int duo_usb_take(duo_t *d, uint8_t *out) {
     return 1;
 }
 
-uint16_t duo_link_in(const duo_t *d) { return d->link_in; }
+uint16_t duo_link_in(const duo_t *d) { return (uint16_t)(d->link_in | (d->at_switch ? AT_SWITCH_ON : 0)); }
+
+/* The DUO's AT switch. Datel's 0x0800BAF0 reads it: when 0x09FE0160 reads 1, ON is LINK_IN bit 9
+ * clear; otherwise (0x0000, as measured) ON is LINK_IN bits 13 and 14 both set. Off, Datel's
+ * start-up shows "The Action Replay switch is currently set to OFF". */
+void duo_set_switch(duo_t *d, int on) { d->at_switch = on ? 1 : 0; }
 uint16_t duo_link_out(const duo_t *d) { return d->link_out; }
 
 /* ------------------------------------------------------------------ save states
@@ -530,3 +610,6 @@ uint32_t duo_ignored(const duo_t *d) { return d->ignored; }
 size_t duo_save_size(const duo_t *d) { return d->save_size; }
 void duo_save_copy(const duo_t *d, uint8_t *out) { memcpy(out, d->save, d->save_size); }
 int duo_cmd_len(const duo_t *d) { return d->ncmd; }
+uint32_t duo_flash_programs(const duo_t *d) { return d->flash_programs; }
+uint32_t duo_flash_erases(const duo_t *d) { return d->flash_erases; }
+void duo_flash_copy(const duo_t *d, uint8_t *out) { memcpy(out, d->flash, FLASH_SIZE); }

@@ -20,6 +20,8 @@
  *   state_load PLAYER PATH
  *   screenshot PLAYER PATH         a PNG of the current frame
  *   save_sav PLAYER PATH           the cartridge's save as it stands now, to a new file
+ *   save_flash duo PATH            the DUO's own flash (512 KB) as it stands: its codes database
+ *                                  survives switch-ons, so this is what --duo-fw takes next time
  *   power_on                       start the DUO's GBA (with --wait-for-hello it starts off)
  *   reset PLAYER                   a soft reset (the GBA restarts; the DUO's USB chip doesn't)
  *   events                         unmodelled control-area accesses and faults so far
@@ -116,10 +118,15 @@ static void render(struct Duo* duo, uint32_t lo, uint32_t hi) {
 static void apply(struct Duo* duo, const duo_result* r) {
 	if (r->flags & DUO_F_ROM_CHANGED) {
 		render(duo, r->rom_lo, r->rom_hi);
+		render(duo, r->rom_lo2, r->rom_hi2);
 	}
 	if (r->flags & DUO_F_VIOLATION) {
 		++duo->violations;
 		note(duo, "save violation: %s (pc %08X)", r->msg, pcOf(duo));
+	}
+	if (r->flags & DUO_F_FLASH_CHANGED) {
+		note(duo, "the DUO's flash programmed or erased (Datel's own code, pc in %s)",
+		     (pcOf(duo) >> 24) == 3 ? "IWRAM" : (pcOf(duo) >> 24) == 2 ? "EWRAM" : "ROM");
 	}
 	if (r->flags & DUO_F_BAD) {
 		++duo->bad;
@@ -149,6 +156,8 @@ static uint32_t _duoLoad(struct GBACartBus* bus, uint32_t address, int width) {
 		if (duo->ctrlLog) {
 			fprintf(duo->ctrlLog, "R %08X %d %X pc=%08X\n", address, width, v, pcOf(duo));
 		}
+	} else if (duo->ctrlLog && address >= DUO_CTRL_LO && address <= DUO_CTRL_HI) {
+		fprintf(duo->ctrlLog, "r %08X %d %04X pc=%08X\n", address, width, v, pcOf(duo));
 	}
 	return v;
 }
@@ -156,6 +165,9 @@ static uint32_t _duoLoad(struct GBACartBus* bus, uint32_t address, int width) {
 static void _duoStore(struct GBACartBus* bus, uint32_t address, int width, uint32_t value) {
 	struct Duo* duo = bus->context;
 	duo_result r;
+	if (duo->ctrlLog && address >= DUO_CTRL_LO && address <= DUO_CTRL_HI) {
+		fprintf(duo->ctrlLog, "w %08X %d %04X pc=%08X\n", address, width, value, pcOf(duo));
+	}
 	duo_write(duo->core, address, width, value, &r);
 	if (r.status == DUO_FAIL) {
 		/* on hardware the write simply does nothing that we know of: record it and carry on */
@@ -367,7 +379,6 @@ static void duoAfterReset(void) {
 	gba->memory.hw.devices = HW_NONE;            /* the DUO's own header mustn't switch on an RTC */
 	GBASavedataForceType(&gba->memory.savedata, SAVEDATA_FORCE_NONE);
 	gba->idleOptimization = IDLE_LOOP_IGNORE;
-	gba->idleLoop = IDLE_LOOP_NONE;
 	duo.gba = gba;
 	duo_result r;
 	duo_set_waitcnt(duo.core, gba->memory.io[REG_WAITCNT >> 1], &r);
@@ -507,11 +518,12 @@ static void command(char* line) {
 		reply("ok bye");
 	} else if (!strcmp(c, "status")) {
 		reply("ok duo_frames=%u partner_frames=%u powered=%d mapped=%#x awake=%d turn=%s "
-		      "from_pc=%u from_gba=%u violations=%u bad=%u unmodelled_writes=%u events=%d",
+		      "from_pc=%u from_gba=%u violations=%u bad=%u unmodelled_writes=%u flash_programs=%u flash_erases=%u events=%d",
 		      duoPlayer->core->frameCounter(duoPlayer->core),
 		      partnerPlayer ? partnerPlayer->core->frameCounter(partnerPlayer->core) : 0,
 		      duoPlayer->powered, duo_mapped(duo.core), duo_awake(duo.core), duo_usb_turn(duo.core) ? "gba" : "pc",
-		      duo.packetsFromPc, duo.packetsFromGba, duo.violations, duo.bad, duo.failures, duo.nEvents);
+		      duo.packetsFromPc, duo.packetsFromGba, duo.violations, duo.bad, duo.failures,
+		      duo_flash_programs(duo.core), duo_flash_erases(duo.core), duo.nEvents);
 	} else if (!strcmp(c, "events")) {
 		for (int i = 0; i < duo.nEvents; ++i) {
 			fprintf(stdout, "event %u %s\n", duo.events[i].count, duo.events[i].text);
@@ -634,6 +646,14 @@ static void command(char* line) {
 			int ok = writeFile(argv[2], gba->memory.savedata.data, n, NULL, 0);
 			reply(ok ? "ok %zu" : "err can't write %s", ok ? n : 0, argv[2]);
 		}
+	} else if (!strcmp(c, "save_flash") && argc == 3 && p == duoPlayer) {
+		/* the DUO's own flash as it stands (Datel's program and its codes database): the DUO's
+		 * flash keeps its contents across switch-ons, so pass this file as --duo-fw next time */
+		uint8_t* f = malloc(0x80000);
+		duo_flash_copy(duo.core, f);
+		int ok = writeFile(argv[2], f, 0x80000, NULL, 0);
+		free(f);
+		reply(ok ? "ok" : "err can't write %s", argv[2]);
 	} else if (!strcmp(c, "reset")) {
 		p->core->reset(p->core);
 		if (p == duoPlayer) {

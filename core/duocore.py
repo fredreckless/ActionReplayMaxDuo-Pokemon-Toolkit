@@ -18,13 +18,14 @@ LIBNAME = "duocore.dll" if sys.platform == "win32" else "libduocore.dylib" if sy
 SAVE_TYPES = {"sanyo": 0, "macronix": 1, "flash512": 2, "sram": 3, "eeprom": 4, "none": 5}
 
 OK, FAIL = 0, 1
-F_VIOLATION, F_BAD, F_ROM_CHANGED, F_SAVE_CHANGED, F_WOKE, F_USB_SENT = 1, 2, 4, 8, 16, 32
+F_VIOLATION, F_BAD, F_ROM_CHANGED, F_SAVE_CHANGED, F_WOKE, F_USB_SENT, F_FLASH_CHANGED = 1, 2, 4, 8, 16, 32, 64
 LINK_IN, LINK_OUT = 0x09FE01C0, 0x09FE01E0
 
 
 class Result(ctypes.Structure):
     _fields_ = [("status", ctypes.c_int32), ("flags", ctypes.c_int32), ("rom_lo", ctypes.c_uint32),
-                ("rom_hi", ctypes.c_uint32), ("cycles", ctypes.c_uint32), ("_msg", ctypes.c_char * 200)]
+                ("rom_hi", ctypes.c_uint32), ("rom_lo2", ctypes.c_uint32), ("rom_hi2", ctypes.c_uint32),
+                ("cycles", ctypes.c_uint32), ("_msg", ctypes.c_char * 200)]
 
     @property
     def msg(self):
@@ -84,6 +85,8 @@ def _load():
         "duo_usb_take": (i32, [P, ctypes.c_void_p]),
         "duo_link_in": (ctypes.c_uint16, [P]),
         "duo_link_out": (ctypes.c_uint16, [P]),
+        "duo_set_switch": (None, [P, i32]),
+        "duo_flash_programs": (u32, [P]), "duo_flash_erases": (u32, [P]),
         "duo_mapped": (i32, [P]), "duo_awake": (i32, [P]), "duo_bank": (i32, [P]),
         "duo_id_mode": (i32, [P]), "duo_flash_id_mode": (i32, [P]), "duo_waitcnt": (ctypes.c_uint16, [P]),
         "duo_save_writes": (u32, [P]), "duo_ignored": (u32, [P]), "duo_save_size": (sz, [P]),

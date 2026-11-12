@@ -128,6 +128,9 @@ class Runner:
     def save_sav(self, player, path):
         return int(self.cmd(f"save_sav {player} {os.path.abspath(path)}"))
 
+    def save_flash(self, path):
+        self.cmd(f"save_flash duo {os.path.abspath(path)}")
+
     def power_on(self):
         self.cmd("power_on")
 

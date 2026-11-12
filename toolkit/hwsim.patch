@@ -1,5 +1,5 @@
 diff --git a/tests/hwsim.py b/tests/hwsim.py
-index ff07ceb..06e7773 100644
+index ff07ceb..f6eeb62 100644
 --- a/tests/hwsim.py
 +++ b/tests/hwsim.py
 @@ -35,12 +35,33 @@ Models what we learned on real hardware:
@@ -135,7 +135,7 @@ index ff07ceb..06e7773 100644
          mu.hook_add(UC_HOOK_INTR, self.on_swi)
          mu.hook_add(UC_HOOK_CODE, self.on_boot_ret, begin=BOOT_RET, end=MENU_LOOP + 2)
          mu.hook_add(UC_HOOK_MEM_WRITE, self.on_waitcnt, begin=0x04000204, end=0x04000205)
-@@ -458,33 +482,47 @@ class Hw:
+@@ -458,33 +482,52 @@ class Hw:
              cnt = struct.unpack("<H", mu.mem_read(0x04000128, 2))[0]
              mu.mem_write(0x04000128, struct.pack("<H", cnt & ~0x80))
  
@@ -186,10 +186,15 @@ index ff07ceb..06e7773 100644
 +        """Carry out what a core result says changed."""
 +        if r.flags & duocore.F_ROM_CHANGED:
 +            self.refresh_rom(r.rom_lo, r.rom_hi)
++            self.refresh_rom(r.rom_lo2, r.rom_hi2)
 +        if r.flags & duocore.F_SAVE_CHANGED:
 +            self.save_view()
 +        if r.flags & duocore.F_VIOLATION:
 +            self.violations.append(r.msg)
++        if r.flags & duocore.F_FLASH_CHANGED:
++            # the toolkit must never program or erase the DUO's own flash (on hardware it's
++            # Datel's program and the user's codes); only Datel's own start-up does, outside tests
++            self.bad.append("the DUO's own flash was programmed or erased")
  
      def on_waitcnt(self, mu, access, addr, size, value, _):
          # Rewriting ROM memory inside an ordinary write hook crashes unicorn, so pause
@@ -202,7 +207,7 @@ index ff07ceb..06e7773 100644
                  self.pending_view = True
                  mu.emu_stop()
  
-@@ -495,22 +533,19 @@ class Hw:
+@@ -495,22 +538,19 @@ class Hw:
      # ------------------------------------------------------------ start-up / reset
      def visible(self):
          """Is a PC packet waiting that the GBA can see yet?"""
@@ -228,7 +233,7 @@ index ff07ceb..06e7773 100644
              if mu.reg_read(UC_ARM_REG_R0) == 1:
                  self.boots.append("usb")
                  mu.reg_write(UC_ARM_REG_SP, 0x03007E00)
-@@ -559,15 +594,7 @@ class Hw:
+@@ -559,15 +599,7 @@ class Hw:
          return self
  
      def save_view(self):
@@ -245,7 +250,7 @@ index ff07ceb..06e7773 100644
  
      # ------------------------------------------------------------ hooks
      def ret(self, value=None):
-@@ -588,11 +615,12 @@ class Hw:
+@@ -588,11 +620,12 @@ class Hw:
              return self.fail(f"executed ROM at {addr:#x} while the game was mapped")
          if addr == F_CARD_DETECT:
              self.ret(0)
@@ -263,7 +268,7 @@ index ff07ceb..06e7773 100644
          elif addr == F_IDLE:
              if self.done.is_set():
                  mu.emu_stop()
-@@ -615,22 +643,6 @@ class Hw:
+@@ -615,22 +648,6 @@ class Hw:
                  for _ in range(LOG_STALL_LINES * self.lg_bpl):
                      self.lg_on_block(mu, 0, 0, None)
              self.ret()
@@ -286,7 +291,7 @@ index ff07ceb..06e7773 100644
  
      def deliver(self, pkt):
          """USB itself is reliable; faults model the DUO's chip during fast streams only."""
-@@ -653,47 +665,59 @@ class Hw:
+@@ -653,47 +670,59 @@ class Hw:
          self.d2h.put(pkt)
  
      def on_rom_write(self, mu, access, addr, size, value, _):
@@ -377,7 +382,7 @@ index ff07ceb..06e7773 100644
  
      def on_save_read_after(self, mu, access, addr, size, value, _):
          if self.restore:
-@@ -702,9 +726,9 @@ class Hw:
+@@ -702,9 +731,9 @@ class Hw:
              mu.mem_write(a, bytes([b]))
  
      def on_save_read(self, mu, access, addr, size, value, _):
@@ -390,7 +395,7 @@ index ff07ceb..06e7773 100644
          self.save_reads += 1
          if self.restore:
              a, b = self.restore
-@@ -722,47 +746,8 @@ class Hw:
+@@ -722,47 +751,8 @@ class Hw:
              self.bad.append(f"save read with WAITCNT {wc:#x}")
  
      def on_save_write(self, mu, access, addr, size, value, _):
@@ -440,7 +445,7 @@ index ff07ceb..06e7773 100644
          return True
  
      # ------------------------------------------------------------ run
-@@ -770,7 +755,6 @@ class Hw:
+@@ -770,7 +760,6 @@ class Hw:
          mu = self.mu
          mu.reg_write(UC_ARM_REG_SP, 0x03007E00)
          if from_power_on:
@@ -448,7 +453,7 @@ index ff07ceb..06e7773 100644
              mu.reg_write(UC_ARM_REG_LR, BOOT_RET | 1)
              entry = BOOT_CHECK
          else:
-@@ -947,11 +931,9 @@ class Hw:
+@@ -947,11 +936,9 @@ class Hw:
          return self
  
      def stop(self):
@@ -461,7 +466,7 @@ index ff07ceb..06e7773 100644
          self.thread.join(15)
  
  
-@@ -961,16 +943,15 @@ class Transport:
+@@ -961,16 +948,15 @@ class Transport:
  
      def write(self, data, timeout=5000):
          hw = self.hw

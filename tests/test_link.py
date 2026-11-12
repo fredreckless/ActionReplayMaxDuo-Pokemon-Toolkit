@@ -167,7 +167,17 @@ def test_render_matches_read():
     c = new(); g = GBA(c)
     c.usb_from_pc(b"\x5a\xa5zzzzzz")
     v, _ = c.read(LINK_IN, 2)
-    assert c.render(LINK_IN, 2) == v.to_bytes(2, "little") and v == 0x15A
+    assert c.render(LINK_IN, 2) == v.to_bytes(2, "little") and v == 0x615A    # (bits 13-14: the switch, ON)
+
+
+def test_at_switch():
+    """Datel's 0x0800BAF0: 0x09FE0160 reads 0 (measured), so ON is LINK_IN bits 13 and 14 both set."""
+    c = new()
+    assert c.read(0x09FE0160, 2)[0] == 0x0000 and c.read(0x09FFE140, 2)[0] == 0xF0A0   # the lab probe's values
+    assert c.read(LINK_IN, 2)[0] & 0x6000 == 0x6000
+    c.lib.duo_set_switch(c.h, 0)
+    assert c.read(LINK_IN, 2)[0] & 0x6000 == 0
+    assert not c.write(0x09FFE140, 2, 0x0FF0).failed                  # Datel's write after each swap back
 
 
 if __name__ == "__main__":

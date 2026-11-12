@@ -52,7 +52,8 @@ enum duo_flags {
     DUO_F_ROM_CHANGED = 4,  /* the ROM space now reads differently in [rom_lo, rom_hi) */
     DUO_F_SAVE_CHANGED = 8, /* the save window now reads differently */
     DUO_F_WOKE = 16,        /* this read woke the game's save chip */
-    DUO_F_USB_SENT = 32     /* the GBA finished a packet for the PC: duo_usb_take() it */
+    DUO_F_USB_SENT = 32,    /* the GBA finished a packet for the PC: duo_usb_take() it */
+    DUO_F_FLASH_CHANGED = 64 /* the DUO's own flash was programmed or erased */
 };
 
 #define DUO_MSG 200
@@ -61,6 +62,7 @@ typedef struct duo_result {
     int32_t status;         /* enum duo_status */
     int32_t flags;          /* enum duo_flags */
     uint32_t rom_lo, rom_hi;/* offsets into the ROM space, valid with DUO_F_ROM_CHANGED */
+    uint32_t rom_lo2, rom_hi2;/* a second changed span (the flash's mirror), when rom_hi2 > rom_lo2 */
     uint32_t cycles;        /* extra bus cycles the DUO costs (0: not modelled yet) */
     char msg[DUO_MSG];      /* the failure, violation or bad-access message, if any */
 } duo_result;
@@ -107,6 +109,8 @@ DUO_API int duo_usb_take(duo_t *d, uint8_t *out);
 /* The two link registers as they stand (for tests and debugging). */
 DUO_API uint16_t duo_link_in(const duo_t *d);
 DUO_API uint16_t duo_link_out(const duo_t *d);
+/* The DUO's ON/OFF ("AT") switch, seen by Datel in LINK_IN bits 13-14. ON from duo_new(). */
+DUO_API void duo_set_switch(duo_t *d, int on);
 
 /* ---- save states: the whole DUO, for a host saving its emulator's state alongside ---- */
 DUO_API size_t duo_state_size(const duo_t *d);
@@ -125,6 +129,9 @@ DUO_API uint32_t duo_ignored(const duo_t *d);
 DUO_API size_t duo_save_size(const duo_t *d);
 DUO_API void duo_save_copy(const duo_t *d, uint8_t *out);   /* the save chip's contents */
 DUO_API int duo_cmd_len(const duo_t *d);                     /* a Flash command in progress */
+DUO_API uint32_t duo_flash_programs(const duo_t *d);         /* the DUO's flash: words programmed */
+DUO_API uint32_t duo_flash_erases(const duo_t *d);           /* ... and erases */
+DUO_API void duo_flash_copy(const duo_t *d, uint8_t *out);  /* its 512 KB as they stand */
 DUO_API const char *duo_version(void);
 
 #endif
