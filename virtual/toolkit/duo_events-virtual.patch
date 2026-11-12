@@ -1,0 +1,123 @@
+diff --git a/duo_events.py b/duo_events.py
+index b42feb0..977527b 100644
+--- a/duo_events.py
++++ b/duo_events.py
+@@ -28,7 +28,7 @@ import zlib
+ import maxduo_saves
+ import runlog
+ import secret_bases as SB
+-from maxduo_saves import DuoError, MaxDuo, UsbTransport, SAFE_COMMANDS, Lab, LAB_STAGE
++from maxduo_saves import DuoError, MaxDuo, UsbTransport, VirtualTransport, SAFE_COMMANDS, Lab, LAB_STAGE
+ 
+ # ===================================================================== v4.2
+ # Reckless v4.2 can run a program from the GBA's RAM (command 0x23). The tool
+@@ -3867,6 +3867,8 @@ def parser():
+         epilog="Examples:  duo_events.py gift --card \"E - Item Old Sea Map (JPN).wc3\"    "
+                "duo_events.py event --event \"RS - Item Eon Ticket (ENG) (UK).me3\"")
+     ap.add_argument("--wait", type=int, default=120, help="seconds to wait for the DUO's GBA to be switched on (default 120)")
++    ap.add_argument("--virtual", metavar="HOST:PORT",
++                    help="talk to a Virtual DUO (the emulated DUO in mGBA) at this address instead of over USB")
+     sub = ap.add_subparsers(dest="command", metavar="COMMAND")
+ 
+     def common(p, seconds=600):
+@@ -4006,9 +4008,10 @@ def wrong_route(command, path):
+ 
+ def main(argv=None):
+     argv = list(sys.argv[1:] if argv is None else argv)
+-    if "--wait" in argv[1:]:                     # a global option: it goes before the command
+-        k = argv.index("--wait")
+-        argv = argv[k:k + 2] + argv[:k] + argv[k + 2:]
++    for opt in ("--wait", "--virtual"):          # global options: they go before the command
++        if opt in argv[1:]:
++            k = argv.index(opt)
++            argv = argv[k:k + 2] + argv[:k] + argv[k + 2:]
+     if any(a in LEGACY for a in argv):
+         new = translate_legacy(argv)
+         print(f"(The old options still work. Next time: python duo_events.py {' '.join(new)})")
+@@ -4046,7 +4049,7 @@ def main(argv=None):
+     for name in ("serial", "keep_going"):
+         if not hasattr(args, name):
+             setattr(args, name, None if name == "serial" else False)
+-    t = UsbTransport()
++    t = VirtualTransport(args.virtual) if args.virtual else UsbTransport()
+     try:
+         run(MaxDuo(t), args)
+     except KeyboardInterrupt:
+diff --git a/maxduo_saves.py b/maxduo_saves.py
+index 0a3fcb1..fd8dfd8 100644
+--- a/maxduo_saves.py
++++ b/maxduo_saves.py
+@@ -115,6 +115,73 @@ class UsbTransport:
+         self.usb.util.dispose_resources(self.dev)
+ 
+ 
++class USBTimeoutError(Exception):
++    """A virtual DUO's timeout, named like pyusb's so every handler treats it the same."""
++
++
++class VirtualTransport:
++    """The Virtual DUO (an emulated MAX DUO in mGBA) over a local socket instead of USB.
++    Frames of 9 bytes: 'W' + packet to the DUO, answered 'A' (taken) or 'N' (refused, as the
++    real USB chip refuses a second PC packet in a row: the write times out); 'R' + packet from
++    the DUO. Unused unless --virtual HOST:PORT is given."""
++
++    def __init__(self, where):
++        import socket
++        host, _, port = where.rpartition(":")
++        try:
++            self.sock = socket.create_connection((host or "127.0.0.1", int(port)), timeout=10)
++        except (OSError, ValueError) as err:
++            sys.exit(f"Virtual DUO not reachable at {where} ({err}).")
++        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
++        self.buf = b""
++        self.packets = []                        # DUO packets that arrived while waiting for an answer
++
++    def _frame(self, timeout_ms):
++        import socket, time
++        end = time.monotonic() + timeout_ms / 1000
++        while True:
++            if self.buf[:1] == b"R" and len(self.buf) >= 9:
++                f, self.buf = self.buf[:9], self.buf[9:]
++                return f
++            if self.buf[:1] in (b"A", b"N"):
++                f, self.buf = self.buf[:1], self.buf[1:]
++                return f
++            if self.buf and self.buf[:1] not in (b"R",):
++                raise OSError(f"Virtual DUO: unexpected data {self.buf[:9]!r}")
++            left = end - time.monotonic()
++            if left <= 0:
++                raise USBTimeoutError("timeout")
++            self.sock.settimeout(left)
++            try:
++                got = self.sock.recv(4096)
++            except socket.timeout:
++                raise USBTimeoutError("timeout")
++            if not got:
++                raise OSError("Virtual DUO closed the connection")
++            self.buf += got
++
++    def write(self, data, timeout=SHORT_TIMEOUT):
++        self.sock.sendall(b"W" + bytes(data).ljust(8, b"\0")[:8])
++        while True:
++            f = self._frame(timeout)
++            if f[:1] == b"R":
++                self.packets.append(f[1:])
++                continue
++            if f == b"N":
++                import time
++                time.sleep(timeout / 1000)       # as a real write the DUO never takes
++                raise USBTimeoutError("timeout")
++            return
++
++    def read(self, timeout=SHORT_TIMEOUT):
++        if self.packets:
++            return self.packets.pop(0)
++        return self._frame(timeout)[1:]
++
++    def close(self):
++        self.sock.close()
++
++
+ # ----------------------------------------------------------- protocol layer
+ 
+ def packet(cmd, arg=0):

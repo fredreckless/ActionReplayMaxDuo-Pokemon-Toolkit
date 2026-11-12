@@ -1,0 +1,10 @@
+# built libraries
+core/libduocore.so
+core/libduocore.dylib
+core/duocore.dll
+core/*.tmp
+__pycache__/
+*.pyc
+third_party/
+runner/build/
+mgba/build/

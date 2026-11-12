@@ -1,0 +1,490 @@
+diff --git a/tests/hwsim.py b/tests/hwsim.py
+index ff07ceb..f6eeb62 100644
+--- a/tests/hwsim.py
++++ b/tests/hwsim.py
+@@ -35,12 +35,33 @@ Models what we learned on real hardware:
+     real-hardware save found this)
+   * WAITCNT with 2-cycle first ROM access corrupts game ROM reads (Ruby's chip
+     did on real hardware); slower settings read correctly.
++
++Since 11 November 2026 every DUO-hardware decision above (the Actel's mapping, overlay and
++control area; the flash, its mirror, ID mode and open bus; the save chips with sleep and wake;
++the USB link's alternation) is made by the shared C core, virtual/core/duocore.c, the same
++model the mGBA cartridge device will use. This file keeps the CPU (Unicorn), the checks only a
++simulator can make (which code wrote the mapping register, IME and WAITCNT at a save read), the
++fault injection, the PC's side of USB, the BIOS and the link cable, and refreshes Unicorn's copy
++of the cartridge whenever the core reports that it reads differently.
++
++Since 12 November 2026 Datel's own USB routines run (0x0800C1DC, 0x0800C1FC, 0x0800C29C): the
++control area 0x09FE0000-0x09FFFFFF is mapped as MMIO into the core, whose link registers
++(0x09FE01C0 in, 0x09FE01E0 out) and model of the USB chip carry each packet a byte at a time.
+ """
+-import queue, random, struct, sys, threading, time
++import os, queue, random, struct, sys, threading, time
+ from unicorn import *
+ from unicorn.arm_const import *
+ 
++# the shared core lives in virtual/core (VIRTUAL_DUO_CORE names another place)
++_CORE_DIR = os.environ.get("VIRTUAL_DUO_CORE") or os.path.join(
++    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "virtual", "core")
++if _CORE_DIR not in sys.path:
++    sys.path.insert(0, _CORE_DIR)
++import duocore
++
+ ROM, ROMSZ = 0x08000000, 0x02000000
++CTRL, CTRLSZ = 0x09FE0000, 0x00020000     # the DUO's control area: MMIO, answered by the core
++ROM_MAPPED = CTRL - ROM                   # the part of the ROM space kept in Unicorn's memory
+ SAVE = 0x0E000000
+ STOP = 0x02000F00
+ VIEW = 0x100000                      # bytes of ROM view swapped on mapping changes
+@@ -76,6 +97,18 @@ assert len(LOGO) == 156
+ 
+ 
+ _OPEN_BUS = {}
++_BEYOND = {}
++
++
++def beyond_cartridge(core, view):
++    """What reads above the cartridge return (open bus), as the core renders it. It's the same for
++    every DUO with the same span, so it's rendered once per process and reused, as the original
++    reused its open-bus image. (Rendering two fresh 31 MB buffers for every simulated DUO shifts the
++    heap enough to expose a crash inside Unicorn's own memory code: 11 failures in 28 runs of one
++    test stretch, against none in 20 with this cache.)"""
++    if view not in _BEYOND:
++        _BEYOND[view] = core.render(ROM + view, ROM_MAPPED - view)
++    return _BEYOND[view]
+ 
+ 
+ def open_bus(start, length):
+@@ -119,41 +152,32 @@ class Hw:
+         self.game = game_rom
+         self.save_type = save_type
+         size = {"sanyo": 0x20000, "macronix": 0x20000, "flash512": 0x10000, "sram": 0x8000}.get(save_type, 0)
+-        self.save = bytearray(save[:size] if save else bytes(random.Random(7).getrandbits(8) for _ in range(size)))
+-        if len(self.save) < size:
+-            self.save += b"\xFF" * (size - len(self.save))
+-        self.original_save = bytes(self.save)
++        contents = bytearray(save[:size] if save else bytes(random.Random(7).getrandbits(8) for _ in range(size)))
++        if len(contents) < size:
++            contents += b"\xFF" * (size - len(contents))
++        self.original_save = bytes(contents)
++        # the DUO's hardware: flash, the Actel, the game in the slot and its save chip, the USB chip
++        self.core = duocore.Core(fw, game_rom, save_type, contents)
+         self.faults = faults or {}
+-        self.mapped = None                  # None = DUO, else the map value
+-        self.awake = False
+-        self.bank = 0
+-        self.id_mode = False
+-        self.cmd = []
+         self.violations = []
+         self.bad = []
+         self.log = []
+         self.log_stalls = []
+         self.map_writes = []
+         self.save_reads = 0
+-        self.save_writes = 0
+-        self.ignored = 0
+         self.wake_hook = None
+-        self.h2d = queue.Queue()
+-        self.d2h = queue.Queue()
++        self.d2h = queue.Queue()             # GBA packets on their way to the PC
+         self.done = threading.Event()
+         self.sent_packets = 0
+         self.rng = random.Random(self.faults.get("seed", 3))
+-        self.turn = "pc"                     # whose packet the link expects next
+         self.link_errors = []
+         self.pc_packets = 0
+         self.powered = powered
+         self.boots = []                      # 'usb' / 'menu' per simulated start-up
+         self.restarts = 0
+-        self.boot_snapshot = None            # worst case: the start-up check runs the instant the GBA resets
+         self.usb_latency = 0.0               # seconds before a PC packet is visible to the GBA (real USB: ~8-10 ms polling)
+-        self.h2d_times = []                  # when each queued PC packet becomes visible
+-        self.waitcnt = 0x4314
+-        self.view = max(VIEW, len(game_rom))
++        self.link_idle_reads = 0             # the GBA polling the link with nothing there (paced, see on_ctrl_read)
++        self.view = self.core.rom_span       # the span that differs between the DUO and the game
+ 
+         mu = self.mu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
+         mu.ctl_set_cpu_model(UC_CPU_ARM_926)       # Thumb-1 only, like the GBA's ARM7TDMI
+@@ -163,10 +187,11 @@ class Hw:
+         mu.mem_map(0x05000000, 0x1000)
+         mu.mem_map(0x06000000, 0x18000)
+         mu.mem_map(0x07000000, 0x1000)
+-        mu.mem_map(ROM, ROMSZ, UC_PROT_READ | UC_PROT_EXEC)
++        mu.mem_map(ROM, ROM_MAPPED, UC_PROT_READ | UC_PROT_EXEC)
++        mu.mmio_map(CTRL, CTRLSZ, self.on_ctrl_read, None, self.on_ctrl_write, None)
+         mu.mem_map(SAVE, 0x10000, UC_PROT_READ)
+-        # open bus beyond the cartridge: the GBA returns the address bits
+-        mu.mem_write(ROM + self.view, open_bus(ROM + self.view, ROMSZ - self.view))
++        # beyond the cartridge (open bus: the GBA returns the address bits), as the core reads it
++        mu.mem_write(ROM + self.view, beyond_cartridge(self.core, self.view))
+         self.show_duo()
+         self.save_view()
+         mu.mem_write(0x04000208, struct.pack("<H", 1))
+@@ -175,11 +200,10 @@ class Hw:
+         mu.mem_write(0x03000000, fw[0xCCF4:0xCE6C])
+         self.boot_iwram = bytes(mu.mem_read(0x03000000, 0x178))
+ 
+-        mu.hook_add(UC_HOOK_MEM_WRITE_PROT, self.on_rom_write, begin=ROM, end=ROM + ROMSZ - 1)
++        mu.hook_add(UC_HOOK_MEM_WRITE_PROT, self.on_rom_write, begin=ROM, end=ROM + ROM_MAPPED - 1)
+         mu.hook_add(UC_HOOK_MEM_WRITE_PROT, self.on_save_write, begin=SAVE, end=SAVE + 0xFFFF)
+         mu.hook_add(UC_HOOK_MEM_READ, self.on_save_read, begin=SAVE, end=SAVE + 0xFFFF)
+         mu.hook_add(UC_HOOK_CODE, self.on_rom_code, begin=ROM, end=ROM + 0x40000)
+-        mu.hook_add(UC_HOOK_MEM_READ, self.on_duo_regs, begin=0x09FE0000, end=0x09FFFFFF)
+         mu.hook_add(UC_HOOK_INTR, self.on_swi)
+         mu.hook_add(UC_HOOK_CODE, self.on_boot_ret, begin=BOOT_RET, end=MENU_LOOP + 2)
+         mu.hook_add(UC_HOOK_MEM_WRITE, self.on_waitcnt, begin=0x04000204, end=0x04000205)
+@@ -458,33 +482,52 @@ class Hw:
+             cnt = struct.unpack("<H", mu.mem_read(0x04000128, 2))[0]
+             mu.mem_write(0x04000128, struct.pack("<H", cnt & ~0x80))
+ 
++    # ------------------------------------------------------------ the core's state, as tests see it
++    mapped = property(lambda self: self.core.mapped)          # None = DUO, else the map value
++    awake = property(lambda self: self.core.awake)
++    bank = property(lambda self: self.core.bank)
++    id_mode = property(lambda self: self.core.id_mode)
++    save_writes = property(lambda self: self.core.save_writes)
++    ignored = property(lambda self: self.core.ignored)
++    waitcnt = property(lambda self: self.core.waitcnt)
++    save = property(lambda self: self.core.save)              # the save chip's contents
++
++    @property
++    def turn(self):                                           # whose packet the link expects next
++        return self.core.turn
++
+     # ------------------------------------------------------------ views
+-    def overlay(self):
+-        a, b = OVERLAY
+-        self.mu.mem_write(ROM + a, bytes(b - a))
+-        self.mu.mem_write(ROM + 0x9C, MAPREG_READ)
++    def refresh_rom(self, lo, hi):
++        """Unicorn keeps the cartridge in memory: copy in what the core now reads there."""
++        hi = min(hi, ROM_MAPPED)                 # the control area is MMIO: always the core's
++        if hi > lo:
++            self.mu.mem_write(ROM + lo, self.core.render(ROM + lo, hi - lo))
+ 
+     def show_duo(self):
+-        flash = (self.fw + b"\xFF" * (0x80000 - len(self.fw)))[:0x80000]
+-        img = flash * 2 + open_bus(ROM + 0x100000, max(0, self.view - 0x100000))
+-        self.mu.mem_write(ROM, img[:self.view])
+-        self.overlay()
+-
+-    def show_game(self):
+-        game = bytearray(self.game)
+-        if (self.waitcnt >> 2) & 3 == 2:                 # 2-cycle first access: too fast for the ROM
+-            for o in range(0x100, min(len(game), 0x80000), 0x1000):
+-                game[o] ^= 0x01
+-        img = bytes(game) + open_bus(ROM + len(game), self.view - len(game))
+-        self.mu.mem_write(ROM, img[:self.view])
+-        self.overlay()
++        self.refresh_rom(0, self.view)
++
++    show_game = show_duo                                      # the core knows which is mapped
++
++    def apply(self, r):
++        """Carry out what a core result says changed."""
++        if r.flags & duocore.F_ROM_CHANGED:
++            self.refresh_rom(r.rom_lo, r.rom_hi)
++            self.refresh_rom(r.rom_lo2, r.rom_hi2)
++        if r.flags & duocore.F_SAVE_CHANGED:
++            self.save_view()
++        if r.flags & duocore.F_VIOLATION:
++            self.violations.append(r.msg)
++        if r.flags & duocore.F_FLASH_CHANGED:
++            # the toolkit must never program or erase the DUO's own flash (on hardware it's
++            # Datel's program and the user's codes); only Datel's own start-up does, outside tests
++            self.bad.append("the DUO's own flash was programmed or erased")
+ 
+     def on_waitcnt(self, mu, access, addr, size, value, _):
+         # Rewriting ROM memory inside an ordinary write hook crashes unicorn, so pause
+         # the CPU after this instruction; run() applies the new view and resumes.
+         if addr == 0x04000204 and size >= 2:
+-            old, self.waitcnt = self.waitcnt, value & 0xFFFF
+-            if self.mapped is not None and ((old >> 2) & 3 == 2) != ((self.waitcnt >> 2) & 3 == 2):
++            r = self.core.set_waitcnt(value)
++            if r.flags & duocore.F_ROM_CHANGED:
+                 self.pending_view = True
+                 mu.emu_stop()
+ 
+@@ -495,22 +538,19 @@ class Hw:
+     # ------------------------------------------------------------ start-up / reset
+     def visible(self):
+         """Is a PC packet waiting that the GBA can see yet?"""
+-        if self.h2d.empty():
+-            return False
+-        return not self.h2d_times or self.h2d_times[0] <= time.perf_counter()
++        return self.core.usb_pending
+ 
+     def boot(self, mu):
+         """Datel's start-up, from the point where it checks for a waiting hello. Modelled as
+         happening the instant the GBA resets (the worst case: on real hardware Datel's
+-        start-up takes a little while first, which only helps)."""
+-        self.boot_snapshot = self.visible()
++        start-up takes a little while first, which only helps). Its look at the link is
++        Datel's own code reading the core's link register."""
+         mu.reg_write(UC_ARM_REG_SP, 0x03007E00)
+         mu.reg_write(UC_ARM_REG_LR, BOOT_RET | 1)
+         mu.reg_write(UC_ARM_REG_PC, BOOT_CHECK | 1)
+ 
+     def on_boot_ret(self, mu, addr, size, _):
+         if addr == BOOT_RET:
+-            self.boot_snapshot = None
+             if mu.reg_read(UC_ARM_REG_R0) == 1:
+                 self.boots.append("usb")
+                 mu.reg_write(UC_ARM_REG_SP, 0x03007E00)
+@@ -559,15 +599,7 @@ class Hw:
+         return self
+ 
+     def save_view(self):
+-        if self.mapped is None or not self.awake or self.save_type in ("eeprom", "none"):
+-            data = b"\xFF" * 0x10000
+-        elif self.id_mode and self.save_type in FLASH_IDS:
+-            data = bytes(FLASH_IDS[self.save_type]) * 0x8000
+-        elif self.save_type == "sram":
+-            data = bytes(self.save) * 2
+-        else:
+-            data = bytes(self.save[self.bank * 0x10000:(self.bank + 1) * 0x10000])
+-        self.mu.mem_write(SAVE, data)
++        self.mu.mem_write(SAVE, self.core.render(SAVE, 0x10000))
+ 
+     # ------------------------------------------------------------ hooks
+     def ret(self, value=None):
+@@ -588,11 +620,12 @@ class Hw:
+             return self.fail(f"executed ROM at {addr:#x} while the game was mapped")
+         if addr == F_CARD_DETECT:
+             self.ret(0)
+-        elif addr == F_USB_AVAIL:
+-            if self.boot_snapshot is not None:          # start-up check: only what was there at the reset
+-                self.ret(1 if self.boot_snapshot else 0)
+-            else:
+-                self.ret(1 if self.visible() else 0)
++        elif addr == F_USB_SEND8 and self.core.turn != "gba":
++            # A simulator-only check: a second GBA packet in a row waits in Datel's SEND8 for the
++            # USB chip to ask for a byte, which it never does (v3's back-to-back stall).
++            pkt = bytes(mu.mem_read(mu.reg_read(UC_ARM_REG_R0), 8))
++            self.link_errors.append(f"GBA sent two packets in a row ({pkt.hex()}) - it would hang here")
++            return self.fail(self.link_errors[-1])
+         elif addr == F_IDLE:
+             if self.done.is_set():
+                 mu.emu_stop()
+@@ -615,22 +648,6 @@ class Hw:
+                 for _ in range(LOG_STALL_LINES * self.lg_bpl):
+                     self.lg_on_block(mu, 0, 0, None)
+             self.ret()
+-        elif addr == F_USB_RECV8:
+-            pkt = self.h2d.get()
+-            if self.h2d_times:
+-                wait = self.h2d_times.pop(0) - time.perf_counter()
+-                if wait > 0:
+-                    time.sleep(wait)
+-            mu.mem_write(mu.reg_read(UC_ARM_REG_R0), pkt)
+-            self.ret(0)
+-        elif addr == F_USB_SEND8:
+-            pkt = bytes(mu.mem_read(mu.reg_read(UC_ARM_REG_R0), 8))
+-            if self.turn != "gba":
+-                self.link_errors.append(f"GBA sent two packets in a row ({pkt.hex()}) - it would hang here")
+-                return self.fail(self.link_errors[-1])
+-            self.turn = "pc"
+-            self.deliver(pkt)
+-            self.ret(0)
+ 
+     def deliver(self, pkt):
+         """USB itself is reliable; faults model the DUO's chip during fast streams only."""
+@@ -653,47 +670,59 @@ class Hw:
+         self.d2h.put(pkt)
+ 
+     def on_rom_write(self, mu, access, addr, size, value, _):
+-        v = value & 0xFFFF
+-        pc = mu.reg_read(UC_ARM_REG_PC)
+         if addr == 0x0800009C:
++            # A simulator-only check (the Actel can't see the CPU): Datel swaps from RAM, since
++            # the DUO's program vanishes from the bus the moment the game is mapped.
++            pc = mu.reg_read(UC_ARM_REG_PC)
+             if not (0x02000000 <= pc < 0x02040000 or 0x03000000 <= pc < 0x03008000):
+                 self.fail(f"mapping register written from {pc:#x}, not RAM")
+                 return False
+-            self.map_writes.append(v)
+-            if v in GAME_MAPS:
+-                self.mapped, self.awake = v, False
+-                self.show_game()
+-                if self.wake_hook is None:
+-                    self.wake_hook = mu.hook_add(UC_HOOK_MEM_READ, self.on_rom_read, begin=ROM, end=ROM + ROMSZ - 1)
+-            elif v == 0x0120:
+-                self.mapped, self.awake = None, False
+-                self.show_duo()
+-            else:
+-                self.fail(f"unexpected mapping value {v:#x}")
+-                return False
+-            self.save_view()
+-            return True
+-        if self.mapped is None and addr in (0x0800AAAA, 0x08005554):
+-            if v == 0x9090:
+-                mu.mem_write(ROM, struct.pack("<HH", 0xBFBF, 0x2782))
+-            return True
+-        if self.mapped is None and addr == ROM and v == 0xF0F0:
+-            mu.mem_write(ROM, self.fw[:4])
+-            return True
+-        self.fail(f"unexpected write {v:#x} to {addr:#x} (mapped={self.mapped})")
+-        return False
++            self.map_writes.append(value & 0xFFFF)
++        r = self.core.write(addr, size, value)
++        if r.failed:
++            self.fail(r.msg)
++            return False
++        self.apply(r)
++        if self.wake_hook is None and self.core.wants_rom_reads:
++            # the save chip sleeps until the game's ROM is read: the core needs to hear of it
++            self.wake_hook = mu.hook_add(UC_HOOK_MEM_READ, self.on_rom_read, begin=ROM, end=ROM + ROMSZ - 1)
++        return True
+ 
+     def on_rom_read(self, mu, access, addr, size, value, _):
+-        if self.mapped is not None and not self.awake:
+-            self.awake = True
+-            self.save_view()
++        if self.core.wants_rom_reads:
++            _, r = self.core.read(addr, size)
++            if r.flags & duocore.F_SAVE_CHANGED:
++                self.save_view()
+         if self.wake_hook is not None:
+             mu.hook_del(self.wake_hook)
+             self.wake_hook = None
+ 
+-    def on_duo_regs(self, mu, access, addr, size, value, _):
+-        if self.mapped is not None:
+-            self.bad.append(f"read of DUO register area {addr:#x} while the game was mapped")
++    def on_ctrl_read(self, mu, offset, size, _):
++        """The control area, read: the core answers (the link register live)."""
++        v, r = self.core.read(CTRL + offset, size)
++        if r.flags & duocore.F_SAVE_CHANGED:
++            self.save_view()
++        if r.flags & duocore.F_BAD:
++            self.bad.append(r.msg)
++        if CTRL + offset == duocore.LINK_IN and not ((v ^ self.core.link_out) & 0x100):
++            # Nothing from the USB chip: the GBA is polling. Pace it, so the PC's thread gets
++            # the interpreter, and let it be stopped.
++            self.link_idle_reads += 1
++            if self.done.is_set():
++                mu.emu_stop()
++            elif self.link_idle_reads % 64 == 0:
++                time.sleep(0.0005)
++        return v
++
++    def on_ctrl_write(self, mu, offset, size, value, _):
++        """The control area, written: the link register (or a failure: anything else here)."""
++        r = self.core.write(CTRL + offset, size, value)
++        if r.failed:
++            self.fail(r.msg)
++            return
++        self.apply(r)
++        if r.flags & duocore.F_USB_SENT:
++            self.deliver(self.core.usb_take())
+ 
+     def on_save_read_after(self, mu, access, addr, size, value, _):
+         if self.restore:
+@@ -702,9 +731,9 @@ class Hw:
+             mu.mem_write(a, bytes([b]))
+ 
+     def on_save_read(self, mu, access, addr, size, value, _):
+-        if size != 1 and self.mapped is not None:
+-            self.bad.append(f"{8 * size}-bit read of the save area at {addr:#x}: the GBA's save bus is 8 bits wide, "
+-                            "so the real chip would return one byte repeated (found on real hardware, lab session 5)")
++        _, r = self.core.read(addr, size)
++        if r.flags & duocore.F_BAD:
++            self.bad.append(r.msg)
+         self.save_reads += 1
+         if self.restore:
+             a, b = self.restore
+@@ -722,47 +751,8 @@ class Hw:
+             self.bad.append(f"save read with WAITCNT {wc:#x}")
+ 
+     def on_save_write(self, mu, access, addr, size, value, _):
+-        off, v = addr - SAVE, value & 0xFF
+-        self.save_writes += (self.mapped is not None and self.awake)
+-        if self.mapped is None or not self.awake:
+-            return True                                    # nothing connected: ignored
+-        t = self.save_type
+-        if t == "sram":
+-            self.violations.append(f"SRAM write {v:#x} at {off:#x}")
+-            self.save[off & 0x7FFF] = v
+-            self.save_view()
+-            return True
+-        if t in ("eeprom", "none"):
+-            self.violations.append(f"write to {t} cart at {off:#x}")
+-            return True
+-        if off == 0 and v == 0xF0 and not self.cmd:
+-            self.id_mode = False
+-            self.save_view()
+-            return True
+-        seq = self.cmd + [(off, v)]
+-        unlock = [(0x5555, 0xAA), (0x2AAA, 0x55)]
+-        if len(seq) <= 2 and seq == unlock[:len(seq)]:
+-            self.cmd = seq
+-            return True
+-        if len(seq) == 3 and seq[:2] == unlock and off == 0x5555:
+-            self.cmd = []
+-            if v == 0x90:
+-                self.id_mode = True
+-            elif v == 0xF0:
+-                self.id_mode = False
+-            elif v == 0xB0 and t in ("sanyo", "macronix"):
+-                self.cmd = seq
+-            else:
+-                self.violations.append(f"Flash command {v:#x} (could alter the save)")
+-            self.save_view()
+-            return True
+-        if len(seq) == 4 and seq[2] == (0x5555, 0xB0) and off == 0:
+-            self.bank, self.cmd = v & 1, []
+-            self.save_view()
+-            return True
+-        # real Flash chips ignore an incomplete/out-of-order sequence and reset
+-        self.ignored += 1
+-        self.cmd = [(off, v)] if (off, v) == (0x5555, 0xAA) else []
++        # the save chip's command decoder, its sleep and every save-changing write: the core
++        self.apply(self.core.write(addr, size, value))
+         return True
+ 
+     # ------------------------------------------------------------ run
+@@ -770,7 +760,6 @@ class Hw:
+         mu = self.mu
+         mu.reg_write(UC_ARM_REG_SP, 0x03007E00)
+         if from_power_on:
+-            self.boot_snapshot = self.visible()
+             mu.reg_write(UC_ARM_REG_LR, BOOT_RET | 1)
+             entry = BOOT_CHECK
+         else:
+@@ -947,11 +936,9 @@ class Hw:
+         return self
+ 
+     def stop(self):
+-        self.done.set()
++        self.done.set()                          # the dispatcher's idle and the link's polling both stop on it
+         if not hasattr(self, "thread"):
+             return
+-        self.turn = "gba"                          # the nudge is a PC packet like any other
+-        self.h2d.put(b"CBW\x02" + bytes(4))      # nudge the dispatcher
+         self.thread.join(15)
+ 
+ 
+@@ -961,16 +948,15 @@ class Transport:
+ 
+     def write(self, data, timeout=5000):
+         hw = self.hw
+-        if hw.turn != "pc":
+-            hw.link_errors.append(f"PC sent two packets in a row ({bytes(data).hex()}) - the DUO never takes it")
++        if hw.usb_latency:
++            time.sleep(hw.usb_latency)           # USB polling: the packet reaches the DUO's chip later
++        status, r = hw.core.usb_from_pc(data)
++        if status != duocore.OK:
++            hw.link_errors.append(r.msg)
+             time.sleep(min(timeout, 300) / 1000)
+             import usb.core
+             raise usb.core.USBTimeoutError("timeout")
+-        hw.turn = "gba"
+         hw.pc_packets += 1
+-        if hw.usb_latency:
+-            hw.h2d_times.append(time.perf_counter() + hw.usb_latency)
+-        hw.h2d.put(bytes(data))
+ 
+     def read(self, timeout=5000):
+         if self.hw.faults.get("pc_delay"):

@@ -1,0 +1,169 @@
+diff --git a/include/mgba/internal/gba/memory.h b/include/mgba/internal/gba/memory.h
+index a11c7e1..6349a16 100644
+--- a/include/mgba/internal/gba/memory.h
++++ b/include/mgba/internal/gba/memory.h
+@@ -99,7 +99,19 @@ struct GBAPrintContext {
+ 	uint16_t put;
+ };
+ 
++/* A device that answers the whole cartridge bus (e.g. a pass-through cartridge whose contents
++ * change). See src/gba/memory.c: while memory->cartBus is set, cartridge data accesses, jumps
++ * into the ROM space and WAITCNT writes go to it; fetches still read memory->rom. */
++struct GBACartBus {
++	void* context;
++	uint32_t (*load)(struct GBACartBus*, uint32_t address, int width);
++	void (*store)(struct GBACartBus*, uint32_t address, int width, uint32_t value);
++	void (*fetch)(struct GBACartBus*, uint32_t address);
++	void (*waitcnt)(struct GBACartBus*, uint16_t value);
++};
++
+ struct GBAMemory {
++	struct GBACartBus* cartBus;
+ 	uint32_t* bios;
+ 	uint32_t* wram;
+ 	uint32_t* iwram;
+diff --git a/src/gba/memory.c b/src/gba/memory.c
+index 5bb5182..d63e84c 100644
+--- a/src/gba/memory.c
++++ b/src/gba/memory.c
+@@ -322,6 +322,9 @@ static void GBASetActiveRegion(struct ARMCore* cpu, uint32_t address) {
+ 	case REGION_CART1_EX:
+ 	case REGION_CART2:
+ 	case REGION_CART2_EX:
++		if (memory->cartBus && memory->cartBus->fetch) {
++			memory->cartBus->fetch(memory->cartBus, address);
++		}
+ 		cpu->memory.activeRegion = memory->rom;
+ 		cpu->memory.activeMask = memory->romMask;
+ 		if ((address & (SIZE_CART0 - 1)) < memory->romSize) {
+@@ -409,7 +412,9 @@ static void GBASetActiveRegion(struct ARMCore* cpu, uint32_t address) {
+ 
+ #define LOAD_CART \
+ 	wait += waitstatesRegion[address >> BASE_OFFSET]; \
+-	if ((address & (SIZE_CART0 - 1)) < memory->romSize) { \
++	if (memory->cartBus) { \
++		value = memory->cartBus->load(memory->cartBus, address & ~3, 4); \
++	} else if ((address & (SIZE_CART0 - 1)) < memory->romSize) { \
+ 		LOAD_32(value, address & (SIZE_CART0 - 4), memory->rom); \
+ 	} else if (memory->vfame.cartType) { \
+ 		value = GBAVFameGetPatternValue(address, 32); \
+@@ -574,7 +579,9 @@ uint32_t GBALoad16(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ 	case REGION_CART1_EX:
+ 	case REGION_CART2:
+ 		wait = memory->waitstatesNonseq16[address >> BASE_OFFSET];
+-		if ((address & (SIZE_CART0 - 1)) < memory->romSize) {
++		if (memory->cartBus) {
++			value = memory->cartBus->load(memory->cartBus, address & ~1, 2);
++		} else if ((address & (SIZE_CART0 - 1)) < memory->romSize) {
+ 			LOAD_16(value, address & (SIZE_CART0 - 2), memory->rom);
+ 		} else if (memory->vfame.cartType) {
+ 			value = GBAVFameGetPatternValue(address, 16);
+@@ -595,7 +602,9 @@ uint32_t GBALoad16(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ 		break;
+ 	case REGION_CART2_EX:
+ 		wait = memory->waitstatesNonseq16[address >> BASE_OFFSET];
+-		if (memory->savedata.type == SAVEDATA_EEPROM || memory->savedata.type == SAVEDATA_EEPROM512) {
++		if (memory->cartBus) {
++			value = memory->cartBus->load(memory->cartBus, address & ~1, 2);
++		} else if (memory->savedata.type == SAVEDATA_EEPROM || memory->savedata.type == SAVEDATA_EEPROM512) {
+ 			value = GBASavedataReadEEPROM(&memory->savedata);
+ 		} else if ((address & 0x0DFC0000) >= 0x0DF80000 && memory->hw.devices & HW_EREADER) {
+ 			value = GBACartEReaderRead(&memory->ereader, address);
+@@ -690,7 +699,9 @@ uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ 	case REGION_CART2:
+ 	case REGION_CART2_EX:
+ 		wait = memory->waitstatesNonseq16[address >> BASE_OFFSET];
+-		if ((address & (SIZE_CART0 - 1)) < memory->romSize) {
++		if (memory->cartBus) {
++			value = memory->cartBus->load(memory->cartBus, address, 1);
++		} else if ((address & (SIZE_CART0 - 1)) < memory->romSize) {
+ 			value = ((uint8_t*) memory->rom)[address & (SIZE_CART0 - 1)];
+ 		} else if (memory->vfame.cartType) {
+ 			value = GBAVFameGetPatternValue(address, 8);
+@@ -702,6 +713,10 @@ uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ 	case REGION_CART_SRAM:
+ 	case REGION_CART_SRAM_MIRROR:
+ 		wait = memory->waitstatesNonseq16[address >> BASE_OFFSET];
++		if (memory->cartBus) {
++			value = memory->cartBus->load(memory->cartBus, address, 1);
++			break;
++		}
+ 		if (memory->savedata.type == SAVEDATA_AUTODETECT) {
+ 			mLOG(GBA_MEM, INFO, "Detected SRAM savegame");
+ 			GBASavedataInitSRAM(&memory->savedata);
+@@ -795,11 +810,13 @@ uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
+ 
+ #define STORE_CART \
+ 	wait += waitstatesRegion[address >> BASE_OFFSET]; \
+-	if (memory->matrix.size && (address & 0x01FFFF00) == 0x00800100) { \
++	if (memory->cartBus) { \
++		memory->cartBus->store(memory->cartBus, address & ~3, 4, value); \
++	} else if (memory->matrix.size && (address & 0x01FFFF00) == 0x00800100) { \
+ 		GBAMatrixWrite(gba, address & 0x3C, value); \
+-		break; \
+-	} \
+-	mLOG(GBA_MEM, STUB, "Unimplemented memory Store32: 0x%08X", address);
++	} else { \
++		mLOG(GBA_MEM, STUB, "Unimplemented memory Store32: 0x%08X", address); \
++	}
+ 
+ #define STORE_SRAM \
+ 	if (address & 0x3) { \
+@@ -920,6 +937,10 @@ void GBAStore16(struct ARMCore* cpu, uint32_t address, int16_t value, int* cycle
+ 		}
+ 		break;
+ 	case REGION_CART0:
++		if (memory->cartBus) {
++			memory->cartBus->store(memory->cartBus, address & ~1, 2, (uint16_t) value);
++			break;
++		}
+ 		if (IS_GPIO_REGISTER(address & 0xFFFFFE)) {
+ 			if (memory->hw.devices == HW_NONE) {
+ 				mLOG(GBA_HW, WARN, "Write to GPIO address %08X on cartridge without GPIO", address);
+@@ -935,6 +956,10 @@ void GBAStore16(struct ARMCore* cpu, uint32_t address, int16_t value, int* cycle
+ 		}
+ 		// Fall through
+ 	case REGION_CART0_EX:
++		if (memory->cartBus) {
++			memory->cartBus->store(memory->cartBus, address & ~1, 2, (uint16_t) value);
++			break;
++		}
+ 		if ((address & 0x00FFFFFF) >= AGB_PRINT_BASE) {
+ 			uint32_t agbPrintAddr = address & 0x00FFFFFF;
+ 			if (agbPrintAddr == AGB_PRINT_PROTECT) {
+@@ -1046,10 +1071,25 @@ void GBAStore8(struct ARMCore* cpu, uint32_t address, int8_t value, int* cycleCo
+ 		mLOG(GBA_MEM, GAME_ERROR, "Cannot Store8 to OAM: 0x%08X", address);
+ 		break;
+ 	case REGION_CART0:
++		if (memory->cartBus) {
++			memory->cartBus->store(memory->cartBus, address, 1, (uint8_t) value);
++			break;
++		}
+ 		mLOG(GBA_MEM, STUB, "Unimplemented memory Store8: 0x%08X", address);
+ 		break;
++	case REGION_CART0_EX:
++		if (memory->cartBus) {
++			memory->cartBus->store(memory->cartBus, address, 1, (uint8_t) value);
++			break;
++		}
++		mLOG(GBA_MEM, GAME_ERROR, "Bad memory Store8: 0x%08X", address);
++		break;
+ 	case REGION_CART_SRAM:
+ 	case REGION_CART_SRAM_MIRROR:
++		if (memory->cartBus) {
++			memory->cartBus->store(memory->cartBus, address, 1, (uint8_t) value);
++			break;
++		}
+ 		if (memory->savedata.type == SAVEDATA_AUTODETECT) {
+ 			if (address == SAVEDATA_FLASH_BASE) {
+ 				mLOG(GBA_MEM, INFO, "Detected Flash savegame");
+@@ -1646,6 +1686,9 @@ uint32_t GBAStoreMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum
+ 
+ void GBAAdjustWaitstates(struct GBA* gba, uint16_t parameters) {
+ 	struct GBAMemory* memory = &gba->memory;
++	if (memory->cartBus && memory->cartBus->waitcnt) {
++		memory->cartBus->waitcnt(memory->cartBus, parameters);
++	}
+ 	struct ARMCore* cpu = gba->cpu;
+ 	int sram = parameters & 0x0003;
+ 	int ws0 = (parameters & 0x000C) >> 2;
