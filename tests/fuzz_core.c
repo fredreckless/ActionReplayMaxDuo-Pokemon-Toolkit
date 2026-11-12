@@ -52,7 +52,13 @@ int main(int argc, char **argv) {
             case 5: duo_write(d, (rnd() & 1) ? 0x0800AAAAu : DUO_ROM_BASE, 2, (rnd() & 1) ? 0x9090 : 0xF0F0, &r); break;
             case 6: duo_set_waitcnt(d, (uint16_t)v, &r); break;
             case 7: { uint8_t p[8]; for (int i = 0; i < 8; i++) p[i] = (uint8_t)rnd();
-                      if (rnd() & 1) duo_usb_from_pc(d, p, 8, &r); else duo_usb_from_gba(d, p, 8, &r); break; }
+                      switch (rnd() % 4) {
+                      case 0: duo_usb_from_pc(d, p, rnd() % 9, &r); break;
+                      case 1: duo_usb_take(d, p); break;
+                      default: duo_write(d, 0x09FE01E0u + (rnd() % 4 == 0), (rnd() & 1) ? 1 : 2, rnd(), &r);
+                               duo_read(d, 0x09FE01C0u, 2, &r);
+                      }
+                      CHECK(duo_usb_turn(d) == 0 || duo_usb_turn(d) == 1, "turn"); break; }
             case 8: duo_write(d, DUO_ROM_BASE + rnd() % DUO_ROM_SIZE, w, v, &r);
                     CHECK(r.status == DUO_FAIL || (r.flags & DUO_F_ROM_CHANGED) || r.msg[0] == 0, "write result"); break;
             case 9: {

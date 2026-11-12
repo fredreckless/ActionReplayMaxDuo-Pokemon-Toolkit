@@ -51,7 +51,8 @@ enum duo_flags {
     DUO_F_BAD = 2,          /* something a test must fail on, though the CPU carries on */
     DUO_F_ROM_CHANGED = 4,  /* the ROM space now reads differently in [rom_lo, rom_hi) */
     DUO_F_SAVE_CHANGED = 8, /* the save window now reads differently */
-    DUO_F_WOKE = 16         /* this read woke the game's save chip */
+    DUO_F_WOKE = 16,        /* this read woke the game's save chip */
+    DUO_F_USB_SENT = 32     /* the GBA finished a packet for the PC: duo_usb_take() it */
 };
 
 #define DUO_MSG 200
@@ -90,16 +91,27 @@ DUO_API void duo_set_waitcnt(duo_t *d, uint16_t waitcnt, duo_result *r);
  * game: hosts may skip notifying it otherwise.) */
 DUO_API int duo_wants_rom_reads(const duo_t *d);
 
-/* ---- the USB link (the Cypress chip's observed behaviour) ---- */
-/* Whose packet the link expects next: 0 = the PC's, 1 = the GBA's. */
+/* ---- the USB link: the Actel's link registers and the Cypress chip's observed behaviour ----
+ * The GBA side is ordinary bus traffic: LINK_IN (0x09FE01C0) reads a byte from the USB chip with
+ * its strobe in bit 8, LINK_OUT (0x09FE01E0) takes a byte from the GBA with the GBA's strobe in
+ * bit 8, both only while the DUO is mapped. These calls are the PC's side. */
+/* Whose packet the link expects next: 0 = the PC's, 1 = the GBA's (or one is being handed over). */
 DUO_API int duo_usb_turn(const duo_t *d);
-DUO_API void duo_usb_set_turn(duo_t *d, int turn);
+/* A PC packet is waiting that the GBA hasn't started reading. */
+DUO_API int duo_usb_pending(const duo_t *d);
 /* The PC writes a packet: DUO_OK if the chip takes it; DUO_FAIL (never seen by the GBA, the
  * PC's write times out) for a second PC packet in a row. */
 DUO_API int duo_usb_from_pc(duo_t *d, const uint8_t *pkt, size_t len, duo_result *r);
-/* The GBA sends a packet: DUO_OK, or DUO_FAIL for a second GBA packet in a row (on hardware
- * the GBA hangs inside Datel's send routine). */
-DUO_API int duo_usb_from_gba(duo_t *d, const uint8_t *pkt, size_t len, duo_result *r);
+/* The GBA's last complete packet, for the PC: 1 and 8 bytes in out, or 0 if none is waiting. */
+DUO_API int duo_usb_take(duo_t *d, uint8_t *out);
+/* The two link registers as they stand (for tests and debugging). */
+DUO_API uint16_t duo_link_in(const duo_t *d);
+DUO_API uint16_t duo_link_out(const duo_t *d);
+
+/* ---- save states: the whole DUO, for a host saving its emulator's state alongside ---- */
+DUO_API size_t duo_state_size(const duo_t *d);
+DUO_API void duo_state_save(const duo_t *d, uint8_t *out);
+DUO_API int duo_state_load(duo_t *d, const uint8_t *in, size_t len);   /* DUO_FAIL: another DUO's state */
 
 /* ---- state, for hosts and tests ---- */
 DUO_API int duo_mapped(const duo_t *d);          /* 0 = the DUO program, else the map value */

@@ -16,8 +16,16 @@
 #define OVERLAY_LO   0x20u       /* the Actel overlays the header in every mode and width */
 #define OVERLAY_HI   0xA0u
 #define MAPREG_OFF   0x9Cu
-#define TURN_PC      0
-#define TURN_GBA     1
+#define LINK_IN      0x09FE01C0u /* read: a byte from the USB chip, its strobe in bit 8 */
+#define LINK_OUT     0x09FE01E0u /* write: a byte from the GBA, the GBA's strobe in bit 8 */
+#define STROBE       0x0100u
+
+/* The USB chip's side of the link (the Cypress, as observed: strict alternation). */
+enum cy_state {
+    CY_PC_TURN = 0,             /* waiting for the PC's packet; its strobe follows the GBA's */
+    CY_DELIVER = 1,             /* handing a PC packet to the GBA, a byte per strobe */
+    CY_GBA_TURN = 2             /* taking the GBA's packet, a byte per strobe */
+};
 
 static const uint8_t MAPREG_READ[4] = {0xF0, 0x0F, 0x00, 0x00};
 static const uint8_t FLASH_ID[4] = {0xBF, 0xBF, 0x82, 0x27};   /* SST BF / 2780, as halfwords */
@@ -46,11 +54,19 @@ struct duo {
     uint32_t save_writes;
     uint32_t ignored;
 
-    /* the Cypress chip */
-    int turn;
+    /* the Actel's link registers and the Cypress chip behind them */
+    uint16_t link_in;           /* what LINK_IN reads */
+    uint16_t link_out;          /* what the GBA last wrote to LINK_OUT */
+    int cy;                     /* enum cy_state */
+    uint8_t to_gba[8];          /* the PC's packet, being handed over */
+    int to_gba_n;               /* bytes the GBA has taken */
+    uint8_t from_gba[8];        /* the GBA's packet, as it arrives */
+    int from_gba_n;
+    uint8_t sent[8];            /* the GBA's last complete packet, waiting for the host */
+    int sent_ready;
 };
 
-const char *duo_version(void) { return "duocore 0.1 (matches hwsim.py of 11 November 2026)"; }
+const char *duo_version(void) { return "duocore 0.2 (USB at register level, 12 November 2026)"; }
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -127,7 +143,7 @@ duo_t *duo_new(const uint8_t *fw, size_t fw_len, const uint8_t *game, size_t gam
     memset(d->save, 0xFF, d->save_size);
     memcpy(d->save, save, save_len < d->save_size ? save_len : d->save_size);
     d->waitcnt = 0x4314;
-    d->turn = TURN_PC;
+    d->cy = CY_PC_TURN;                 /* both strobes low, nothing waiting */
     return d;
 }
 
@@ -155,6 +171,8 @@ static uint8_t rom_byte(const duo_t *d, uint32_t off) {
     if (off >= OVERLAY_LO && off < OVERLAY_HI)              /* the Actel's window over the header */
         return off >= MAPREG_OFF ? MAPREG_READ[off - MAPREG_OFF] : 0;
     if (!d->mapped) {                                        /* the DUO's own flash */
+        if (off == LINK_IN - DUO_ROM_BASE) return (uint8_t)d->link_in;
+        if (off == LINK_IN - DUO_ROM_BASE + 1) return (uint8_t)(d->link_in >> 8);
         if (d->flash_id && off < 4) return FLASH_ID[off];
         return off < MIRROR_END ? d->flash[off & (FLASH_SIZE - 1)] : open_bus(off);
     }
@@ -232,9 +250,20 @@ uint32_t duo_read(duo_t *d, uint32_t addr, int width, duo_result *r) {
 
 /* ------------------------------------------------------------------ writes */
 
-static void rom_write(duo_t *d, uint32_t addr, uint32_t value, duo_result *r) {
+static void link_write(duo_t *d, uint16_t v, duo_result *r);
+
+static void rom_write(duo_t *d, uint32_t addr, int width, uint32_t value, duo_result *r) {
     char a[16], b[16];
     uint32_t v = value & 0xFFFF;
+    if (!d->mapped && (addr & ~1u) == LINK_OUT) {           /* a byte (and strobe) to the USB chip */
+        uint16_t out = d->link_out;
+        if (width == 1)
+            out = (addr & 1) ? (uint16_t)((out & 0x00FF) | (value & 0xFF) << 8) : (uint16_t)((out & 0xFF00) | (value & 0xFF));
+        else
+            out = (uint16_t)v;
+        link_write(d, out, r);
+        return;
+    }
     if (addr == DUO_MAPREG) {
         if (is_game_map(v)) {
             d->mapped = (uint16_t)v;            /* the game swaps in; its save chip sleeps */
@@ -344,10 +373,9 @@ static void save_write(duo_t *d, uint32_t off, uint32_t value, duo_result *r) {
 }
 
 void duo_write(duo_t *d, uint32_t addr, int width, uint32_t value, duo_result *r) {
-    (void)width;
     clear(r);
     if (addr >= DUO_ROM_BASE && addr < DUO_ROM_BASE + DUO_ROM_SIZE)
-        rom_write(d, addr, value, r);
+        rom_write(d, addr, width, value, r);
     else if (addr >= DUO_SAVE_BASE && addr < DUO_SAVE_BASE + DUO_SAVE_SIZE)
         save_write(d, addr - DUO_SAVE_BASE, value, r);
 }
@@ -368,32 +396,124 @@ static void hexdump(char *out, size_t cap, const uint8_t *p, size_t n) {
     for (size_t i = 0; i < n && k + 3 < cap; i++) k += (size_t)snprintf(out + k, cap - k, "%02x", p[i]);
 }
 
-int duo_usb_turn(const duo_t *d) { return d->turn; }
-void duo_usb_set_turn(duo_t *d, int turn) { d->turn = turn ? TURN_GBA : TURN_PC; }
+/*
+ * The link, as Datel's routines drive it (0x0800C1DC, 0x0800C1FC, 0x0800C29C in 1.06):
+ * LINK_IN's low byte carries a byte from the USB chip and bit 8 its strobe; LINK_OUT's low
+ * byte carries a byte from the GBA and bit 8 the GBA's strobe. The GBA acts when the strobes
+ * differ and answers by making them equal; the USB chip acts when they're equal and answers by
+ * making them differ. A packet is eight bytes, two per round (strobe high, then low).
+ *
+ *   PC to GBA: the chip shows byte 0 and flips its strobe; the GBA reads it and copies the strobe;
+ *              the chip shows the next byte and flips again ... after the eighth, the GBA's turn.
+ *   GBA to PC: the chip flips its strobe to ask for a byte; the GBA writes it and copies the
+ *              strobe; the chip latches it and asks again ... after the eighth, the PC's turn.
+ *
+ * Datel's "is a packet waiting?" (0x0800C1DC) is LINK_IN's bit 8. The chip reacts at once (no
+ * time is modelled: the ~9 ms per packet measured in the lab is the PC's USB polling).
+ * LINK_IN's other bits (9-15) are read by Datel elsewhere and not modelled yet: they read 0, as
+ * open bus did before.
+ */
+static int strobes_equal(const duo_t *d) { return ((d->link_in ^ d->link_out) & STROBE) == 0; }
+
+static void show(duo_t *d, uint8_t byte) {      /* the chip puts a byte out and flips its strobe */
+    d->link_in = (uint16_t)(((d->link_in & ~0xFFu) | byte) ^ STROBE);
+}
+
+static void cypress_step(duo_t *d, duo_result *r) {
+    if (!strobes_equal(d)) return;              /* the GBA hasn't answered yet */
+    switch (d->cy) {
+    case CY_DELIVER:
+        if (++d->to_gba_n < 8) {
+            show(d, d->to_gba[d->to_gba_n]);
+        } else {                                /* the GBA has the whole packet: its turn */
+            d->cy = CY_GBA_TURN;
+            d->from_gba_n = 0;
+            d->link_in ^= STROBE;               /* ask for the first byte */
+        }
+        break;
+    case CY_GBA_TURN:
+        d->from_gba[d->from_gba_n++] = (uint8_t)d->link_out;
+        if (d->from_gba_n < 8) {
+            d->link_in ^= STROBE;               /* ask for the next */
+        } else {                                /* a whole packet: it goes to the PC */
+            memcpy(d->sent, d->from_gba, 8);
+            d->sent_ready = 1;
+            d->cy = CY_PC_TURN;
+            if (r) r->flags |= DUO_F_USB_SENT;
+        }
+        break;
+    default:                                    /* idle: nothing to say, strobes stay equal */
+        break;
+    }
+}
+
+static void link_write(duo_t *d, uint16_t v, duo_result *r) {
+    d->link_out = v;
+    if (d->cy == CY_PC_TURN)
+        d->link_in = (uint16_t)((d->link_in & ~STROBE) | (v & STROBE));   /* nothing waiting */
+    else
+        cypress_step(d, r);
+}
+
+int duo_usb_turn(const duo_t *d) { return d->cy == CY_PC_TURN ? 0 : 1; }
+int duo_usb_pending(const duo_t *d) { return d->cy == CY_DELIVER && d->to_gba_n == 0; }
 
 int duo_usb_from_pc(duo_t *d, const uint8_t *pkt, size_t len, duo_result *r) {
     char h[80];
     clear(r);
-    if (d->turn != TURN_PC) {
+    if (d->cy != CY_PC_TURN) {
         hexdump(h, sizeof h, pkt, len);
         if (r) r->status = DUO_FAIL;
         say(r, "PC sent two packets in a row (%s) - the DUO never takes it", h);
         return DUO_FAIL;
     }
-    d->turn = TURN_GBA;
+    memset(d->to_gba, 0, 8);
+    memcpy(d->to_gba, pkt, len < 8 ? len : 8);
+    d->to_gba_n = 0;
+    d->cy = CY_DELIVER;
+    show(d, d->to_gba[0]);
     return DUO_OK;
 }
 
-int duo_usb_from_gba(duo_t *d, const uint8_t *pkt, size_t len, duo_result *r) {
-    char h[80];
-    clear(r);
-    if (d->turn != TURN_GBA) {
-        hexdump(h, sizeof h, pkt, len);
-        if (r) r->status = DUO_FAIL;
-        say(r, "GBA sent two packets in a row (%s) - it would hang here", h);
+int duo_usb_take(duo_t *d, uint8_t *out) {
+    if (!d->sent_ready) return 0;
+    memcpy(out, d->sent, 8);
+    d->sent_ready = 0;
+    return 1;
+}
+
+uint16_t duo_link_in(const duo_t *d) { return d->link_in; }
+uint16_t duo_link_out(const duo_t *d) { return d->link_out; }
+
+/* ------------------------------------------------------------------ save states
+ * Everything that can change: the flash, the Actel, the save chip and its contents, the link.
+ * The game's ROM never changes, so a state only records its size (and is refused for another). */
+#define STATE_MAGIC 0x31435544u   /* "DUC1" */
+
+size_t duo_state_size(const duo_t *d) { return 16 + sizeof(struct duo) + d->save_size; }
+
+void duo_state_save(const duo_t *d, uint8_t *out) {
+    uint32_t hdr[4] = {STATE_MAGIC, (uint32_t)sizeof(struct duo), (uint32_t)d->game_len, (uint32_t)d->save_size};
+    struct duo copy = *d;
+    copy.game = NULL;                          /* pointers mean nothing in a file */
+    copy.save = NULL;
+    memcpy(out, hdr, 16);
+    memcpy(out + 16, &copy, sizeof copy);
+    memcpy(out + 16 + sizeof copy, d->save, d->save_size);
+}
+
+int duo_state_load(duo_t *d, const uint8_t *in, size_t len) {
+    uint32_t hdr[4];
+    if (len < 16) return DUO_FAIL;
+    memcpy(hdr, in, 16);
+    if (hdr[0] != STATE_MAGIC || hdr[1] != sizeof(struct duo) || hdr[2] != d->game_len ||
+        hdr[3] != d->save_size || len != duo_state_size(d))
         return DUO_FAIL;
-    }
-    d->turn = TURN_PC;
+    uint8_t *game = d->game, *save = d->save;
+    memcpy(d, in + 16, sizeof(struct duo));
+    d->game = game;
+    d->save = save;
+    memcpy(d->save, in + 16 + sizeof(struct duo), d->save_size);
     return DUO_OK;
 }
 

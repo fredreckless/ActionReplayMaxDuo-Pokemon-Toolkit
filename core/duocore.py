@@ -18,7 +18,8 @@ LIBNAME = "duocore.dll" if sys.platform == "win32" else "libduocore.dylib" if sy
 SAVE_TYPES = {"sanyo": 0, "macronix": 1, "flash512": 2, "sram": 3, "eeprom": 4, "none": 5}
 
 OK, FAIL = 0, 1
-F_VIOLATION, F_BAD, F_ROM_CHANGED, F_SAVE_CHANGED, F_WOKE = 1, 2, 4, 8, 16
+F_VIOLATION, F_BAD, F_ROM_CHANGED, F_SAVE_CHANGED, F_WOKE, F_USB_SENT = 1, 2, 4, 8, 16, 32
+LINK_IN, LINK_OUT = 0x09FE01C0, 0x09FE01E0
 
 
 class Result(ctypes.Structure):
@@ -78,9 +79,11 @@ def _load():
         "duo_set_waitcnt": (None, [P, ctypes.c_uint16, R]),
         "duo_wants_rom_reads": (i32, [P]),
         "duo_usb_turn": (i32, [P]),
-        "duo_usb_set_turn": (None, [P, i32]),
+        "duo_usb_pending": (i32, [P]),
         "duo_usb_from_pc": (i32, [P, u8p, sz, R]),
-        "duo_usb_from_gba": (i32, [P, u8p, sz, R]),
+        "duo_usb_take": (i32, [P, ctypes.c_void_p]),
+        "duo_link_in": (ctypes.c_uint16, [P]),
+        "duo_link_out": (ctypes.c_uint16, [P]),
         "duo_mapped": (i32, [P]), "duo_awake": (i32, [P]), "duo_bank": (i32, [P]),
         "duo_id_mode": (i32, [P]), "duo_flash_id_mode": (i32, [P]), "duo_waitcnt": (ctypes.c_uint16, [P]),
         "duo_save_writes": (u32, [P]), "duo_ignored": (u32, [P]), "duo_save_size": (sz, [P]),
@@ -157,17 +160,18 @@ class Core:
         pkt = bytes(pkt)
         return self.lib.duo_usb_from_pc(self.h, pkt, len(pkt), self._rp), self.r
 
-    def usb_from_gba(self, pkt):
-        pkt = bytes(pkt)
-        return self.lib.duo_usb_from_gba(self.h, pkt, len(pkt), self._rp), self.r
+    def usb_take(self):
+        """The GBA's last complete packet for the PC, or None."""
+        buf = ctypes.create_string_buffer(8)
+        return buf.raw if self.lib.duo_usb_take(self.h, buf) else None
 
     @property
     def turn(self):
         return "gba" if self.lib.duo_usb_turn(self.h) else "pc"
 
-    @turn.setter
-    def turn(self, who):
-        self.lib.duo_usb_set_turn(self.h, 1 if who == "gba" else 0)
+    usb_pending = property(lambda s: bool(s.lib.duo_usb_pending(s.h)))
+    link_in = property(lambda s: s.lib.duo_link_in(s.h))
+    link_out = property(lambda s: s.lib.duo_link_out(s.h))
 
     # ---- state
     rom_span = property(lambda s: s.lib.duo_rom_span(s.h))
