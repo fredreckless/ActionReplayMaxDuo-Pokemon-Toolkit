@@ -49,7 +49,9 @@ doesn't model bus timing yet (build step 6).
 
 With Datel's 1.06 update built (v4.1 CRC A5303402, v4.2 DD59ED8A, both matching the releases) and
 the core in place of the Python models, the toolkit's `python3 tests/check.py full` gave
-**202 of 202 tests passed, 146 of 146 planted bugs caught, ALL GOOD**, with no simulator crashes.
+**202 of 202 tests passed, 146 of 146 planted bugs caught, ALL GOOD**, with no simulator crashes,
+both before and after the open-bus cache described below (the second run is the final code).
+This folder's own `python3 check.py` passes on the final code as well.
 
 Besides that:
 
