@@ -10,7 +10,7 @@ Pokemon; the record the tool writes to its received/ folder is printed for compa
 """
 import glob, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ruby import Tool, Walker, common_args, runner, tap_until_linked
+from ruby import TOOLKIT, Tool, Walker, common_args, runner, tap_until_linked
 
 # TradeCenter (pokeruby data/maps): player 0's seat is (4,5), the door (5,8); +7 in RAM.
 SEAT0, DOOR = (11, 12), (12, 15)
@@ -22,8 +22,7 @@ def main():
     ap.add_argument("--slot", type=int, default=1, help="the game's party slot to trade (1-6)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    received = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
-                            "actionreplaymaxduo-pokemon-toolkit", "received")
+    received = os.path.join(TOOLKIT, "received")                # the tool keeps it in its own folder
     before = set(glob.glob(os.path.join(received, "*.pk3")))
     with runner(a, log_link=os.path.join(a.out, "link.log")) as v:
         v.state_load("partner", a.state)

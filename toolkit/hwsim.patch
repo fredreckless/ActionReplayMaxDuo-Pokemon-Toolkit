@@ -9,7 +9,7 @@ index ff07ceb..f6eeb62 100644
 +
 +Since 11 November 2026 every DUO-hardware decision above (the Actel's mapping, overlay and
 +control area; the flash, its mirror, ID mode and open bus; the save chips with sleep and wake;
-+the USB link's alternation) is made by the shared C core, virtual-duo/core/duocore.c, the same
++the USB link's alternation) is made by the shared C core, virtual/core/duocore.c, the same
 +model the mGBA cartridge device will use. This file keeps the CPU (Unicorn), the checks only a
 +simulator can make (which code wrote the mapping register, IME and WAITCNT at a save read), the
 +fault injection, the PC's side of USB, the BIOS and the link cable, and refreshes Unicorn's copy
@@ -24,9 +24,9 @@ index ff07ceb..f6eeb62 100644
  from unicorn import *
  from unicorn.arm_const import *
  
-+# the shared core lives beside the toolkit (VIRTUAL_DUO_CORE names another place)
++# the shared core lives in virtual/core (VIRTUAL_DUO_CORE names another place)
 +_CORE_DIR = os.environ.get("VIRTUAL_DUO_CORE") or os.path.join(
-+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "virtual-duo", "core")
++    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "virtual", "core")
 +if _CORE_DIR not in sys.path:
 +    sys.path.insert(0, _CORE_DIR)
 +import duocore

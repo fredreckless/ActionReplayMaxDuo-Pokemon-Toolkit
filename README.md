@@ -5,8 +5,11 @@ An emulated Action Replay MAX DUO, so the toolkit
 running in mGBA instead of hand-written game models. The plan, the standing rules and the build
 order are in the handover doc ("Virtual DUO - handover", 11 November 2026).
 
-This is a local folder, kept beside the toolkit's clone. It has no GitHub repository, and gets one
-only when Fred asks.
+It lives in the toolkit's repository as `virtual/` (moved in, with its history, on 12 November
+2026). Nothing outside this folder depends on it: the toolkit's own tests and releases are as they
+were, and its `tests/hwsim.py` stays the original until the core is put behind it (still to
+decide; `toolkit/hwsim.patch` is that change, and `check.py` tests it in a scratch copy). The
+emulator needs Linux: on Windows, WSL2.
 
 ## What's here (build steps 1 to 5)
 
@@ -202,20 +205,22 @@ in three places, all now fixed, and `check.py` again gives **IDENTICAL: 200 prog
 
 ## Using it
 
+From the repository's top folder:
+
 ```
-python3 check.py                      # build, fuzz, compare (no firmware needed)
-python3 check.py --toolkit            # and the toolkit's full tier (needs the firmware built)
-runner/build.sh                       # fetch mGBA 0.10.5, patch it, build it and vduo
+python3 virtual/check.py              # build, fuzz, compare (no firmware needed)
+python3 virtual/check.py --toolkit    # and the full tier with the core behind hwsim.py (needs the firmware built)
+virtual/runner/build.sh               # fetch mGBA 0.10.5, patch it, build it and vduo
 ```
 
 A rehearsal needs a save state of the game standing at the attendant's question (made once with
 `vduo.py`'s `state_save`), the game and its save, and the formatted flash image:
 
 ```
-python3 rehearsals/colosseum.py --rom RUBY.gba --sav RUBY.sav --duo-flash duo_flash.bin \
+python3 virtual/rehearsals/colosseum.py --rom RUBY.gba --sav RUBY.sav --duo-flash duo_flash.bin \
     --state at_colosseum_question.state --pk3 A.pk3 B.pk3 --out /tmp/colo
 ```
 
-`hwsim.py` finds the core in `../virtual-duo/core` beside the toolkit, or wherever
+With the patch applied, `hwsim.py` finds the core in `virtual/core`, or wherever
 `VIRTUAL_DUO_CORE` points. On Windows the core needs a C compiler once (MSYS2's gcc, or clang), or
 `DUOCORE_LIB` pointing at a built `duocore.dll`.

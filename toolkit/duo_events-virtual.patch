@@ -1,5 +1,5 @@
 diff --git a/duo_events.py b/duo_events.py
-index f1c34ec..b8f6699 100644
+index b42feb0..977527b 100644
 --- a/duo_events.py
 +++ b/duo_events.py
 @@ -28,7 +28,7 @@ import zlib
@@ -11,7 +11,7 @@ index f1c34ec..b8f6699 100644
  
  # ===================================================================== v4.2
  # Reckless v4.2 can run a program from the GBA's RAM (command 0x23). The tool
-@@ -3800,6 +3800,8 @@ def parser():
+@@ -3867,6 +3867,8 @@ def parser():
          epilog="Examples:  duo_events.py gift --card \"E - Item Old Sea Map (JPN).wc3\"    "
                 "duo_events.py event --event \"RS - Item Eon Ticket (ENG) (UK).me3\"")
      ap.add_argument("--wait", type=int, default=120, help="seconds to wait for the DUO's GBA to be switched on (default 120)")
@@ -20,7 +20,7 @@ index f1c34ec..b8f6699 100644
      sub = ap.add_subparsers(dest="command", metavar="COMMAND")
  
      def common(p, seconds=600):
-@@ -3939,9 +3941,10 @@ def wrong_route(command, path):
+@@ -4006,9 +4008,10 @@ def wrong_route(command, path):
  
  def main(argv=None):
      argv = list(sys.argv[1:] if argv is None else argv)
@@ -34,7 +34,7 @@ index f1c34ec..b8f6699 100644
      if any(a in LEGACY for a in argv):
          new = translate_legacy(argv)
          print(f"(The old options still work. Next time: python duo_events.py {' '.join(new)})")
-@@ -3979,7 +3982,7 @@ def main(argv=None):
+@@ -4046,7 +4049,7 @@ def main(argv=None):
      for name in ("serial", "keep_going"):
          if not hasattr(args, name):
              setattr(args, name, None if name == "serial" else False)

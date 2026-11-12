@@ -10,8 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "runner"))
 from vduo import Runner  # noqa: E402
 
 OBJECTS = 0x030048A0          # gMapObjects (16 of 0x24 bytes) in English Ruby 1.1
-TOOLKIT = os.environ.get("TOOLKIT", os.path.join(os.path.dirname(os.path.dirname(HERE)),
-                                                 "actionreplaymaxduo-pokemon-toolkit"))
+TOOLKIT = os.environ.get("TOOLKIT", os.path.dirname(os.path.dirname(HERE)))     # the repository: virtual/..
 
 
 def objects(v):
