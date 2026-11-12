@@ -1,4 +1,4 @@
-"""colosseum.py - rehearsal 2: a Colosseum single battle between the Virtual DUO and English Ruby.
+"""colosseum.py - rehearsal 2: a Colosseum battle (single or double) between the Virtual DUO and English Ruby.
 
     python3 colosseum.py --rom RUBY.gba --sav RUBY.sav --duo-flash duo_flash.bin \\
         --state at_colosseum_question.state --pk3 A.pk3 [B.pk3 ...] [--level simple]
@@ -20,6 +20,7 @@ def main():
     ap = common_args(__doc__.splitlines()[0])
     ap.add_argument("--pk3", nargs="+", required=True, help="the DUO's team")
     ap.add_argument("--level", default="simple")
+    ap.add_argument("--mode", choices=("single", "double"), default="single")
     ap.add_argument("--minutes", type=float, default=15)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -30,7 +31,11 @@ def main():
         assert tool.wait_for("Ready", 120), "the tool never got ready"
         for wait in (90, 90, 90, 240):                  # YES; save? YES; overwrite? YES; saving
             v.press("partner", "A", frames=6, then=wait)
-        print("linked after", tap_until_linked(v, tool), "taps (single battle is the first choice)", flush=True)
+        v.run_frames("partner", 300)                    # "Which Battle Mode would you like to play?"
+        if a.mode == "double":
+            v.press("partner", "DOWN", frames=6, then=20)
+        v.screenshot("partner", os.path.join(a.out, "mode.png"))
+        print("linked after", tap_until_linked(v, tool), "taps", flush=True)
         v.run_frames("partner", 300)
         w = Walker(v, me=0)
         w.to(DOOR[0], DOOR[1] - 1); w.to(SPOT0[0], DOOR[1] - 1); w.to(*SPOT0)

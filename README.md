@@ -19,8 +19,9 @@ only when Fred asks.
 | `tests/fuzz_core.c` | The core on its own under AddressSanitizer and UBSan, with invariants and link traffic. |
 | `tests/test_link.py`, `tests/test_flash.py` | The USB link at register level (with Datel's own send and receive routines transcribed), the Action Replay switch, and the SST flash's command set. |
 | `mgba/cart-bus.patch`, `mgba/apply_cart_bus.py` | A small hook in mGBA 0.10.5's cartridge bus (63 lines) so a device can answer it. |
+| `mgba/lockstep.patch`, `mgba/apply_lockstep.py` | One correction to mGBA's link cable: a master's START while the others aren't ready still transfers, as on hardware (see below). |
 | `runner/build.sh`, `runner/vduo.c`, `runner/vduo.py` | `vduo`: two GBAs in one process on a link cable, one with the DUO in its slot; the DUO's USB on a TCP port; a text control channel driven from Python. |
-| `rehearsals/` | Rehearsals against a real game: `trade.py` and `colosseum.py` (English Ruby), with `ruby.py`'s helpers. |
+| `rehearsals/` | Rehearsals against a real game (English Ruby): `trade.py`, `colosseum.py` (single or double), `mix.py`, `event.py` and `blender.py`, with `ruby.py`'s helpers; `all.sh` runs the lot. |
 | `check.py` | This folder's own check (`--toolkit` adds the toolkit's `check.py full`). |
 
 Nothing of Nintendo's or Datel's is here: the firmware, the game, its save, the DUO's flash image
@@ -143,6 +144,61 @@ Comparing with the hardware's records:
   a phase can begin and end between two of the tool's polls; the record shows they happened.
 - In the trade, once the DUO has left, the game ends the session itself and puts the player back
   in front of the attendant: there is nothing to walk out of.
+
+## More rehearsals: double battle, Record Mixing, Mystery Event, Berry Blender (12 November 2026)
+
+Contest and the Battle Tower need Emerald, which isn't here yet; everything Ruby can do is.
+
+- **Double battle.** Played to the end, record copied, no checksum mismatches. Against the
+  hardware's double battle with Ruby (11 November, the run of 23:02) the first **74 entries** match; from
+  the first choice they part, because there the PC chose for the DUO and here it played simply.
+  The same kinds of battle command on both.
+- **Record Mixing**, with the inputs of the 7 November hardware run (WILLOW's base, the Bard's
+  song, the AWESOME BATTLE trend). The game mixed and saved, as on hardware, with no checksum
+  mismatches; and since the emulator's save is ours to read, the save afterwards was checked:
+  the toolkit's `bases` finds WILLOW's base in it, and the old man's song and the trend are in
+  it **byte for byte**.
+- **Mystery Event** (the UK Eon Ticket) from the title menu. The game took it, closed the link,
+  ran it and saved; the whole .me3 is in the save byte for byte (a saved event is the game's own
+  stored form). On hardware the same event reached Ruby in lab session 26.
+- **Berry Blender**, both ways round. It also found two toolkit bugs that **the hardware logs
+  show too** (11 November, 23:26 and 23:30), so the emulator copies them faithfully:
+  - with the DUO on the child's end, the live line says "Blend 3 done" after one blend: the
+    program counts a blend for every copy of the leader's verdict, and the game sends three
+    (`blender.c`, `blends++` on each LEADER_STOP/LEADER_GO);
+  - with the DUO leading, the summary's "Best speed 498.53 RPM in 893801:51" (here, 524.15 RPM in
+    907546:12) is the game's berry block read as the leader's block, since the leader's block is
+    then the DUO's own and never arrives (`blender_blends`): bytes 0-3 and 4-5 of
+    `87 00 ca bf bd c2` are exactly those numbers. The Pokeblock it predicts is wrong with them;
+    what the game made is not affected.
+  - (Small: the live hit counts are 8 bits, so a player who presses A hundreds of times sees
+    them wrap; the summary afterwards is right.)
+
+### The link correction
+
+The DUO on the master's end didn't link at first: mGBA 0.10.5 ignores a multiplayer master's
+START while SD ("all GBAs ready") is low but leaves the bit set, so the master looks busy for ever.
+The DUO's programs start a transfer every frame until the game answers, and on the real DUO they
+link from either end (the hardware blender run of 23:30 had the DUO as player 0). Real hardware
+runs the transfer anyway, with FFFFh from every GBA not taking part (GBATEK). `apply_lockstep.py`
+makes mGBA do that; Pokemon games check SD before starting, which is why mGBA's own links never
+met the case.
+
+### The comparison harness, brought up to date
+
+This folder's `check.py` had stopped passing since steps 3 and 4, and nobody had noticed because
+the toolkit's full tier was the check being run. The core was fine: the harness was out of date
+in three places, all now fixed, and `check.py` again gives **IDENTICAL: 200 programs, ALL GOOD**.
+
+- Its random firmware had nothing at Datel's SEND8 (0x0800C29C), which the new `hwsim.py` now
+  runs instead of replacing it with Python: it carries a Thumb SEND8 now, as `test_link.py`
+  transcribes it, reading a waiting PC packet first as Datel does.
+- It wrote loose flash-ID commands (a lone 0x9090 to 0x5554) that only the original accepted;
+  it now sends the SST chip's real AA/55/90 and F0, and as its deliberate mistakes, writes both
+  reject.
+- It read the control area for its own snapshot after taking the failures and the save chip's
+  state: with the control area MMIO, that read reached the core like a CPU read. The state is
+  taken first now.
 
 ## Using it
 

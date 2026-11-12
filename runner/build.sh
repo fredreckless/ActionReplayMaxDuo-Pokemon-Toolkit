@@ -1,5 +1,5 @@
 #!/bin/sh
-# build.sh - fetch mGBA 0.10.5, add the cart-bus hook, build it as a library, and build vduo.
+# build.sh - fetch mGBA 0.10.5, add the cart-bus hook and the link correction, build it as a library, and build vduo.
 #   runner/build.sh            (from anywhere; needs git, cmake, a C compiler, zlib and libpng)
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -14,7 +14,9 @@ fi
 if ! grep -q "struct GBACartBus" "$MGBA/include/mgba/internal/gba/memory.h"; then
     python3 "$TOP/mgba/apply_cart_bus.py" "$MGBA"
 fi
-if [ ! -f "$LIB/libmgba.a" ] || [ "$MGBA/src/gba/memory.c" -nt "$LIB/libmgba.a" ]; then
+python3 "$TOP/mgba/apply_lockstep.py" "$MGBA"        # (does nothing once applied)
+if [ ! -f "$LIB/libmgba.a" ] || [ "$MGBA/src/gba/memory.c" -nt "$LIB/libmgba.a" ] \
+        || [ "$MGBA/src/gba/sio/lockstep.c" -nt "$LIB/libmgba.a" ]; then
     mkdir -p "$LIB"
     (cd "$LIB" && cmake "$MGBA" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_GL=OFF -DBUILD_GLES2=OFF -DBUILD_GLES3=OFF \
@@ -23,7 +25,7 @@ if [ ! -f "$LIB/libmgba.a" ] || [ "$MGBA/src/gba/memory.c" -nt "$LIB/libmgba.a" 
         -DUSE_FFMPEG=OFF -DUSE_MINIZIP=OFF -DUSE_LIBZIP=OFF -DUSE_LZMA=OFF -DUSE_EDITLINE=OFF \
         -DUSE_SQLITE3=OFF -DUSE_ELF=OFF -DUSE_LUA=OFF -DUSE_DISCORD_RPC=OFF -DUSE_DEBUGGERS=OFF \
         -DUSE_GDB_STUB=OFF -DENABLE_SCRIPTING=OFF -DUSE_PNG=ON -DUSE_ZLIB=ON > cmake.log && \
-        cmake --build . --target mgba-static > build.log)
+        cmake --build . --target mgba > build.log)
 fi
 mkdir -p "$HERE/build"
 # Compile exactly as mGBA itself was compiled: its structs change shape with NDEBUG and its

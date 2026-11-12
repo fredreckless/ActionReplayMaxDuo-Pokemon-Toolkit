@@ -84,7 +84,7 @@ class Tool:
         return [l for l in self.lines if l.startswith("  [")]
 
     def linked(self):
-        return any("waiting for the game" not in l for l in self.phases())
+        return any("waiting" not in l.lower() for l in self.phases())      # ("WAITING" in the blender)
 
     def finish(self, v, frames=7200):
         """Let the tool end on its own while the game keeps running."""

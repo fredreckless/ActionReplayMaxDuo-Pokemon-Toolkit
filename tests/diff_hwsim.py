@@ -73,6 +73,83 @@ done:
   b done
 """
 
+# Datel's SEND8 (0x0800C29C in firmware 1.06), as tests/test_link.py transcribes it, in Thumb: the
+# random firmware needs it there, since the new hwsim.py runs Datel's own USB code (the original
+# replaced it with Python, so the bytes there don't matter to it). The original let a program send
+# while a PC packet was still waiting, taking it as read; Datel always reads it first (RECV8,
+# 0x0800C1FC), so when one is waiting (the two strobes differ) this reads it first too.
+SEND8 = """
+  push {r4, r5, r6, r7, lr}
+  ldr r4, link_in
+  ldr r5, link_out
+  ldr r6, shadow
+  ldrh r1, [r4]
+  ldrh r2, [r6]
+  eors r1, r2
+  lsrs r1, r1, #9
+  bcc send
+  movs r7, #4
+recv:
+rw1:
+  ldrh r1, [r4]
+  lsrs r1, r1, #9
+  bcc rw1
+  ldrh r2, [r6]
+  movs r3, #1
+  lsls r3, r3, #8
+  orrs r2, r3
+  strh r2, [r6]
+  strh r2, [r5]
+rw0:
+  ldrh r1, [r4]
+  lsrs r1, r1, #9
+  bcs rw0
+  ldrh r2, [r6]
+  bics r2, r3
+  strh r2, [r6]
+  strh r2, [r5]
+  subs r7, #1
+  bne recv
+send:
+  movs r7, #4
+next:
+w1:
+  ldrh r1, [r4]
+  lsrs r1, r1, #9
+  bcc w1
+  ldrh r2, [r6]
+  movs r3, #0xFF
+  lsls r3, r3, #8
+  ands r2, r3
+  ldrb r1, [r0]
+  orrs r2, r1
+  movs r1, #1
+  lsls r1, r1, #8
+  orrs r2, r1
+  strh r2, [r6]
+  strh r2, [r5]
+w0:
+  ldrh r1, [r4]
+  lsrs r1, r1, #9
+  bcs w0
+  ldrh r2, [r6]
+  movs r3, #0xFE
+  lsls r3, r3, #8
+  ands r2, r3
+  ldrb r1, [r0, #1]
+  orrs r2, r1
+  strh r2, [r6]
+  strh r2, [r5]
+  adds r0, #2
+  subs r7, #1
+  bne next
+  pop {r4, r5, r6, r7, pc}
+  .align 2
+link_in: .word 0x09FE01C0
+link_out: .word 0x09FE01E0
+shadow: .word 0x0300212C
+"""
+
 
 def load(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -123,12 +200,16 @@ def program(rng, n, duo=True):
                             0x17FFFC, 0x200000, rng.randrange(0x400000), rng.randrange(0x2000000)])
             ops.append((w, ROM + (a & ~({R8: 0, R16: 1, R32: 3}[w])), 0))
         elif k < 0.77:                                         # the DUO flash's ID mode
-            if duo or wrong():
-                a = rng.choice([0x0800AAAA, 0x08005554, ROM])
-                v = rng.choice([0x9090, 0xF0F0, 0xAAAA, 0x5555, 0x90])
-                if a == ROM and v != 0xF0F0 and not wrong():
-                    v = 0xF0F0
-                ops.append((W16, a, v))
+            # The SST chip's own sequences, as Datel sends them (since step 4 the core decodes
+            # them as the chip does; the original took any write to these two addresses): ID
+            # entry AA/55/90, exit F0. A wrong one is a write both reject.
+            if wrong():
+                ops.append((W16, ROM + rng.choice([0, 0x100]), rng.choice([0x9090, 0x1234])))
+            elif duo:
+                if rng.random() < 0.5:
+                    ops += [(W16, 0x0800AAAA, 0xAAAA), (W16, 0x08005554, 0x5555), (W16, 0x0800AAAA, 0x9090)]
+                else:
+                    ops.append((W16, ROM, 0xF0F0))
         elif k < 0.85:                                         # WAITCNT: safe, and too fast for the ROM
             ops.append((rng.choice([W16, W16, W16, W8]), 0x04000204 + (1 if rng.random() < 0.05 else 0),
                         rng.choice([0x4317, 0x4317, 0x431B, 0x4314, 0x4318, 0x0003])))
@@ -185,18 +266,21 @@ def pc_side(hw, mod, rng):
 
 
 def snapshot(hw, rom_samples):
+    """Everything a test could see. The state first, then memory: in the new hwsim.py the control
+    area is MMIO, so an open-bus sample read there reaches the core as a CPU read would (a failure
+    while the game is mapped, and a wake for a sleeping save chip)."""
     mu = hw.mu
     span = max(0x100000, len(hw.game))
     s = {
-        "rom": bytes(mu.mem_read(ROM, span)),
-        "open bus": [bytes(mu.mem_read(ROM + a, 64)) for a in rom_samples],
-        "save window": bytes(mu.mem_read(SAVE, 0x10000)),
         "mapped": hw.mapped, "awake": hw.awake, "bank": hw.bank, "id_mode": hw.id_mode,
         "save": bytes(hw.save), "violations": list(hw.violations), "bad": list(hw.bad),
         "map_writes": list(hw.map_writes), "save_writes": hw.save_writes, "ignored": hw.ignored,
         "waitcnt": hw.waitcnt, "turn": hw.turn, "link_errors": list(hw.link_errors),
         "sent": hw.d2h.qsize(), "pc": hw.pc_packets, "save_reads": hw.save_reads,
     }
+    s["save window"] = bytes(mu.mem_read(SAVE, 0x10000))
+    s["rom"] = bytes(mu.mem_read(ROM, span))
+    s["open bus"] = [bytes(mu.mem_read(ROM + a, 64)) for a in rom_samples]
     return s
 
 
@@ -281,7 +365,10 @@ def main():
     DONE = CODE + len(CODE_BYTES) - 2
     old, new = load(a.old, "hwsim_old"), load(a.new, "hwsim_new")
     rng = random.Random(a.seed)
-    fw = bytes(random.Random(5).getrandbits(8) for _ in range(0x30000))
+    fw = bytearray(random.Random(5).getrandbits(8) for _ in range(0x30000))
+    send8, _ = Ks(KS_ARCH_ARM, KS_MODE_THUMB).asm(SEND8, F_USB_SEND8)
+    fw[F_USB_SEND8 - ROM:F_USB_SEND8 - ROM + len(send8)] = bytes(send8)
+    fw = bytes(fw)
     games = [old.make_game_rom(), old.make_game_rom(code=b"ZTST", size=0x1000, tag_at=0x800, seed=2),
              old.make_game_rom(code=b"AXVE", size=0x180000, rom_size=0x200000, seed=7),
              old.make_game_rom(code=b"BPGE", size=0x1000, tag_at=0x800, rom_size=0x200000, seed=3)]

@@ -1,0 +1,22 @@
+diff --git a/src/gba/sio/lockstep.c b/src/gba/sio/lockstep.c
+index 8610edc..925a611 100644
+--- a/src/gba/sio/lockstep.c
++++ b/src/gba/sio/lockstep.c
+@@ -212,6 +212,17 @@ static uint16_t GBASIOLockstepNodeMultiWriteRegister(struct GBASIODriver* driver
+ 					mTimingDeschedule(&driver->p->p->timing, &node->event);
+ 				}
+ 				mTimingSchedule(&driver->p->p->timing, &node->event, 0);
++			} else if (!node->id && node->mode == SIO_MULTI) {
++				/* (Virtual DUO) not everyone is ready: a transfer with nobody else taking part */
++				struct GBA* gba = driver->p->p;
++				gba->memory.io[REG_SIOMULTI0 >> 1] = gba->memory.io[REG_SIOMLT_SEND >> 1];
++				gba->memory.io[REG_SIOMULTI1 >> 1] = 0xFFFF;
++				gba->memory.io[REG_SIOMULTI2 >> 1] = 0xFFFF;
++				gba->memory.io[REG_SIOMULTI3 >> 1] = 0xFFFF;
++				value &= ~0x0080;
++				if (value & 0x4000) {
++					GBARaiseIRQ(gba, GBA_IRQ_SIO, 0);
++				}
+ 			}
+ 		}
+ 		value &= 0xFF83;
