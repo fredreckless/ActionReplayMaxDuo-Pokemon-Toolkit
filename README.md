@@ -8,16 +8,23 @@ order are in the handover doc ("Virtual DUO - handover", 11 November 2026).
 This is a local folder, kept beside the toolkit's clone. It has no GitHub repository, and gets one
 only when Fred asks.
 
-## What's here (build step 1)
+## What's here (build steps 1 to 5)
 
 | Path | What it is |
 |---|---|
-| `core/duocore.h`, `core/duocore.c` | The shared C core: the DUO's three chips as one behavioural model, answering cartridge-bus reads and writes. No knowledge of any emulator. |
+| `core/duocore.h`, `core/duocore.c` | The shared C core: the DUO's chips as one behavioural model, answering cartridge-bus reads and writes. No knowledge of any emulator. |
 | `core/duocore.py` | The core from Python through `ctypes`; builds the library on first use. |
-| `toolkit/hwsim.patch` | The change to the toolkit's `tests/hwsim.py` that puts the core behind it. Not applied to the toolkit's repository: that's still Fred's decision. |
+| `toolkit/hwsim.patch`, `toolkit/duo_events-virtual.patch` | The changes to the toolkit: the core behind `tests/hwsim.py`, and `duo_events.py --virtual HOST:PORT`. Not applied to the toolkit's repository: that's still Fred's decision. |
 | `tests/diff_hwsim.py` | The original `hwsim.py` against the new one, with random bus programs; needs no firmware. |
-| `tests/fuzz_core.c` | The core on its own under AddressSanitizer and UBSan, with invariants. |
+| `tests/fuzz_core.c` | The core on its own under AddressSanitizer and UBSan, with invariants and link traffic. |
+| `tests/test_link.py`, `tests/test_flash.py` | The USB link at register level (with Datel's own send and receive routines transcribed), the Action Replay switch, and the SST flash's command set. |
+| `mgba/cart-bus.patch`, `mgba/apply_cart_bus.py` | A small hook in mGBA 0.10.5's cartridge bus (63 lines) so a device can answer it. |
+| `runner/build.sh`, `runner/vduo.c`, `runner/vduo.py` | `vduo`: two GBAs in one process on a link cable, one with the DUO in its slot; the DUO's USB on a TCP port; a text control channel driven from Python. |
+| `rehearsals/` | Rehearsals against a real game: `trade.py` and `colosseum.py` (English Ruby), with `ruby.py`'s helpers. |
 | `check.py` | This folder's own check (`--toolkit` adds the toolkit's `check.py full`). |
+
+Nothing of Nintendo's or Datel's is here: the firmware, the game, its save, the DUO's flash image
+and any save states are always passed in by path from outside the folder.
 
 ## Where the line is drawn
 
@@ -32,7 +39,13 @@ The **core** decides everything the DUO's hardware decides:
 - the save chips (Sanyo and Macronix 128 KB Flash, 64 KB Flash, 32 KB SRAM, EEPROM, none): their
   command decoders, sleep after every swap-in, wake on any game ROM read, the 8-bit bus, and every
   write that could change a save, reported as a violation;
-- the USB chip: strict alternation, PC packet then GBA packet.
+- the USB chip at register level: LINK_IN 0x09FE01C0 and LINK_OUT 0x09FE01E0 (low byte data, bit 8
+  each side's strobe; the GBA acts when the strobes differ, the chip when they agree), eight bytes
+  a packet in four rounds, strict alternation, PC packet then GBA packet; so Datel's own routines
+  run unaltered;
+- the Action Replay switch (LINK_IN bits 13 and 14; 0x09FE0160 reads 0, 0x09FFE140 reads 0xF0A0);
+- the SST flash's command set (word program, 4 KB sector, 64 KB block and chip erase), reported
+  as `FLASH_CHANGED` so `hwsim.py` can still treat any write to the DUO's own flash as a failure.
 
 The **host** (`hwsim.py`) keeps the CPU (Unicorn), the checks only a simulator can make (which code
 wrote the mapping register; IME and WAITCNT at a save read), fault injection (with its own Python
@@ -92,11 +105,59 @@ returned a wrong value while the memory itself was right. What we learned:
 Worth remembering for step 2: the hooks that rewrite Unicorn's memory from inside other hooks are
 where Unicorn is fragile, and they become thin glue there.
 
+## Steps 3 to 5: Datel's own code, mGBA, and a real game (12 November 2026)
+
+- **Step 3.** With the USB link modelled at register level, `hwsim.py` stopped replacing Datel's
+  USB routines; the full tier again gave **202 of 202, 146 of 146, ALL GOOD**, and gave it
+  again after the switch, flash and mirror changes of step 4.
+- **Step 4.** `vduo` runs the firmware in mGBA. Datel's start-up formats its codes database in
+  flash when it is blank, and while it is blank it skips the USB boot check; so the first run is
+  kept with `save_flash` and that image is passed as `--duo-fw` from then on (it is Datel's
+  firmware plus a formatted database: never commit it). `duo_events.py --virtual` then connects
+  ("Datel protocol 1.04, Reckless v4.2"), uploads a program and polls it, and the DUO's screen
+  shows USB SERVER MODE.
+- **Step 5, the trade.** Against Fred's own Ruby, the DUO linked, both sat down, and the
+  game traded its WISHMKR Jirachi for a synthetic test Pokémon and saved (in memory only). The
+  .pk3 the toolkit kept is **byte for byte the one the real DUO received on 1 November**
+  (PID 7A0DF4BC), and identical in game form to the gallery's WISHMKR file. 49,754 transfers, no
+  checksum mismatches. `rehearsals/trade.py` repeats it and passes.
+- **Step 5, the Colosseum.** A single battle against the same Ruby, the DUO with the MEW and
+  JIRACHI of the 7 November hardware run, playing simply. The battle was played to the end (won
+  by the game's side) and the record copied: 177 to 181 commands from the game, 8 choices by the
+  DUO, no checksum mismatches. `rehearsals/colosseum.py` repeats it and passes.
+
+Comparing with the hardware's records:
+
+- The 7 November hardware run ended with a USB timeout while copying the record; the toolkit of
+  11 November copies records reliably on hardware, and so does the virtual run. Nothing to fix.
+- Against the hardware's single battle with Ruby of 11 November (its record of 22:58), the
+  virtual record has **the same first 41 entries** in the same order: link player, link type
+  0x2233, the 100-byte exchange, the "ready" barrier, the DUO sitting down, link closing 0x5FFF,
+  link type 0x2211, both battle headers, three party blocks, GETMONDATA, INTROSLIDE,
+  DRAWTRAINERPIC, the party summaries, and so on to the first CHOOSEACTION. From there the order
+  depends on who answers first, which a person's thinking time decides; the length depends on
+  the moves chosen. Every kind of battle command the virtual battle saw, the hardware saw, and
+  the hardware's only extras (STATUSANIMATION, STATUSICONUPDATE) came from a status condition.
+- The tool's progress lines skip some phases ("on a spot", "the battle's link is opening",
+  "back in the Colosseum"), because the emulator runs several times faster than real time and
+  a phase can begin and end between two of the tool's polls; the record shows they happened.
+- In the trade, once the DUO has left, the game ends the session itself and puts the player back
+  in front of the attendant: there is nothing to walk out of.
+
 ## Using it
 
 ```
 python3 check.py                      # build, fuzz, compare (no firmware needed)
 python3 check.py --toolkit            # and the toolkit's full tier (needs the firmware built)
+runner/build.sh                       # fetch mGBA 0.10.5, patch it, build it and vduo
+```
+
+A rehearsal needs a save state of the game standing at the attendant's question (made once with
+`vduo.py`'s `state_save`), the game and its save, and the formatted flash image:
+
+```
+python3 rehearsals/colosseum.py --rom RUBY.gba --sav RUBY.sav --duo-flash duo_flash.bin \
+    --state at_colosseum_question.state --pk3 A.pk3 B.pk3 --out /tmp/colo
 ```
 
 `hwsim.py` finds the core in `../virtual-duo/core` beside the toolkit, or wherever
