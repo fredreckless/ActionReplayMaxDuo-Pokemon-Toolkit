@@ -349,6 +349,8 @@ This repository holds the whole project, not just the finished tool.
 
 ### Building and testing
 
+The tests run the DUO's chips through the Virtual DUO's C core (`virtual/core`), so they need a C compiler: on Windows, run them in Ubuntu (WSL); on Linux or macOS, as they are. The tool itself doesn't need one.
+
 ```
 pip install -r requirements.txt
 python firmware/build_firmware.py PATH\TO\DATELS_1.06_UPDATE_FILE --all

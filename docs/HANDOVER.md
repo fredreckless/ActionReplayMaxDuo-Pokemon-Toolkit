@@ -91,8 +91,11 @@ then a double battle; Record Mixing with the player in the DUO's way.
   `blender_blends`). Fixed on 13 November: the child counts the first copy only, and the DUO's
   own leader's block is now recorded (K_OURS) for the summary; both proved by the blender
   rehearsals from either end ("Blend 1 done"; "77.12 RPM in 1:58").
-- **Still to decide:** putting the core behind tests/hwsim.py (virtual/toolkit/hwsim.patch; it
-  passes the full tier and the old-against-new comparison, but needs a C compiler or a built DLL).
+- **The core is behind tests/hwsim.py** (13 November, Fred's choice): the tests now run Datel's own
+  USB routines, the flash's real command set and the Action Replay switch, through the same C
+  model the emulator uses. **So the tests run in Ubuntu (WSL) or anywhere with a C compiler**, not
+  in Windows Python; the tool itself, with a real DUO, still runs on Windows as before. The old
+  Python hwsim is frozen as virtual/tests/hwsim_python.py, for `python3 virtual/check.py`.
 
 ## What changed on 11 November
 

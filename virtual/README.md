@@ -6,10 +6,10 @@ running in mGBA instead of hand-written game models. The plan, the standing rule
 order are in the handover doc ("Virtual DUO - handover", 11 November 2026).
 
 It lives in the toolkit's repository as `virtual/` (moved in, with its history, on 12 November
-2026). Nothing outside this folder depends on it: the toolkit's own tests and releases are as they
-were, and its `tests/hwsim.py` stays the original until the core is put behind it (still to
-decide; `toolkit/hwsim.patch` is that change, and `check.py` tests it in a scratch copy). The
-emulator needs Linux: on Windows, WSL2.
+2026). Since 13 November the toolkit's own `tests/hwsim.py` is built on this folder's core, so the
+toolkit's tests and the emulator share one model of the DUO; the old pure-Python one is kept,
+frozen, as `tests/hwsim_python.py` for `check.py`'s comparison. The tests and the emulator need
+Linux and a C compiler: on Windows, WSL2. The tool itself, talking to a real DUO, doesn't.
 
 ## What's here (build steps 1 to 5)
 
@@ -17,7 +17,7 @@ emulator needs Linux: on Windows, WSL2.
 |---|---|
 | `core/duocore.h`, `core/duocore.c` | The shared C core: the DUO's chips as one behavioural model, answering cartridge-bus reads and writes. No knowledge of any emulator. |
 | `core/duocore.py` | The core from Python through `ctypes`; builds the library on first use. |
-| `toolkit/hwsim.patch`, `toolkit/duo_events-virtual.patch` | The changes to the toolkit: the core behind `tests/hwsim.py`, and `duo_events.py --virtual HOST:PORT`. Not applied to the toolkit's repository: that's still Fred's decision. |
+| `tests/hwsim_python.py` | The toolkit's old, pure-Python `hwsim.py`, frozen as it was when the core went behind it, for the comparison. |
 | `tests/diff_hwsim.py` | The original `hwsim.py` against the new one, with random bus programs; needs no firmware. |
 | `tests/fuzz_core.c` | The core on its own under AddressSanitizer and UBSan, with invariants and link traffic. |
 | `tests/test_link.py`, `tests/test_flash.py` | The USB link at register level (with Datel's own send and receive routines transcribed), the Action Replay switch, and the SST flash's command set. |
