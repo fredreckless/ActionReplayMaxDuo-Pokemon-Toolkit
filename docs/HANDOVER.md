@@ -140,9 +140,13 @@ then a double battle; Record Mixing with the player in the DUO's way.
   link contest, MYSTERY GIFT highlighted; LeafGreen: the Cable Club menu at Viridian, MYSTERY GIFT
   highlighted (English MYSTERY GIFT needs the Wireless Adapter before it opens). Checked by
   reading the saves and states back; **no Emerald or LeafGreen rehearsals yet**.
+- **And every language of Emerald and LeafGreen (13 November, night):** `savegen/findsyms.py`
+  finds the addresses in the Japanese, French, German, Italian and Spanish ROMs from pret's
+  English symbols; `profiles.DERIVED` holds them. All ten made saves and states, checked by eye
+  and read back. (Fred has English Ruby only; no other Ruby ROMs to profile.)
 - **Next:** rehearsals for Emerald and LeafGreen (the helpers in `rehearsals/ruby.py` made
   per-ROM, from the same profiles: gObjectEvents, gMain, the party menu's CB2, the rooms' spots);
-  the other languages' profiles (a code search where pret has no symbols); then the matrix: every
+  then the matrix: every
   ROM x activity x cable end, in parallel on the laptop, with one summary written to
   `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a turn).
   Videos of each run (both screens, MP4) are a wanted extra.

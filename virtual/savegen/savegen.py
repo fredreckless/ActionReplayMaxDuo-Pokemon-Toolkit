@@ -141,7 +141,7 @@ def play_opening(g):
     picks the first choice everywhere (a boy) and types a name in the naming screen, which step 2
     replaces; then wait until START opens a menu, which only happens once the player has control."""
     p = g.p
-    naming = p.sym[p.NAMING_CB2] & ~1
+    naming = p.sym[p.NAMING_CB2] & ~1 if p.NAMING_CB2 else None     # (None: mash A through it)
     for i in range(4000):
         cb2 = g.callback2()
         if cb2 == p.sym["CB2_Overworld"] & ~1:
@@ -178,14 +178,14 @@ def play_opening(g):
 
 # ------------------------------------------------------------------ step 2: what the Cable Club needs
 
-def make_mon(species, level, otid, ot_name, pid, nickname=None, game=2):
+def make_mon(species, level, otid, ot_name, pid, nickname=None, game=2, lang=2):
     """A made-up Pokemon the player caught, as a 100-byte party Pokemon in the game's own form:
     the toolkit's .pk3 code works out the encryption, the checksum and the stats."""
     import duo_events as E
-    return E.pk3_party_form(make_pk3(species, level, otid, ot_name, pid, nickname, game))
+    return E.pk3_party_form(make_pk3(species, level, otid, ot_name, pid, nickname, game, lang))
 
 
-def make_pk3(species, level, otid, ot_name, pid, nickname=None, game=2):
+def make_pk3(species, level, otid, ot_name, pid, nickname=None, game=2, lang=2):
     """The same Pokemon as a .pk3 (PKHeX's decrypted 80-byte form)."""
     import duo_battle as B
     import duo_events as E
@@ -206,7 +206,9 @@ def make_pk3(species, level, otid, ot_name, pid, nickname=None, game=2):
     plain = g + a + e + m
     checksum = sum(struct.unpack("<24H", plain)) & 0xFFFF
     name = nickname or B.species_name(species)
-    head = struct.pack("<II", pid, otid) + gen3_text(name, 10) + struct.pack("<H", 2)
+    if lang == 1:                             # (Japanese names: 5 characters at most)
+        name = name[:5]
+    head = struct.pack("<II", pid, otid) + gen3_text(name, 10) + struct.pack("<H", lang)
     head += gen3_text(ot_name, 7) + b"\0" + struct.pack("<HH", checksum, 0)
     pk3 = head + plain
     problems = B.check_legal(pk3)[0]
@@ -219,6 +221,7 @@ def set_up(g, name, party, warp):
     p = g.p
     sb1, sb2 = g.sb1(), g.sb2()
     key = g.qty_key()
+    name = name[:p.NAME_LENGTH]
     g.write(sb2 + 0, gen3_text(name, 8))
     otid = struct.unpack("<I", g.read(sb2 + 0x0A, 4))[0]
     # options: fast text (bits 0-2 of 0x14)
@@ -228,7 +231,7 @@ def set_up(g, name, party, warp):
     mons = b""
     for i, sp in enumerate(party):
         mons += make_mon(B_species(sp), p.PARTY_LEVEL, otid, name, pid=0x1000_0000 + 0x0101_0101 * (i + 1) + i,
-                         game=p.ORIGIN_GAME)
+                         game=p.ORIGIN_GAME, lang=p.LANGUAGE)
     g.write(p.gPlayerParty, mons.ljust(600, b"\0"))
     g.write(p.gPlayerPartyCount, bytes([len(party)]))
     # the bag: a Pokeblock Case among the key items, ten of each of the first twenty berries

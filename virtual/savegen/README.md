@@ -46,10 +46,21 @@ its header's game code and version byte.
 | English Emerald (BPEE v0) | `emerald.sav` | `at_cable_club_menu` (Mossdeep's Direct Corner, which with no Wireless Adapter is the Cable Club: TRADE CENTER, COLOSSEUM, RECORD CORNER), `at_blender_question`, `at_contest_question` (the link contest's ENTER/INFO/EXIT), `at_title_mystery_gift` |
 | English LeafGreen 1.1 (BPGE v1) | `leafgreen.sav` | `at_cable_club_menu` (Viridian: TRADE CENTER, COLOSSEUM), `at_title_mystery_gift` |
 
-English Emerald's and LeafGreen's MYSTERY GIFT won't open without a Wireless Adapter (the DUO's
-part), so those states stop with it highlighted on the title menu, for a rehearsal to press A.
-FireRed/LeafGreen have no Pokeblock Case, Record Corner, Blender or contests. The other
-languages need a code search for their addresses (pret has symbols for the English ROMs only).
+| Emerald and LeafGreen (Rev 0) in Japanese, French, German, Italian and Spanish (BPEJ/F/D/I/S, BPGJ/F/D/I/S) | `emerald_f.sav`, `leafgreen_j.sav`, ... | as the English game's |
+
+MYSTERY GIFT won't open without a Wireless Adapter (the DUO's part), so those states stop with it
+highlighted on the title menu, for a rehearsal to press A. FireRed/LeafGreen have no Pokeblock
+Case, Record Corner, Blender or contests.
+
+**The other languages** (`findsyms.py`): pret has symbols for the English ROMs only, so each
+address is found in the other ROM from the English one. Code: the function's bytes with its
+address words and BL instructions masked out, the match nearest the English address (a tiny
+function that has twins elsewhere is found through a pointer to it, or by its neighbours' shift).
+RAM: the literal pools of the English functions that use the variable, found in the other ROM;
+every vote agreed. `findsyms.py table ...` prints profiles.py's `DERIVED` entries again. Save
+layouts, flags, items and maps are the same in every language; the Japanese games' names are 5
+characters (TESTE), and their naming screens differ (no address: mashing A gets through them).
+The party carries the game's own language.
 
 ## Proven (13 November 2026)
 
@@ -62,3 +73,7 @@ says the fainted one can't battle; `ruby.battle_press` now moves to the next one
 Emerald and LeafGreen (13 November, later): saves and states made and checked (14 of 14 sections,
 the party and the decrypted bag read back, every state's screen as intended). They have no
 rehearsals yet: `rehearsals/` is still English Ruby's.
+
+All ten other-language Emerald and LeafGreen ROMs (13 November, night): saves and states made;
+every state's screen checked by eye (each in its own language); saves read back (14 of 14);
+the Japanese and two European games' party, flags and decrypted bag read back from the states.
