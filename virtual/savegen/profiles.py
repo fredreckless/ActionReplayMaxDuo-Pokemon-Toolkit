@@ -30,9 +30,11 @@ class RubyEnglish11:
         "Task_StartMenu": 0x080712D4,          # (sub_80712B4: the START menu's task once open)
         "Task_HandleYesNoInput": 0x080B5504,
         "Task_HandleMultichoiceInput": 0x080B52D4,
+        "CB2_PartyMenu": 0x0806AEFC,           # CB2_PartyMenuMain
     }
     NAMING_CB2 = "CB2_NamingScreen"
     MENU_ACTION_SAVE = 5
+    CABLE_CLUB_MENU = None                # Ruby: an attendant for each room
     ITEM_POKEBLOCK_CASE, ITEM_CHERI_BERRY = 273, 133
     SYS = 0x800
     FLAGS = [
@@ -45,6 +47,7 @@ class RubyEnglish11:
         SYS + 0x4C,       # FLAG_SYS_EXDATA_ENABLE: MYSTERY EVENTS on the title menu
         SYS + 0x60,       # FLAG_SYS_B_DASH (Running Shoes)
         0x5F,             # FLAG_RECEIVED_POKEBLOCK_CASE
+        0x60,             # FLAG_RECEIVED_SECRET_POWER: Record Mixing only takes in Secret Bases after it
     ]
     PARTY = ["SCEPTILE", "BLAZIKEN", "SWAMPERT", "MANECTRIC", "AGGRON", "JIRACHI"]
     PARTY_LEVEL = 50
@@ -103,6 +106,7 @@ class EmeraldEnglish:
         SYS + 0x60,                           # FLAG_SYS_B_DASH
         SYS + 0x7B,                           # FLAG_SYS_MYSTERY_GIFT_ENABLE: MYSTERY GIFT on the title menu
         0x5F,                                 # FLAG_RECEIVED_POKEBLOCK_CASE
+        0x60,                                 # FLAG_RECEIVED_SECRET_POWER (Secret Bases in Record Mixing)
     ]
     PARTY = RubyEnglish11.PARTY
     PARTY_LEVEL = 50
@@ -111,6 +115,7 @@ class EmeraldEnglish:
     # Wireless Adapter) is the Cable Club: TRADE CENTER, COLOSSEUM, RECORD CORNER. Lilycove's Contest
     # Lobby (13, 4): the link Berry Blender at (23, 5); the link contest receptionist at (15, 2).
     HOME = (14, 4, 10, 4)
+    CABLE_CLUB_MENU = ["TRADE CENTER", "COLOSSEUM", "RECORD CORNER"]     # (the rehearsals choose from it)
     QUESTION = RubyEnglish11.QUESTION
     STATES = [
         dict(name="at_cable_club_menu", kind="talk", warp=(14, 4, 10, 4), face="UP", task=QUESTION),
@@ -165,6 +170,7 @@ class LeafGreenEnglish11:
     # Viridian City's Pokemon Center upper floor (5, 5), laid out as Emerald's: the Direct Corner's
     # attendant at (10, 2) is the Cable Club with no Wireless Adapter (TRADE CENTER, COLOSSEUM).
     HOME = (5, 5, 10, 4)
+    CABLE_CLUB_MENU = ["TRADE CENTER", "COLOSSEUM"]
     QUESTION = RubyEnglish11.QUESTION
     STATES = [
         dict(name="at_cable_club_menu", kind="talk", warp=(5, 5, 10, 4), face="UP", task=QUESTION),

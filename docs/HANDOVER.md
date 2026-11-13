@@ -144,9 +144,19 @@ then a double battle; Record Mixing with the player in the DUO's way.
   finds the addresses in the Japanese, French, German, Italian and Spanish ROMs from pret's
   English symbols; `profiles.DERIVED` holds them. All ten made saves and states, checked by eye
   and read back. (Fred has English Ruby only; no other Ruby ROMs to profile.)
-- **Next:** rehearsals for Emerald and LeafGreen (the helpers in `rehearsals/ruby.py` made
-  per-ROM, from the same profiles: gObjectEvents, gMain, the party menu's CB2, the rooms' spots);
-  then the matrix: every
+- **Emerald and LeafGreen rehearsals (13 November, night): all pass**, from savegen's saves.
+  `ruby.py` now takes any ROM savegen knows (`set_game`, from `profiles.py`); the scripts choose
+  the room from E/FRLG's Cable Club menu (`choose_room`). `all_games.sh`: Emerald trade, single,
+  double, Record Mixing, Blender from both ends, link contest from both ends (`contest.py`, new):
+  8 of 8 in English and in German; LeafGreen trade, single, double: 3 of 3 in English and in
+  French. **So the Emerald and FireRed/LeafGreen Colosseums, Record Mixing with Emerald, the
+  Blender with Emerald and the link contest, all simulator-only until now, have played through
+  in the emulator against the real games.** Two things learnt: Record Mixing only takes in
+  Secret Bases once the player has Secret Power (savegen now sets FLAG_RECEIVED_SECRET_POWER,
+  and mix.py insists the base lands); and Emerald sets the language byte (42) of a Ruby player's
+  old man itself (SanitizeReceivedRubyOldMan), so mix.py allows that one byte for Emerald.
+- **Next:** the Battle Tower's link multi battle (Emerald; needs the Battle Frontier reached in the
+  save and a state at the multi counter); then the matrix: every
   ROM x activity x cable end, in parallel on the laptop, with one summary written to
   `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a turn).
   Videos of each run (both screens, MP4) are a wanted extra.

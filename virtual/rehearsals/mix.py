@@ -11,7 +11,7 @@ finishes with the game saved and no checksum mismatches.
 """
 import os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ruby import TOOLKIT, Tool, Walker, common_args, objects, runner, tap_until_linked
+from ruby import TOOLKIT, Tool, Walker, choose_room, common_args, objects, runner, tap_until_linked
 
 # RecordCorner (pokeruby data/maps): seats at (6,4) and (6,6) on player 0's side, the doors (8..11,9).
 SEAT0 = (13, 13)            # (6,6): from the door, up two rows, left, then up
@@ -27,8 +27,9 @@ def main():
         v.state_load("partner", a.state)
         tool = Tool(v, ["mix", *extra], log=os.path.join(a.out, "tool.log"), cwd=a.out)
         assert tool.wait_for("Ready", 120), "the tool never got ready"
-        for wait in (90, 90, 90, 240):                  # YES; save? YES; overwrite? YES; saving
-            v.press("partner", "A", frames=6, then=wait)
+        if not choose_room(v, a.profile, "RECORD CORNER"):  # (Emerald: from the Cable Club's menu)
+            for wait in (90, 90, 90, 240):              # Ruby: YES; save? YES; overwrite? YES; saving
+                v.press("partner", "A", frames=6, then=wait)
         print("linked after", tap_until_linked(v, tool), "taps", flush=True)
         v.run_frames("partner", 300)
         v.screenshot("partner", os.path.join(a.out, "room.png"))
@@ -50,7 +51,7 @@ def main():
         after = os.path.join(a.out, "after.sav")
         v.save_sav("partner", after)
     print("\n".join(l for l in tool.lines if l.startswith("  [") or "Kept" in l or "Finished" in l or "Transfers" in l))
-    bases = subprocess.run([sys.executable, os.path.join(TOOLKIT, "duo_events.py"), "bases", after, "--game", "Ruby"],
+    bases = subprocess.run([sys.executable, os.path.join(TOOLKIT, "duo_events.py"), "bases", after, "--game", a.profile.TITLE.split()[1]],
                            cwd=a.out, capture_output=True, text=True)
     print("the save afterwards, by `bases`:\n" + bases.stdout[-1500:] + bases.stderr[-500:])
     saved = open(after, "rb").read()
@@ -59,10 +60,21 @@ def main():
         if flag in extra:
             i = extra.index(flag) + 1
             while i < len(extra) and not extra[i].startswith("--"):
-                there = open(extra[i], "rb").read() in saved
+                data = open(extra[i], "rb").read()
+                there = data in saved
+                if not there and flag == "--old-man" and "Emerald" in a.profile.TITLE and len(data) > 43:
+                    # Emerald sets the language byte (42) of an old man from a Ruby player itself
+                    # (SanitizeReceivedRubyOldMan): the rest must arrive as it was
+                    k = saved.find(data[:42])
+                    there = k >= 0 and saved[k + 43:k + len(data)] == data[43:]
                 landed &= there
                 print(f"{os.path.basename(extra[i])}: {'in the save' if there else 'NOT in the save'}")
                 i += 1
+    if "--base" in extra:                             # the base's owner, in the save afterwards
+        owner = os.path.basename(extra[extra.index("--base") + 1])
+        base_ok = "no Secret Bases" not in bases.stdout and bases.returncode == 0
+        print(f"{owner}: {'a base in the save' if base_ok else 'NO base in the save'}")
+        landed &= base_ok
     ok = code == 0 and landed and tool.saw("Finished") and tool.saw("checksum mismatches: 0")
     print("PASS" if ok else f"FAIL (tool exit {code})")
     return 0 if ok else 1

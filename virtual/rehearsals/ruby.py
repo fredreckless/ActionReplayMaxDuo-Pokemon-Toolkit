@@ -1,4 +1,5 @@
-"""ruby.py - helpers for driving English Ruby (v1.1) on the Virtual DUO's partner GBA.
+"""ruby.py - helpers for driving a Gen 3 game on the Virtual DUO's partner GBA (English Ruby 1.1
+first, hence the name; runner() picks up any game savegen/profiles.py knows, by the ROM's header).
 
 Nothing here is Nintendo's: the ROM, the save, the DUO's flash image and any save states are
 passed in by path and stay where they are. The addresses below are facts about the game's RAM.
@@ -8,6 +9,7 @@ import os, struct, subprocess, sys, threading, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "runner"))
 from vduo import Runner  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "savegen"))
 
 OBJECTS = 0x030048A0          # gMapObjects (16 of 0x24 bytes) in English Ruby 1.1
 GMAIN = 0x03001770            # gMain: callback1, callback2, ...
@@ -112,6 +114,18 @@ class Tool:
         return self.p.wait(10)
 
 
+def choose_room(v, profile, room):
+    """Emerald and FireRed/LeafGreen: from the Cable Club's menu (the savegen state), the room by name.
+    Returns False for Ruby, whose states stand at each room's own attendant."""
+    menu = getattr(profile, "CABLE_CLUB_MENU", None)
+    if not menu:
+        return False
+    for _ in range(menu.index(room)):
+        v.press("partner", "DOWN", frames=6, then=20)
+    v.press("partner", "A", frames=6, then=150)
+    return True
+
+
 def tap_until_linked(v, tool, taps=40):
     """The Cable Club's two prompts want a press, then a hold once the text has scrolled: tapping A
     until the DUO reports the link covers both, whatever the timing."""
@@ -126,7 +140,8 @@ def tap_until_linked(v, tool, taps=40):
 def common_args(description):
     import argparse
     ap = argparse.ArgumentParser(description=description)
-    ap.add_argument("--rom", required=True, help="English Ruby (v1.1), for the partner GBA")
+    ap.add_argument("--rom", required=True, help="the game for the partner GBA (English Ruby 1.1, or any ROM "
+                                                 "savegen/profiles.py knows)")
     ap.add_argument("--sav", required=True, help="its save (read only: it stays in memory)")
     ap.add_argument("--duo-flash", required=True, help="the DUO's flash image (formatted: see the README)")
     ap.add_argument("--state", required=True, help="a save state of the partner at the attendant's question")
@@ -134,6 +149,16 @@ def common_args(description):
     return ap
 
 
+def set_game(rom):
+    """Point the helpers at this ROM's RAM and code (savegen/profiles.py); returns its profile."""
+    global OBJECTS, GMAIN, CB2_PARTY_MENU
+    import profiles
+    p = profiles.for_rom(rom)
+    OBJECTS, GMAIN, CB2_PARTY_MENU = p.gObjectEvents, p.gMain, p.sym["CB2_PartyMenu"]
+    return p
+
+
 def runner(a, **kw):
+    a.profile = set_game(a.rom)
     return Runner(duo_fw=a.duo_flash, partner=a.rom, partner_save=a.sav, duo_player=1,
                   wait_for_hello=True, **kw)

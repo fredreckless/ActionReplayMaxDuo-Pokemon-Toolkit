@@ -1,4 +1,4 @@
-"""colosseum.py - rehearsal 2: a Colosseum battle (single or double) between the Virtual DUO and English Ruby.
+"""colosseum.py - rehearsal 2: a Colosseum battle (single or double) between the Virtual DUO and a game (English Ruby; Emerald and LeafGreen from the Cable Club menu).
 
     python3 colosseum.py --rom RUBY.gba --sav RUBY.sav --duo-flash duo_flash.bin \\
         --state at_colosseum_question.state --pk3 A.pk3 [B.pk3 ...] [--level simple]
@@ -9,7 +9,7 @@ then its first move (and after a faint, the next Pokemon: ruby.battle_press). Pa
 """
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ruby import Tool, Walker, battle_press, common_args, runner, tap_until_linked
+from ruby import Tool, Walker, battle_press, choose_room, common_args, runner, tap_until_linked
 
 # SingleBattleColosseum (pokeruby data/maps): player 0's spot is (3,5), the door (6,8) and (7,8);
 # in RAM the coordinates carry the 7-tile border.
@@ -29,11 +29,15 @@ def main():
         tool = Tool(v, ["colosseum", "--level", a.level, "--pk3", *a.pk3, "--seconds", str(int(a.minutes * 60))],
                     log=os.path.join(a.out, "tool.log"), cwd=a.out)
         assert tool.wait_for("Ready", 120), "the tool never got ready"
-        for wait in (90, 90, 90, 240):                  # YES; save? YES; overwrite? YES; saving
-            v.press("partner", "A", frames=6, then=wait)
-        v.run_frames("partner", 300)                    # "Which Battle Mode would you like to play?"
-        if a.mode == "double":
-            v.press("partner", "DOWN", frames=6, then=20)
+        if choose_room(v, a.profile, "COLOSSEUM"):      # Emerald, FireRed/LeafGreen: the menu, then the
+            if a.mode == "double":                       # mode, then the save prompts (tapped through below)
+                v.press("partner", "DOWN", frames=6, then=20)
+        else:                                            # Ruby: "Would you like to battle?"
+            for wait in (90, 90, 90, 240):              # YES; save? YES; overwrite? YES; saving
+                v.press("partner", "A", frames=6, then=wait)
+            v.run_frames("partner", 300)                # "Which Battle Mode would you like to play?"
+            if a.mode == "double":
+                v.press("partner", "DOWN", frames=6, then=20)
         v.screenshot("partner", os.path.join(a.out, "mode.png"))
         print("linked after", tap_until_linked(v, tool), "taps", flush=True)
         v.run_frames("partner", 300)

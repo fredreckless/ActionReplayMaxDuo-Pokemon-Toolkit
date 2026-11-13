@@ -10,7 +10,7 @@ Pokemon; the record the tool writes to its received/ folder is printed for compa
 """
 import glob, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ruby import TOOLKIT, Tool, Walker, common_args, runner, tap_until_linked
+from ruby import TOOLKIT, Tool, Walker, choose_room, common_args, runner, tap_until_linked
 
 # TradeCenter (pokeruby data/maps): player 0's seat is (4,5), the door (5,8); +7 in RAM.
 SEAT0, DOOR = (11, 12), (12, 15)
@@ -28,8 +28,9 @@ def main():
         v.state_load("partner", a.state)
         tool = Tool(v, ["trade", "--pk3", a.pk3, "--seconds", "600"], log=os.path.join(a.out, "tool.log"), cwd=a.out)
         assert tool.wait_for("Ready", 120), "the tool never got ready"
-        for wait in (90, 90, 90, 240):                  # YES; save? YES; overwrite? YES; saving
-            v.press("partner", "A", frames=6, then=wait)
+        if not choose_room(v, a.profile, "TRADE CENTER"):   # (Emerald, LeafGreen: from the Cable Club's menu)
+            for wait in (90, 90, 90, 240):              # Ruby: YES; save? YES; overwrite? YES; saving
+                v.press("partner", "A", frames=6, then=wait)
         print("linked after", tap_until_linked(v, tool), "taps", flush=True)
         v.run_frames("partner", 300)
         w = Walker(v, me=0)
