@@ -38,10 +38,15 @@ multiplayer feature of the five games (ROADMAP Stage 12).
 - **Never commit** Datel firmware, Nintendo data (`.wc3`, `.me3`, ROM contents) or personal data,
   including the player's trainer ID and name from traces.
 - **Tone:** warm, natural British English; concise.
-- **The user's PC:** Windows; Python 3.10 (Thonny); `C:\Users\fredr\ActionReplay`. Files reach it
-  through the desktop bridge when the chat is linked. **After copying a file there, read it back and
-  compare SHA-1s**, with a fresh staged file name each time. Run logs are in `logs\` there: read them
-  through the bridge rather than asking for pasted output.
+- **The user's PC:** Windows; Python 3.10 (Thonny); `C:\Users\fredr\ActionReplay`. **Since 13
+  November that folder is a git clone of this repository** (`core.autocrlf false`, so files are
+  byte-identical to GitHub; tracking origin/main): after a push, Fred updates it with `git pull` in
+  PowerShell there, and the old copy-and-SHA-1 routine is retired. His personal files there (ROMs,
+  saves, logs, received, bases, records, battles, Datel, EventsGallery, tonight, old, release,
+  .me3/.wc3/.pk3, virtual/runs and virtual/states) are all git-ignored and must stay so; never run
+  `git add .` there. If a file must still go across the desktop bridge (a save state, a script for
+  him to run), read it back and compare SHA-1s. Run logs are in `logs\` there: read them through
+  the bridge rather than asking for pasted output. The bridge can't reach WSL's own folders.
 - **The user chooses what to work on.** On 8 November they asked for: the room walk always reaching
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
@@ -101,7 +106,10 @@ then a double battle; Record Mixing with the player in the DUO's way.
 
 - **Fred's laptop runs it.** Ubuntu 26.04 in WSL2 (CMake 4.2, Python 3.14), clone at `~/toolkit`,
   venv `~/venv`. Built firmware and `firmware/build/duo_flash.bin` (from
-  `virtual/runner/prepare_flash.py`) are there. All seven Ruby rehearsals passed on it.
+  `virtual/runner/prepare_flash.py`) are there. All seven Ruby rehearsals passed on it (twice).
+  **Three copies, one master:** GitHub; the WSL clone (for the emulator and the tests, which now
+  need a C compiler); the Windows clone (for the real DUO over USB). Both clones update with
+  `git pull`; nothing is edited in either by hand.
   `~/runs` is a link to `C:\Users\fredr\ActionReplay\virtual\runs`, so results land in the folder
   the session can read through the device link (WSL's own folders can't be reached from it, and
   terminals can't be typed into with computer use: give Fred one line to run, or a script put in
