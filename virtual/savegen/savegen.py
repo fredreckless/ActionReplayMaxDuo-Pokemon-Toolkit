@@ -101,8 +101,21 @@ class Game:
             raise RuntimeError(f"timed out waiting for {what}")
 
     # ---- the game's RAM
+    def sb1(self):
+        """gSaveBlock1: fixed in Ruby; in Emerald and FireRed/LeafGreen it moves (gSaveBlock1Ptr)."""
+        return self.u32(self.p.sb1_ptr) if hasattr(self.p, "sb1_ptr") else self.p.sb1
+
+    def sb2(self):
+        return self.u32(self.p.sb2_ptr) if hasattr(self.p, "sb2_ptr") else self.p.sb2
+
+    def qty_key(self):
+        """Emerald and FireRed/LeafGreen keep bag quantities XORed with the save's encryption key."""
+        if not hasattr(self.p, "SB2_KEY"):
+            return 0
+        return self.u32(self.sb2() + self.p.SB2_KEY) & 0xFFFF
+
     def flag(self, n, on=True):
-        a = self.p.sb1 + self.p.SB1_FLAGS + n // 8
+        a = self.sb1() + self.p.SB1_FLAGS + n // 8
         b = self.read(a, 1)[0]
         self.write(a, bytes([b | 1 << (n % 8) if on else b & ~(1 << (n % 8))]))
 
@@ -128,19 +141,23 @@ def play_opening(g):
     picks the first choice everywhere (a boy) and types a name in the naming screen, which step 2
     replaces; then wait until START opens a menu, which only happens once the player has control."""
     p = g.p
-    named = False
+    naming = p.sym[p.NAMING_CB2] & ~1
     for i in range(4000):
         cb2 = g.callback2()
         if cb2 == p.sym["CB2_Overworld"] & ~1:
             break
         if cb2 == p.sym["CB2_MainMenu"] & ~1 and i % 2:
             g.tap("A")
-        elif cb2 == p.sym[p.NAMING_CB2] & ~1 and not named:
-            # the naming screen: START moves to OK, A finishes (an empty name gets the game's default)
+        elif cb2 == naming:
+            # a naming screen (FireRed/LeafGreen: the rival's too): START moves to OK, A finishes (an
+            # empty name gets one of the game's own); then wait for the screen to go
             g.run(60)
             g.tap("START", gap=20)
             g.tap("A", gap=30)
-            named = True
+            for _ in range(60):
+                if g.callback2() != naming:
+                    break
+                g.run(10)
         else:
             g.tap("A", gap=6)
     else:
@@ -161,14 +178,14 @@ def play_opening(g):
 
 # ------------------------------------------------------------------ step 2: what the Cable Club needs
 
-def make_mon(species, level, otid, ot_name, pid, nickname=None):
+def make_mon(species, level, otid, ot_name, pid, nickname=None, game=2):
     """A made-up Pokemon the player caught, as a 100-byte party Pokemon in the game's own form:
     the toolkit's .pk3 code works out the encryption, the checksum and the stats."""
     import duo_events as E
-    return E.pk3_party_form(make_pk3(species, level, otid, ot_name, pid, nickname))
+    return E.pk3_party_form(make_pk3(species, level, otid, ot_name, pid, nickname, game))
 
 
-def make_pk3(species, level, otid, ot_name, pid, nickname=None):
+def make_pk3(species, level, otid, ot_name, pid, nickname=None, game=2):
     """The same Pokemon as a .pk3 (PKHeX's decrypted 80-byte form)."""
     import duo_battle as B
     import duo_events as E
@@ -182,8 +199,10 @@ def make_pk3(species, level, otid, ot_name, pid, nickname=None):
     e = bytes(12)
     ivs = [20, 20, 20, 20, 20, 20]
     ivword = sum(v << (5 * i) for i, v in enumerate(ivs))
-    origin = level | 2 << 7 | 4 << 11        # met at this level, in Ruby, in a Poke Ball (OT a boy)
-    m = struct.pack("<BBHII", 0, 0x10, origin, ivword, 0)     # (pokerus, met at Route 101, ...)
+    origin = level | game << 7 | 4 << 11     # met at this level, in this game (2 Ruby, 3 Emerald,
+    #                                           4 FireRed, 5 LeafGreen), in a Poke Ball (OT a boy)
+    met = 0x10 if game in (2, 3) else 0x65    # Route 101; Route 1 in Kanto (FireRed/LeafGreen)
+    m = struct.pack("<BBHII", 0, met, origin, ivword, 0)
     plain = g + a + e + m
     checksum = sum(struct.unpack("<24H", plain)) & 0xFFFF
     name = nickname or B.species_name(species)
@@ -198,7 +217,8 @@ def make_pk3(species, level, otid, ot_name, pid, nickname=None):
 
 def set_up(g, name, party, warp):
     p = g.p
-    sb1, sb2 = p.sb1, p.sb2
+    sb1, sb2 = g.sb1(), g.sb2()
+    key = g.qty_key()
     g.write(sb2 + 0, gen3_text(name, 8))
     otid = struct.unpack("<I", g.read(sb2 + 0x0A, 4))[0]
     # options: fast text (bits 0-2 of 0x14)
@@ -207,12 +227,14 @@ def set_up(g, name, party, warp):
     # the party, live (the save copies it from here)
     mons = b""
     for i, sp in enumerate(party):
-        mons += make_mon(B_species(sp), p.PARTY_LEVEL, otid, name, pid=0x1000_0000 + 0x0101_0101 * (i + 1) + i)
+        mons += make_mon(B_species(sp), p.PARTY_LEVEL, otid, name, pid=0x1000_0000 + 0x0101_0101 * (i + 1) + i,
+                         game=p.ORIGIN_GAME)
     g.write(p.gPlayerParty, mons.ljust(600, b"\0"))
     g.write(p.gPlayerPartyCount, bytes([len(party)]))
     # the bag: a Pokeblock Case among the key items, ten of each of the first twenty berries
-    g.write(sb1 + p.SB1_KEYITEMS, struct.pack("<HH", p.ITEM_POKEBLOCK_CASE, 1))
-    berries = b"".join(struct.pack("<HH", p.ITEM_CHERI_BERRY + i, 10) for i in range(20))
+    if p.ITEM_POKEBLOCK_CASE:                      # (FireRed/LeafGreen have none)
+        g.write(sb1 + p.SB1_KEYITEMS, struct.pack("<HH", p.ITEM_POKEBLOCK_CASE, 1 ^ key))
+    berries = b"".join(struct.pack("<HH", p.ITEM_CHERI_BERRY + i, 10 ^ key) for i in range(20))
     g.write(sb1 + p.SB1_BERRIES, berries)
     for f in p.FLAGS:
         g.flag(f)
@@ -228,8 +250,9 @@ def B_species(name):
 
 def point_continue(g, warp):
     group, num, x, y = warp
-    g.write(g.p.sb1 + 0x0C, struct.pack("<bbbxhh", group, num, -1, x, y))
-    g.write(g.p.sb2 + 0x09, b"\x01")
+    g.write(g.sb1() + 0x0C, struct.pack("<bbbxhh", group, num, -1, x, y))
+    a = g.sb2() + 0x09                          # (Emerald and FireRed/LeafGreen: bit 0 of the flags)
+    g.write(a, bytes([g.read(a, 1)[0] | 1]))
 
 
 # ------------------------------------------------------------------ step 3: SAVE
@@ -322,8 +345,8 @@ def make_states(rom, sav, prof, out, log):
             if st["kind"] == "talk":
                 continue_to(g, st["warp"])
                 talk_until_question(g, st["face"], st["task"])
-            elif st["kind"] == "mystery_event":
-                mystery_event_standby(g)
+            elif st["kind"] == "title_menu":
+                title_menu_item(g, st)
             path = os.path.join(out, st["name"] + ".state")
             g.v.state_save("partner", path)
             g.screenshot(os.path.join(out, st["name"] + ".png"))
@@ -334,22 +357,32 @@ def make_states(rom, sav, prof, out, log):
     return made
 
 
-def mystery_event_standby(g):
+def title_menu_item(g, st):
+    """An item further down the title menu (MYSTERY EVENTS in Ruby, MYSTERY GIFT in Emerald), left
+    waiting at its first screen: `downs` presses of DOWN from CONTINUE, then A, then until the
+    item's own task is running (or its callback is), and a moment more."""
     p = g.p
     for _ in range(3000):
         if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
             break
         g.tap("A", gap=10)
     g.run(60)
-    g.tap("DOWN", gap=10)                           # CONTINUE, NEW GAME, MYSTERY EVENTS, OPTION
-    g.tap("DOWN", gap=10)
+    for _ in range(st["downs"]):
+        g.tap("DOWN", gap=10)
+    if st.get("select_only"):                     # left highlighted, for the rehearsal to press A
+        g.run(st.get("settle", 60))
+        return
     g.tap("A", gap=30)
+    want = p.sym[st["until"]] & ~1
     for _ in range(40):
-        g.tap("A", gap=20)
-        if g.callback2() == p.sym["CB2_MysteryEventMenu"] & ~1 and p.mystery_standby(g):
-            g.run(60)
+        if st.get("press_first"):               # (Ruby's MYSTERY EVENTS: a press before "Link standby")
+            g.tap("A", gap=20)
+        if g.callback2() == want or want in g.tasks():
+            g.run(st.get("settle", 60))
             return
-    raise RuntimeError("didn't reach Link standby")
+        if not st.get("press_first"):
+            g.tap("A", gap=20)
+    raise RuntimeError(f"didn't reach {st['until']}")
 
 
 def write_kit_pk3s(folder, log):
@@ -358,7 +391,7 @@ def write_kit_pk3s(folder, log):
     for fname, sp, lv, pid in (("offer.pk3", "SWELLOW", 30, 0x2468ACE1), ("team1.pk3", "METAGROSS", 50, 0x13579BDF),
                                ("team2.pk3", "ALTARIA", 50, 0x0F1E2D3C)):
         with open(os.path.join(folder, fname), "wb") as f:
-            f.write(make_pk3(B_species(sp), lv, 54321 << 16 | 12345, "DUO", pid))
+            f.write(make_pk3(B_species(sp), lv, 54321 << 16 | 12345, "DUO", pid))     # (from Ruby)
     log(f"  made-up Pokemon for the DUO in {folder}: offer.pk3, team1.pk3, team2.pk3")
 
 

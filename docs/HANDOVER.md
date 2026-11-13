@@ -134,12 +134,16 @@ then a double battle; Record Mixing with the player in the DUO's way.
   battle 13 minutes): the rehearsals' link logs (hundreds of MB) were written straight onto the
   Windows drive, which WSL does slowly. The script now works in `~/work/savegen` and copies
   everything but the link logs across at the end; do the same in any new run script.
-- **Next:** Emerald and FireRed/LeafGreen profiles in `savegen/profiles.py` (pret has symbols for
-  English Emerald, FireRed and LeafGreen 1.0/1.1: `raw.githubusercontent.com/pret/<repo>/symbols/`;
-  their save blocks move, behind `gSaveBlock1Ptr`/`gSaveBlock2Ptr`, and Emerald's bag quantities
-  are encrypted), then the other languages (a code search where pret has no symbols). The
-  rehearsals' helpers (`ruby.py`) will need the same per-ROM addresses. Then the matrix: every ROM
-  x activity x cable end, in parallel on the laptop, with one summary written to
+- **English Emerald and LeafGreen 1.1 too (13 November, late evening):** profiles in
+  `savegen/profiles.py` (pret's symbols; save blocks through their pointers; bag quantities XORed
+  with the save's key). Emerald: the Cable Club menu at Mossdeep's Direct Corner, the Blender, the
+  link contest, MYSTERY GIFT highlighted; LeafGreen: the Cable Club menu at Viridian, MYSTERY GIFT
+  highlighted (English MYSTERY GIFT needs the Wireless Adapter before it opens). Checked by
+  reading the saves and states back; **no Emerald or LeafGreen rehearsals yet**.
+- **Next:** rehearsals for Emerald and LeafGreen (the helpers in `rehearsals/ruby.py` made
+  per-ROM, from the same profiles: gObjectEvents, gMain, the party menu's CB2, the rooms' spots);
+  the other languages' profiles (a code search where pret has no symbols); then the matrix: every
+  ROM x activity x cable end, in parallel on the laptop, with one summary written to
   `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a turn).
   Videos of each run (both screens, MP4) are a wanted extra.
 - **Rehearsal know-how:** `virtual/rehearsals/ruby.py` (closed-loop walker on gMapObjects at

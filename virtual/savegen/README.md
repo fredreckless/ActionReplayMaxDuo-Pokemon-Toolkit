@@ -35,10 +35,21 @@ DUO's side (`offer.pk3`, `team1.pk3`, `team2.pk3`). English Ruby takes about ten
 ## Profiles
 
 `profiles.py` holds what differs between games: RAM and code addresses (from pret's symbols),
-the save blocks' offsets, the flags, item numbers, the maps and the attendants' spots. A ROM is
-matched by its header's game code and version byte. **English Ruby 1.1** is done; Emerald and
-FireRed/LeafGreen come next (their save blocks move about in RAM, behind `gSaveBlock1Ptr`, and
-their rooms differ), then the other languages (a code search where pret has no symbols).
+the save blocks' offsets (Ruby's are fixed; Emerald's and FireRed/LeafGreen's move, so they are
+read through `gSaveBlock1Ptr`/`gSaveBlock2Ptr`, and their bag quantities are XORed with the save's
+encryption key), the flags, item numbers, the maps and the attendants' spots. A ROM is matched by
+its header's game code and version byte.
+
+| ROM | Save | States |
+|---|---|---|
+| English Ruby 1.1 (AXVE v1) | `ruby.sav` | `at_trade_question`, `at_colosseum_question`, `at_record_question` (Mossdeep), `at_blender_question` (Lilycove's Contest Lobby), `at_link_standby` (MYSTERY EVENTS) |
+| English Emerald (BPEE v0) | `emerald.sav` | `at_cable_club_menu` (Mossdeep's Direct Corner, which with no Wireless Adapter is the Cable Club: TRADE CENTER, COLOSSEUM, RECORD CORNER), `at_blender_question`, `at_contest_question` (the link contest's ENTER/INFO/EXIT), `at_title_mystery_gift` |
+| English LeafGreen 1.1 (BPGE v1) | `leafgreen.sav` | `at_cable_club_menu` (Viridian: TRADE CENTER, COLOSSEUM), `at_title_mystery_gift` |
+
+English Emerald's and LeafGreen's MYSTERY GIFT won't open without a Wireless Adapter (the DUO's
+part), so those states stop with it highlighted on the title menu, for a rehearsal to press A.
+FireRed/LeafGreen have no Pokeblock Case, Record Corner, Blender or contests. The other
+languages need a code search for their addresses (pret has symbols for the English ROMs only).
 
 ## Proven (13 November 2026)
 
@@ -47,3 +58,7 @@ trade, single and double battle, Record Mixing, Mystery Event, the Blender from 
 states match Fred's hand-made ones screen for screen. One rehearsal fix came out of it: with a
 party the DUO can beat, the game's side faints a Pokemon, and pressing A in the party menu only
 says the fainted one can't battle; `ruby.battle_press` now moves to the next one and shifts.
+
+Emerald and LeafGreen (13 November, later): saves and states made and checked (14 of 14 sections,
+the party and the decrypted bag read back, every state's screen as intended). They have no
+rehearsals yet: `rehearsals/` is still English Ruby's.
