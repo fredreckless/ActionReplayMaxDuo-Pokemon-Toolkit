@@ -129,7 +129,11 @@ then a double battle; Record Mixing with the player in the DUO's way.
   **All seven rehearsals pass from it** (in the cloud workspace, twice). One rehearsal fix: the
   game's side now gets past a fainted Pokemon (`ruby.battle_press`). Details:
   virtual/savegen/README.md. Fred's one-line run: `bash
-  /mnt/c/Users/fredr/ActionReplay/virtual/run_savegen.sh` (results in `virtual\runs\savegen`).
+  /mnt/c/Users/fredr/ActionReplay/virtual/run_savegen.sh` (results in `virtual\runs\savegen`). **Passed
+  on the laptop too (13 November, 21:50): the save in 6 s, then 7 of 7.** But slowly (the single
+  battle 13 minutes): the rehearsals' link logs (hundreds of MB) were written straight onto the
+  Windows drive, which WSL does slowly. The script now works in `~/work/savegen` and copies
+  everything but the link logs across at the end; do the same in any new run script.
 - **Next:** Emerald and FireRed/LeafGreen profiles in `savegen/profiles.py` (pret has symbols for
   English Emerald, FireRed and LeafGreen 1.0/1.1: `raw.githubusercontent.com/pret/<repo>/symbols/`;
   their save blocks move, behind `gSaveBlock1Ptr`/`gSaveBlock2Ptr`, and Emerald's bag quantities
