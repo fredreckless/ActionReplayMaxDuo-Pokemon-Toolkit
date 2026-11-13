@@ -21,3 +21,18 @@ battles/
 *.sb3
 roms/
 *.gba
+# Nintendo's and Datel's files, and the user's own folders, kept beside the tool (never commit)
+*.me3
+*.wc3
+*.pk3
+Datel/
+EventsGallery/
+tonight/
+old/
+release/
+/HANDOVER.md
+# The Virtual DUO's run results and save states (made from the user's saves)
+virtual/runs/
+virtual/states/
+virtual/pk3/
+/virtual/run_*.sh
