@@ -97,6 +97,37 @@ then a double battle; Record Mixing with the player in the DUO's way.
   in Windows Python; the tool itself, with a real DUO, still runs on Windows as before. The old
   Python hwsim is frozen as virtual/tests/hwsim_python.py, for `python3 virtual/check.py`.
 
+## Next for the Virtual DUO (start here in a new conversation, 13 November)
+
+- **Fred's laptop runs it.** Ubuntu 26.04 in WSL2 (CMake 4.2, Python 3.14), clone at `~/toolkit`,
+  venv `~/venv`. Built firmware and `firmware/build/duo_flash.bin` (from
+  `virtual/runner/prepare_flash.py`) are there. All seven Ruby rehearsals passed on it.
+  `~/runs` is a link to `C:\Users\fredr\ActionReplay\virtual\runs`, so results land in the folder
+  the session can read through the device link (WSL's own folders can't be reached from it, and
+  terminals can't be typed into with computer use: give Fred one line to run, or a script put in
+  `ActionReplay\virtual\`). His inputs are linked under `~/kit`; the rehearsals' save states
+  (made from his English Ruby save, at each attendant) are in `ActionReplay\virtual\states`.
+  `ActionReplay\virtual\run_second.sh` is the pattern for a one-line run.
+- **ROMs on the PC** (`ActionReplay\roms`, his own dumps, never committed): Emerald and LeafGreen
+  in all six languages (Japan, USA/Europe or Europe Rev 1, France, Germany, Italy, Spain); English
+  Ruby 1.1 in the ActionReplay folder. Saves: his English Ruby, a Japanese Emerald and LeafGreen.
+- **Next: the save generator**, so rehearsals need no hand-made states. Plan: boot each ROM with
+  no save, play the opening by button presses until the start menu has SAVE, then set in RAM only
+  what the Cable Club needs (the player's location on a Pokemon Center's upper floor, a party of
+  synthetic Pokemon from the toolkit's test generator, berries and a Pokeblock Case, and the flags:
+  in Ruby FLAG_SYS_POKEDEX_GET for the Colosseum and Trade Center, FLAG_VISITED_MAUVILLE_CITY for
+  the Record Corner), and let the game save itself: then its own code writes a valid save in its
+  own layout for every language. Prove it on English Ruby first (the seven rehearsals must pass
+  from the generated save as they did from Fred's), then Emerald and LeafGreen, whose rooms and
+  RAM differ (per-ROM profiles: addresses from pret where it has symbols, a code search where not).
+  Then the matrix: every ROM x activity x cable end, in parallel on the laptop, with one summary
+  written to `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a
+  turn). Videos of each run (both screens, MP4) are a wanted extra.
+- **Rehearsal know-how:** `virtual/rehearsals/ruby.py` (closed-loop walker on gMapObjects at
+  0x030048A0 in English Ruby 1.1; in a link room the player's object has the link player's number
+  as its local id; tap A until the DUO reports the link). Run the tool with `python -u` (fixed).
+  Never run heavy jobs beside `tests/check.py`: under load, timing-sensitive tests miss.
+
 ## What changed on 11 November
 
 - **The Record Workshop's map**: a sketch of Hoenn (from the game's region-map grid and the routes'
