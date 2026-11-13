@@ -351,6 +351,7 @@ static void process_command(void)
             small[4] = max_rpm; small[5] = max_rpm >> 8;
             time_rpm = (frames & 0xFFFF) | (max_rpm & 0xFFFF) << 16;
             send_block(small, 40);
+            log_bytes(small, 40, K_OURS);                    /* (so the PC reads the leader's block: ours) */
             answered = blends + 1 < (BLENDS ? BLENDS : 1) ? PLAY_AGAIN : SAY_NO;
             log_event(E_ANSWER, answered);
             state = ST_AGAIN;
@@ -394,7 +395,10 @@ static void process_command(void)
             if (go) barriers_to_go = 5;                      /* (four round the link save, then the next blend's) */
             break;
         }
-        if (!is_master && (frame[1][game] == LEADER_GO || frame[1][game] == LEADER_STOP)) {
+        /* as child: the leader sends its verdict more than once (three copies, from Ruby): count
+         * the first only. game_resp marks it taken until the next blend starts. */
+        if (!is_master && !game_resp && (frame[1][game] == LEADER_GO || frame[1][game] == LEADER_STOP)) {
+            game_resp = frame[1][game];
             verdict = frame[1][game] == LEADER_GO ? 2 : 1;
             blends++;
             log_event(E_VERDICT, verdict | frame[2][game] << 8);

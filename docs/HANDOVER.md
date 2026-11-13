@@ -88,7 +88,9 @@ then a double battle; Record Mixing with the player in the DUO's way.
 - **Two blender bugs the hardware logs show too:** as the child the DUO counts a blend for each of
   the game's three copies of the verdict ("Blend 3 done"; `blends++` in blender.c); as the leader
   the summary reads the game's berry block as the leader's block ("RPM in 893801:51",
-  `blender_blends`). Not fixed yet.
+  `blender_blends`). Fixed on 13 November: the child counts the first copy only, and the DUO's
+  own leader's block is now recorded (K_OURS) for the summary; both proved by the blender
+  rehearsals from either end ("Blend 1 done"; "77.12 RPM in 1:58").
 - **Still to decide:** putting the core behind tests/hwsim.py (virtual/toolkit/hwsim.patch; it
   passes the full tier and the old-against-new comparison, but needs a C compiler or a built DLL).
 
