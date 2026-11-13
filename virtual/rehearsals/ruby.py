@@ -52,11 +52,12 @@ class Walker:
 
 
 class Tool:
-    """duo_events.py --virtual, run beside the runner, its output gathered line by line."""
+    """duo_events.py --virtual, run beside the runner, its output gathered line by line. (-u: unbuffered,
+    or Python holds the tool's lines back when its output is a pipe, and "Ready" never arrives.)"""
     def __init__(self, v, args, log=None, cwd=None):
         self.lines = []
         self.log = open(log, "w") if log else None
-        self.p = subprocess.Popen([sys.executable, os.path.join(TOOLKIT, "duo_events.py"), "--virtual",
+        self.p = subprocess.Popen([sys.executable, "-u", os.path.join(TOOLKIT, "duo_events.py"), "--virtual",
                                    f"127.0.0.1:{v.usb_port}", "--wait", "60", *args],
                                   cwd=cwd or os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                   text=True, bufsize=1)
