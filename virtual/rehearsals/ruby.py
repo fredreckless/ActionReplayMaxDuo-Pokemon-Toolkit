@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "runner"))
 from vduo import Runner  # noqa: E402
 
 OBJECTS = 0x030048A0          # gMapObjects (16 of 0x24 bytes) in English Ruby 1.1
+GMAIN = 0x03001770            # gMain: callback1, callback2, ...
+CB2_PARTY_MENU = 0x0806AEFC   # CB2_PartyMenuMain
 TOOLKIT = os.environ.get("TOOLKIT", os.path.dirname(os.path.dirname(HERE)))     # the repository: virtual/..
 
 
@@ -49,6 +51,19 @@ class Walker:
             raise RuntimeError(f"couldn't reach {(x, y)}; at {self.pos()}")
         if face:
             v.press("partner", face, frames=3, then=12)       # a short tap only turns
+
+
+def battle_press(v):
+    """The game's side in a battle: A throughout (FIGHT, then the first move), except in the party
+    menu after one of its Pokemon faints, where the cursor starts on the fainted one and A would only
+    say so: there, move down to the next Pokemon, A, and A again for SHIFT. (A fainted one there just
+    says so, and the next press moves on.)"""
+    if struct.unpack("<I", v.read("partner", GMAIN + 4, 4))[0] & ~1 == CB2_PARTY_MENU:
+        v.press("partner", "DOWN", frames=4, then=20)
+        v.press("partner", "A", frames=6, then=40)
+        v.press("partner", "A", frames=6, then=60)
+    else:
+        v.press("partner", "A", frames=6, then=40)
 
 
 class Tool:

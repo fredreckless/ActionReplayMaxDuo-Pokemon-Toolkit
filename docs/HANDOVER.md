@@ -119,18 +119,25 @@ then a double battle; Record Mixing with the player in the DUO's way.
 - **ROMs on the PC** (`ActionReplay\roms`, his own dumps, never committed): Emerald and LeafGreen
   in all six languages (Japan, USA/Europe or Europe Rev 1, France, Germany, Italy, Spain); English
   Ruby 1.1 in the ActionReplay folder. Saves: his English Ruby, a Japanese Emerald and LeafGreen.
-- **Next: the save generator**, so rehearsals need no hand-made states. Plan: boot each ROM with
-  no save, play the opening by button presses until the start menu has SAVE, then set in RAM only
-  what the Cable Club needs (the player's location on a Pokemon Center's upper floor, a party of
-  synthetic Pokemon from the toolkit's test generator, berries and a Pokeblock Case, and the flags:
-  in Ruby FLAG_SYS_POKEDEX_GET for the Colosseum and Trade Center, FLAG_VISITED_MAUVILLE_CITY for
-  the Record Corner), and let the game save itself: then its own code writes a valid save in its
-  own layout for every language. Prove it on English Ruby first (the seven rehearsals must pass
-  from the generated save as they did from Fred's), then Emerald and LeafGreen, whose rooms and
-  RAM differ (per-ROM profiles: addresses from pret where it has symbols, a code search where not).
-  Then the matrix: every ROM x activity x cable end, in parallel on the laptop, with one summary
-  written to `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a
-  turn). Videos of each run (both screens, MP4) are a wanted extra.
+- **The save generator: English Ruby done (13 November, evening).** `virtual/savegen/savegen.py
+  --rom ROM --out DIR --pk3s DIR/pk3` boots the ROM with no save, presses through the opening, sets
+  in RAM only what the Cable Club needs (name, six made-up level-50 Pokemon that pass
+  `check_legal`, berries, a Pokeblock Case, the flags), points the game's own special warp
+  (`specialSaveWarp` + `warp1`) at Mossdeep's Pokemon Center upper floor, and saves through
+  START > SAVE; then, from that save, makes the five states (the warp pointed at each counter on
+  the title menu before CONTINUE, then talk until the YES/NO box). About ten seconds for Ruby.
+  **All seven rehearsals pass from it** (in the cloud workspace, twice). One rehearsal fix: the
+  game's side now gets past a fainted Pokemon (`ruby.battle_press`). Details:
+  virtual/savegen/README.md. Fred's one-line run: `bash
+  /mnt/c/Users/fredr/ActionReplay/virtual/run_savegen.sh` (results in `virtual\runs\savegen`).
+- **Next:** Emerald and FireRed/LeafGreen profiles in `savegen/profiles.py` (pret has symbols for
+  English Emerald, FireRed and LeafGreen 1.0/1.1: `raw.githubusercontent.com/pret/<repo>/symbols/`;
+  their save blocks move, behind `gSaveBlock1Ptr`/`gSaveBlock2Ptr`, and Emerald's bag quantities
+  are encrypted), then the other languages (a code search where pret has no symbols). The
+  rehearsals' helpers (`ruby.py`) will need the same per-ROM addresses. Then the matrix: every ROM
+  x activity x cable end, in parallel on the laptop, with one summary written to
+  `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a turn).
+  Videos of each run (both screens, MP4) are a wanted extra.
 - **Rehearsal know-how:** `virtual/rehearsals/ruby.py` (closed-loop walker on gMapObjects at
   0x030048A0 in English Ruby 1.1; in a link room the player's object has the link player's number
   as its local id; tap A until the DUO reports the link). Run the tool with `python -u` (fixed).

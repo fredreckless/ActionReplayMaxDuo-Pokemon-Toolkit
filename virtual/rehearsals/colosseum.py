@@ -5,11 +5,11 @@
 
 The state is the partner standing at the Colosseum attendant (the left counter of a Pokemon Center's
 2nd floor) with "Would you like to battle?" on screen. The game's side presses A throughout: FIGHT,
-then its first move. Passes when the tool reports the battle played to the end and exits cleanly.
+then its first move (and after a faint, the next Pokemon: ruby.battle_press). Passes when the tool reports the battle played to the end and exits cleanly.
 """
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ruby import Tool, Walker, common_args, runner, tap_until_linked
+from ruby import Tool, Walker, battle_press, common_args, runner, tap_until_linked
 
 # SingleBattleColosseum (pokeruby data/maps): player 0's spot is (3,5), the door (6,8) and (7,8);
 # in RAM the coordinates carry the 7-tile border.
@@ -41,10 +41,15 @@ def main():
         w.to(DOOR[0], DOOR[1] - 1); w.to(SPOT0[0], DOOR[1] - 1); w.to(*SPOT0)
         v.screenshot("partner", os.path.join(a.out, "on_spot.png"))
         end = time.monotonic() + a.minutes * 60
+        presses = 0
         while not tool.saw("the battle is over"):
             if time.monotonic() > end:
+                v.screenshot("partner", os.path.join(a.out, "timed_out.png"))
                 raise SystemExit("the battle didn't end in time")
-            v.press("partner", "A", frames=6, then=40)
+            battle_press(v)
+            presses += 1
+            if presses % 100 == 0:                       # what the game's screen shows, now and then
+                v.screenshot("partner", os.path.join(a.out, "latest.png"))
         print(tool.phases()[-1], flush=True)
         for _ in range(30):                              # through the result messages, back to the room
             v.press("partner", "A", frames=6, then=60)

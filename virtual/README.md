@@ -25,6 +25,7 @@ Linux and a C compiler: on Windows, WSL2. The tool itself, talking to a real DUO
 | `mgba/lockstep.patch`, `mgba/apply_lockstep.py` | One correction to mGBA's link cable: a master's START while the others aren't ready still transfers, as on hardware (see below). |
 | `runner/build.sh`, `runner/vduo.c`, `runner/vduo.py` | `vduo`: two GBAs in one process on a link cable, one with the DUO in its slot; the DUO's USB on a TCP port; a text control channel driven from Python. |
 | `rehearsals/` | Rehearsals against a real game (English Ruby): `trade.py`, `colosseum.py` (single or double), `mix.py`, `event.py` and `blender.py`, with `ruby.py`'s helpers; `all.sh` runs the lot. |
+| `savegen/` | The save generator: a save and the rehearsals' states from a ROM alone, written by the game's own code (`savegen/README.md`). |
 | `check.py` | This folder's own check (`--toolkit` adds the toolkit's `check.py full`). |
 
 Nothing of Nintendo's or Datel's is here: the firmware, the game, its save, the DUO's flash image
