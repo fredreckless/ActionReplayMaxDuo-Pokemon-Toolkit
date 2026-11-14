@@ -170,8 +170,9 @@ then a double battle; Record Mixing with the player in the DUO's way.
   where the game also does, and the game sends done for battler 0 itself with multiplayer id 1;
   so who answers for which battler, as player 0, needs reading in battle_controllers' link
   partner/opponent code). The model passes this case, so it's lenient there too: the planted bug
-  `pc: tower: as player 0, the PC still chooses for battler 2` is missed (here and on the laptop,
-  before and after tonight's change), which points the same way.
+  `pc: tower: as player 0, the PC still chooses for battler 2` is missed here, before and after
+  tonight's change (on the laptop it counted as caught, but by a 166 s failure, most likely one of
+  its timeouts), which points the same way.
 - **The full tier on the laptop (overnight, 13-14 November): 123 passed, 79 failed, one planted bug
   missed** (`fw42: run accepts an entry point outside the code`). Nearly all failures are
   `USBTimeoutError` in hwsim, four tests at a time on the laptop (WSL, Python 3.14), the first full
