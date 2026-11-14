@@ -165,7 +165,9 @@ Contest and the Battle Tower need Emerald, which isn't here yet; everything Ruby
 - **Mystery Event** (the UK Eon Ticket) from the title menu. The game took it, closed the link,
   ran it and saved; the whole .me3 is in the save byte for byte (a saved event is the game's own
   stored form). On hardware the same event reached Ruby in lab session 26.
-- **Berry Blender**, both ways round. It also found two toolkit bugs that **the hardware logs
+- **Berry Blender**, both ways round. The game's player presses A as its own arrow passes the top
+  (read from the blender's state in RAM, a frame ahead), so it scores mostly "best" hits like a
+  practised player instead of mashing (14 November). It also found two toolkit bugs that **the hardware logs
   show too** (11 November, 23:26 and 23:30), so the emulator copies them faithfully:
   - with the DUO on the child's end, the live line says "Blend 3 done" after one blend: the
     program counts a blend for every copy of the leader's verdict, and the game sends three

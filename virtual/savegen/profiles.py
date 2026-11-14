@@ -21,6 +21,7 @@ class RubyEnglish11:
     sNumStartMenuActions = 0x0202E8FD
     sCurrentStartMenuActions = 0x0202E8FE
     gBattleMons, gMoveSelectionCursor, gBattlerControllerFuncs = 0x02024A80, 0x02024E64, 0x03004330
+    BLENDER = (0x03004854, 0x54, 0xA2)    # gBerryBlenderData (a pointer), and in it arrowPos, playerIdToArrowId
     SB1_FLAGS, SB1_KEYITEMS, SB1_BERRIES = 0x1220, 0x5B0, 0x740
     # code
     sym = {
@@ -87,6 +88,7 @@ class EmeraldEnglish:
     gSelectedOrderFromParty = 0x0203CEF8  # (the Battle Frontier's choice of Pokemon: the tower rehearsal)
     gPartyMenu = 0x0203CEC8               # (slotId at +9: the rehearsals' party screen after a faint)
     gBattleMons, gMoveSelectionCursor, gBattlerControllerFuncs = 0x02024084, 0x020244B0, 0x03005D60
+    BLENDER = (0x020322A4, 0x4A, 0x96)    # sBerryBlender (a pointer), and in it arrowPos, playerIdToArrowId
     SB1_FLAGS, SB1_KEYITEMS, SB1_BERRIES = 0x1270, 0x5D8, 0x790
     sym = {
         "CB2_Overworld": 0x08085E5C,
@@ -192,6 +194,7 @@ class LeafGreenEnglish11:
 # Addresses for the other languages, found by findsyms.py from pret's English symbols (13 November
 # 2026): code by its masked bytes, RAM by the literal pools of the functions that use it. None:
 # not found (the Japanese naming screens differ; mashing A gets through them instead).
+# sBerryBlender (BLENDER) is at English's address in the other European languages; Japanese's is set below.
 DERIVED = {
     "BPED": dict(gBattleMons=0x02024084, gMoveSelectionCursor=0x020244B0, gBattlerControllerFuncs=0x03005D60, gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(HandleInputChooseMove=0x08057C00, CB2_Overworld=0x08085E78, CB2_MainMenu=0x0802F6B4, CB2_NamingScreen=0x080E4BC0, Task_StartMenu=0x0809FA50, Task_HandleYesNoInput=0x080E1DB4, Task_HandleMultichoiceInput=0x080E1CB0, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFCD8)),
@@ -199,7 +202,7 @@ DERIVED = {
                  sym=dict(HandleInputChooseMove=0x08057BFC, CB2_Overworld=0x08085E6C, CB2_MainMenu=0x0802F6B0, CB2_NamingScreen=0x080E4BE0, Task_StartMenu=0x0809FA48, Task_HandleYesNoInput=0x080E1DD4, Task_HandleMultichoiceInput=0x080E1CD0, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFDEC)),
     "BPEI": dict(gBattleMons=0x02024084, gMoveSelectionCursor=0x020244B0, gBattlerControllerFuncs=0x03005D60, gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(HandleInputChooseMove=0x08057C00, CB2_Overworld=0x08085E70, CB2_MainMenu=0x0802F6B4, CB2_NamingScreen=0x080E4BAC, Task_StartMenu=0x0809FA48, Task_HandleYesNoInput=0x080E1DAC, Task_HandleMultichoiceInput=0x080E1CA8, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFCB8)),
-    "BPEJ": dict(gBattleMons=0x02023D28, gMoveSelectionCursor=0x02024154, gBattlerControllerFuncs=0x03005AC0, gPartyMenu=0x0203CB94, gSelectedOrderFromParty=0x0203CBC4, gMain=0x03002360, gTasks=0x03005B60, gObjectEvents=0x02036FF0, gPlayerPartyCount=0x0202418D, gPlayerParty=0x02024190, sb1_ptr=0x03005AEC, sb2_ptr=0x03005AF0, sStartMenuCursorPos=0x020372AE, sNumStartMenuActions=0x020372AF, sCurrentStartMenuActions=0x020372B0,
+    "BPEJ": dict(BLENDER=(0x02031F44, 0x4A, 0x96), gBattleMons=0x02023D28, gMoveSelectionCursor=0x02024154, gBattlerControllerFuncs=0x03005AC0, gPartyMenu=0x0203CB94, gSelectedOrderFromParty=0x0203CBC4, gMain=0x03002360, gTasks=0x03005B60, gObjectEvents=0x02036FF0, gPlayerPartyCount=0x0202418D, gPlayerParty=0x02024190, sb1_ptr=0x03005AEC, sb2_ptr=0x03005AF0, sStartMenuCursorPos=0x020372AE, sNumStartMenuActions=0x020372AF, sCurrentStartMenuActions=0x020372B0,
                  sym=dict(HandleInputChooseMove=0x0805780C, CB2_Overworld=0x080857C4, CB2_MainMenu=0x0802F314, CB2_NamingScreen=None, Task_StartMenu=0x0809F30C, Task_HandleYesNoInput=0x080E166C, Task_HandleMultichoiceInput=0x080E1568, Task_MysteryGift=0x08018C5C, CB2_PartyMenu=0x081AFE88)),
     "BPES": dict(gBattleMons=0x02024084, gMoveSelectionCursor=0x020244B0, gBattlerControllerFuncs=0x03005D60, gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(HandleInputChooseMove=0x08057BFC, CB2_Overworld=0x08085E70, CB2_MainMenu=0x0802F6B0, CB2_NamingScreen=0x080E4BB4, Task_StartMenu=0x0809FA48, Task_HandleYesNoInput=0x080E1DB4, Task_HandleMultichoiceInput=0x080E1CB0, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFDD0)),
