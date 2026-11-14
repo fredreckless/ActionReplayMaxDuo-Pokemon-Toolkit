@@ -5,8 +5,8 @@
 
 The state is the partner at the Battle Tower lobby's link multi battle counter with "Would you like
 to take the LINK MULTI BATTLE ROOM challenge?" (CHALLENGE/INFO/EXIT) on screen (savegen makes it).
-The game's side: CHALLENGE, LV. 50, its first two Pokemon (the cursor goes to CONFIRM by itself
-after the second), YES to saving; then A throughout the battles (ruby.battle_press: past a
+The game's side: CHALLENGE, LV. 50, its first two Pokemon (watched through gSelectedOrderFromParty;
+the cursor goes to CONFIRM by itself after the second), YES to saving; then A throughout the battles (ruby.battle_press: past a
 fainted Pokemon too). The DUO retires after --retire-after battles, which ends the challenge.
 With --duo-player 0 the DUO is on the master end (player 0: the leader, giving the verdicts).
 Passes when the tool ends cleanly ("done", everything kept) having seen at least one battle through.
@@ -27,18 +27,30 @@ def main():
     ap.add_argument("--duo-player", type=int, default=1, choices=(0, 1))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    set_game(a.rom)
+    a.profile = set_game(a.rom)
     with Runner(duo_fw=a.duo_flash, partner=a.rom, partner_save=a.sav, duo_player=a.duo_player,
                 wait_for_hello=True, log_link=os.path.join(a.out, "link.log")) as v:
         v.state_load("partner", a.state)
         tool = Tool(v, ["tower", "--pk3", *a.pk3, "--level", a.level, "--retire-after", str(a.retire_after),
                         "--seconds", str(int(a.minutes * 60))], log=os.path.join(a.out, "tool.log"), cwd=a.out)
         assert tool.wait_for("Ready", 120), "the tool never got ready"
-        for k, wait in (("A", 100), ("A", 100), ("A", 160),        # CHALLENGE; LV. 50; "select two"
-                        ("A", 70),                                  # (the party screen opens)
-                        ("A", 70), ("A", 70),                       # the first Pokemon: ENTER
-                        ("DOWN", 40), ("A", 70), ("A", 100)):       # the second: ENTER (then CONFIRM)
+        # CHALLENGE, LV. 50, the messages (one more in some languages than others), then the party
+        # screen: watched through the game's own record of the choice (gSelectedOrderFromParty)
+        order = a.profile.gSelectedOrderFromParty
+        chosen = lambda n: v.read("partner", order + n, 1)[0] != 0
+        for k, wait in (("A", 100), ("A", 100), ("A", 160)):
             v.press("partner", k, frames=6, then=wait)
+        for n in (0, 1):
+            for _ in range(12):                      # A: messages, then the Pokemon's menu, then ENTER
+                if chosen(n):
+                    break
+                v.press("partner", "A", frames=6, then=70)
+            else:
+                v.screenshot("partner", os.path.join(a.out, "not_chosen.png"))
+                raise SystemExit(f"the game never took Pokemon {n + 1}")
+            v.run_frames("partner", 120)              # ("... selected.": the cursor moves after it)
+            if n == 0:
+                v.press("partner", "DOWN", frames=6, then=60)
         v.screenshot("partner", os.path.join(a.out, "chosen.png"))
         v.press("partner", "A", frames=6, then=90)                  # CONFIRM
         print("linked after", tap_until_linked(v, tool, taps=60), "taps", flush=True)
