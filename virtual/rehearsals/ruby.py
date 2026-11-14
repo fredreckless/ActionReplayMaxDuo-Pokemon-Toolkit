@@ -15,6 +15,32 @@ OBJECTS = 0x030048A0          # gMapObjects (16 of 0x24 bytes) in English Ruby 1
 GMAIN = 0x03001770            # gMain: callback1, callback2, ...
 CB2_PARTY_MENU = 0x0806AEFC   # CB2_PartyMenuMain
 PARTY_MENU, PARTY = None, 0x03004360  # gPartyMenu (Emerald, FireRed/LeafGreen), gPlayerParty
+MOVES = (0x02024A80, 0x02024E64, 0x03004330, 0x0802C68C)   # gBattleMons, gMoveSelectionCursor,
+#                                     gBattlerControllerFuncs, HandleInputChooseMove (English Ruby 1.1)
+
+
+def _move_with_pp(v):
+    """In the game's own move menu, with the cursor on a move that has no PP left (A would only say
+    so, for ever): move the cursor to the first move that has some. (14 November: Aggron's first
+    move, Iron Defense, ran out, and the DUO's Altaria couldn't finish the battle either.)"""
+    mons, cursor, funcs, choose = MOVES
+    f = struct.unpack("<4I", v.read("partner", funcs, 16))
+    for b in range(4):
+        if f[b] & ~1 != choose & ~1:
+            continue
+        c = v.read("partner", cursor + b, 1)[0] & 3
+        m = v.read("partner", mons + 0x58 * b, 0x28)
+        moves, pp = struct.unpack_from("<4H", m, 0x0C), m[0x24:0x28]
+        if pp[c] or not moves[c]:
+            return
+        t = next((i for i in range(4) if moves[i] and pp[i]), None)
+        if t is None:
+            return                                # (nothing left: the game picks Struggle on A)
+        if (t ^ c) & 1:
+            v.press("partner", "RIGHT" if t & 1 else "LEFT", frames=4, then=12)
+        if (t ^ c) & 2:
+            v.press("partner", "DOWN" if t & 2 else "UP", frames=4, then=12)
+        return
 TOOLKIT = os.environ.get("TOOLKIT", os.path.dirname(os.path.dirname(HERE)))     # the repository: virtual/..
 
 
@@ -87,6 +113,7 @@ def battle_press(v):
         v.press("partner", "A", frames=6, then=40)
         v.press("partner", "A", frames=6, then=60)
     else:
+        _move_with_pp(v)
         v.press("partner", "A", frames=6, then=40)
 
 
@@ -173,11 +200,12 @@ def common_args(description):
 
 def set_game(rom):
     """Point the helpers at this ROM's RAM and code (savegen/profiles.py); returns its profile."""
-    global OBJECTS, GMAIN, CB2_PARTY_MENU, PARTY_MENU, PARTY
+    global OBJECTS, GMAIN, CB2_PARTY_MENU, PARTY_MENU, PARTY, MOVES
     import profiles
     p = profiles.for_rom(rom)
     OBJECTS, GMAIN, CB2_PARTY_MENU = p.gObjectEvents, p.gMain, p.sym["CB2_PartyMenu"]
     PARTY_MENU, PARTY = getattr(p, "gPartyMenu", None), p.gPlayerParty
+    MOVES = (p.gBattleMons, p.gMoveSelectionCursor, p.gBattlerControllerFuncs, p.sym["HandleInputChooseMove"])
     return p
 
 

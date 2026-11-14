@@ -174,6 +174,18 @@ then a double battle; Record Mixing with the player in the DUO's way.
   and fainted Pokemon). Rehearsals: three battles from either end, all won; `all_games.sh` runs both
   (tower1, tower0). The rehearsal's own player got two fixes on the way: the multi-battle party
   screen has two columns (RIGHT as well as DOWN, watching gPartyMenu.slotId).
+- **Videos (14 November, afternoon):** `VDUO_RECORD=DIR` makes vduo.py save both screens every
+  `VDUO_RECORD_STEP` frames (default 2) while any rehearsal runs; `rehearsals/video.py DIR OUT.mp4
+  --title ... --speed N` joins them side by side (game left, the DUO's own screen right, 3x, a caption
+  bar). Made for English Ruby (trade, single, double, Eon Ticket, Record Mixing, Blender) and English
+  Emerald (link contest, Battle Tower), plus a 1:44 highlight reel for Reddit; all in
+  `ActionReplay\virtual\runs\videos`. Recording them found one more rehearsal trap: the game's side
+  kept choosing a move with no PP left ("There's no PP left for this move!" for ever);
+  `ruby._move_with_pp` now moves the cursor to a move with PP (gBattleMons, gMoveSelectionCursor,
+  gBattlerControllerFuncs, HandleInputChooseMove, in every profile).
+- **The Mystery Event / Mystery Gift guide** (a Claude doc, "Unlocking Mystery Event and Mystery Gift
+  in every language (Gen 3)"): the phrases read from each ROM's own code (findsyms + the easy chat
+  word tables). Ruby/Sapphire outside English are from FRLG's copy of the same check, unconfirmed.
 - **The full tier on the laptop (overnight, 13-14 November): 123 passed, 79 failed, one planted bug
   missed** (`fw42: run accepts an entry point outside the code`). Nearly all failures are
   `USBTimeoutError` in hwsim, four tests at a time on the laptop (WSL, Python 3.14), the first full

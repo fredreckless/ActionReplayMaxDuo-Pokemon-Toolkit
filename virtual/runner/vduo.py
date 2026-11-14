@@ -108,7 +108,24 @@ class Runner:
         return dict(kv.split("=", 1) for kv in self.cmd("status").split())
 
     def run_frames(self, player, n):
-        self.cmd(f"run_frames {player} {n}")
+        rec = os.environ.get("VDUO_RECORD")          # a folder: both screens every VDUO_RECORD_STEP frames
+        if not rec:
+            self.cmd(f"run_frames {player} {n}")
+            return
+        step = int(os.environ.get("VDUO_RECORD_STEP", "2"))
+        if not hasattr(self, "_rec_n"):
+            os.makedirs(rec, exist_ok=True)
+            self._rec_n, self._rec_left = 0, 0
+        while n > 0:
+            k = min(n, step - self._rec_left)
+            self.cmd(f"run_frames {player} {k}")
+            n -= k
+            self._rec_left += k
+            if self._rec_left >= step:
+                self._rec_left = 0
+                for who in ("partner", "duo"):
+                    self.cmd(f"screenshot {who} {self._path(os.path.join(rec, f'{self._rec_n:06d}_{who}.png'))}")
+                self._rec_n += 1
 
     def keys(self, player, *names):
         mask = 0
