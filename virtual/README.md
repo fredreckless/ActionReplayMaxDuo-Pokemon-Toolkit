@@ -24,7 +24,7 @@ Linux and a C compiler: on Windows, WSL2. The tool itself, talking to a real DUO
 | `mgba/cart-bus.patch`, `mgba/apply_cart_bus.py` | A small hook in mGBA 0.10.5's cartridge bus (63 lines) so a device can answer it. |
 | `mgba/lockstep.patch`, `mgba/apply_lockstep.py` | One correction to mGBA's link cable: a master's START while the others aren't ready still transfers, as on hardware (see below). |
 | `runner/build.sh`, `runner/vduo.c`, `runner/vduo.py` | `vduo`: two GBAs in one process on a link cable, one with the DUO in its slot; the DUO's USB on a TCP port; a text control channel driven from Python. |
-| `rehearsals/` | Rehearsals against a real game: `trade.py`, `colosseum.py` (single or double), `mix.py`, `event.py`, `blender.py` and `contest.py`, with `ruby.py`'s helpers (any ROM savegen knows: Ruby, and Emerald and LeafGreen in every language, from the Cable Club menu); `all.sh` runs English Ruby's seven, `all_games.sh` Emerald's eight or LeafGreen's three. |
+| `rehearsals/` | Rehearsals against a real game: `trade.py`, `colosseum.py` (single or double), `mix.py`, `event.py`, `blender.py`, `contest.py` and `tower.py`, with `ruby.py`'s helpers (any ROM savegen knows: Ruby, and Emerald and LeafGreen in every language, from the Cable Club menu); `all.sh` runs English Ruby's seven, `all_games.sh` Emerald's nine or LeafGreen's three. |
 | `savegen/` | The save generator: a save and the rehearsals' states from a ROM alone, written by the game's own code (`savegen/README.md`). |
 | `check.py` | This folder's own check (`--toolkit` adds the toolkit's `check.py full`). |
 
