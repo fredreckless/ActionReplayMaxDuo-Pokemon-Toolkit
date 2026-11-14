@@ -4050,10 +4050,13 @@ def _():
 import gp_link_model as GPL
 
 
-def lab4p_run(players=3, link="trade", seconds=60, **game_kw):
+def lab4p_run(players=3, link="trade", seconds=60, hblank_dma=False, **game_kw):
     """The lab4p program driving the link port bit by bit against a line-level model of a game's
-    serial hardware (child 1) and its link layer."""
+    serial hardware (child 1) and its link layer. hblank_dma: an HBlank DMA left running on the
+    DUO's GBA (enabled, repeating), as the hardware run of 14 November suggested."""
     hw, duo = run42()
+    if hblank_dma:
+        hw.mu.mem_write(0x040000BA, struct.pack("<H", 0xA200))      # DMA0: enable, HBlank, repeat
     game = GPL.GpLinkGame(hw, **game_kw)
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
     r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=players, link=link, seconds=seconds, gap=4, bit_adjust=0),
@@ -4090,6 +4093,30 @@ def _():
     assert r["handshake_players"] == 2, (r, hw.text[-1200:])
     assert report["hs_reads"] > 20 and report["hs_run_best"] < 20, report
     assert "From the game's first real word on" in hw.text and "at best" in hw.text, hw.text[-1200:]
+
+
+@test("lab4p (14 November, hardware: the game's handshake 0xB9A0 read as 0xB8A0 every time, one stop bit in eight missing): with an HBlank DMA left running on the DUO's GBA that stalls its CPU once a line, the DUO pauses it for each transfer, so every sample comes on time, the control links, and the tool names the DMA it found and how late the samples were")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=25, hblank_dma=True, max_players=2, hblank_stall=160)
+    assert not game.errors, game.errors[:5]
+    r = game.result
+    assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, (r, hw.text[-1200:])
+    assert report["dma_seen"] & 1 and report["dma_seen"] >> 8 & 3 == 2, report
+    assert report["late_bad"] == 0 and report["hs_reads"] > 0, report
+    assert "DMA0 (HBlank)" in hw.text and "latest sample came" in hw.text, hw.text[-1200:]
+    assert struct.unpack("<H", bytes(hw.mu.mem_read(0x040000BA, 2)))[0] == 0xA200     # put back as it was
+
+
+@test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")
+def _():
+    hw, duo = run42()
+    game = GPL.GpLinkGame(hw)
+    game.si_high = True
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=1, link="trade", seconds=10, gap=4, bit_adjust=0),
+              poll_s=0.2)
+    assert r[0]["not_master"] and r[0]["done_why"] == 1, r[0]
+    assert "isn't the master" in r[1], r[1][-800:]
 
 
 @test("lab4p: a game whose hardware waits less for the next child than the DUO's gap (0.8 bits, the gap one bit) - slots 2 and 3 arrive too late and stay 0xFFFF, so the game counts two players: what --gap is there to try")

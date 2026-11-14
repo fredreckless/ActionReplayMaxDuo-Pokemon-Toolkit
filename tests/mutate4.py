@@ -375,6 +375,7 @@ LAB4P_MUTANTS = {
     "lab4p: the game never given its turn (SO)": ("    set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */", "    set_pins(rc);", "lab4p (8 November)"),
     "lab4p: SD still driven after our word": ("    set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */", "", "lab4p (8 November)"),
     "lab4p: checksums over two slots with three players": ("        u16 ck = PLAYERS >= 3 ? sum_four : sum_two;", "        u16 ck = sum_two;", "lab4p (8 November)"),
+    "lab4p: running DMAs not paused for a transfer": ("            DMACNT_H(k) = dma[k] & ~0x8000;", "            ;", "lab4p (14 November, hardware: the game"),          # an HBlank DMA's stall lands on one bit
     "lab4p: the first transfer after the handshake taken as data": ("            send_idx = CMD_LEN; recv_idx = 0; cycles = 0;", "            send_idx = 0; recv_idx = 0; cycles = 0;", "lab4p (8 November)"),
 }
 

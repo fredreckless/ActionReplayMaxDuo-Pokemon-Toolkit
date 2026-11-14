@@ -15,7 +15,11 @@ GBA's speed - hardware decides that.
 Above the lines, the game's link layer (link.c) as child 1: the handshake (DoHandshake: the
 handshake words in a row from slot 0 are the players), then commands of eight words and a checksum
 over its player count (a mismatch is a link error), link players on 0x2222 and, for a link-up that
-takes `max_players`, a refusal and close if more joined."""
+takes `max_players`, a refusal and close if more joined.
+
+hblank_stall models an HBlank DMA left running on the DUO's GBA (14 November, hardware): the CPU
+stops for so many cycles at each line's HBlank while a DMA channel is enabled with HBlank timing,
+so a sample due then is taken late."""
 import struct
 from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE, UC_HOOK_BLOCK
 
@@ -27,7 +31,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None, garble=0.0):
+                 link_player=None, garble=0.0, hblank_stall=0):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -36,6 +40,7 @@ class GpLinkGame:
         self.sd_edges = []                    # (t, level) of the SD line, as driven by the DUO
         self.duo_driving = False
         self.in_transfer, self.t_start, self.t_so_low = False, 0, None
+        # (14 November, hardware: English Ruby sent 0xB9A0 itself, the low bits clear)
         self.game_word, self.game_t0 = SLAVE_HS | 1, None
         self.transfers = []                   # SIOMULTI0-3 as the game's hardware read each transfer
         self.errors = []
@@ -52,6 +57,9 @@ class GpLinkGame:
         # the game's words whose bit 5 the DUO reads wrongly (the game itself reads its own word right)
         import random
         self.garble, self.rng, self.garbled_t0 = garble, random.Random(5), {}
+        # hblank_stall (14 November, hardware: one bit read late at the same place every transfer): while a DMA
+        # channel is enabled with HBlank timing, the DUO's CPU loses this many cycles at each line's HBlank
+        self.stall, self.next_hblank, self.stalls = hblank_stall, 960, 0
         hw.mu.hook_add(UC_HOOK_BLOCK, self.on_block)
         hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
@@ -64,6 +72,12 @@ class GpLinkGame:
 
     def on_block(self, mu, addr, size, _):
         self.blocks += 1
+        if self.stall and self.t() >= self.next_hblank:
+            self.next_hblank = (self.t() // 1232 + 1) * 1232 + 960
+            if any(struct.unpack("<H", bytes(mu.mem_read(0x040000BA + 12 * k, 2)))[0] & 0xB000 == 0xA000
+                   for k in range(4)):
+                self.blocks += max(1, self.stall // self.cpb)        # the bus taken: time passes, the CPU stands still
+                self.stalls += 1
 
     def game_level(self, t):
         """SD as the game drives it at time t: its word's bits, or None (not driving)."""
@@ -100,6 +114,8 @@ class GpLinkGame:
                 if self.garbled_t0[self.game_t0] and int((t - self.game_t0) / BIT) == 6:
                     level ^= 1
             v = self.rcnt & ~(P_SD | P_SI) | (P_SD if level else 0)    # (the master's SI: low)
+            if getattr(self, "si_high", False):                          # (the DUO on the cable's other end)
+                v |= P_SI
             mu.mem_write(RCNT, struct.pack("<H", v))
 
     def on_write(self, mu, access, addr, size, value, _):

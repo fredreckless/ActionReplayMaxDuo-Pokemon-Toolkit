@@ -47,6 +47,7 @@ typedef struct {
 #define VCOUNT      REG16(0x04000006)
 #define TM0CNT_L    REG16(0x04000100)
 #define TM0CNT_H    REG16(0x04000102)
+#define DMACNT_H(k) REG16(0x040000BA + 12 * (k))   /* DMA0-3 control: bit 15 enable, bits 12-13 timing */
 
 /* RCNT in general-purpose mode: bits 0-3 the levels of SC, SD, SI, SO; bits 4-7 their directions (1 out) */
 #define GP          0x8000
@@ -119,6 +120,15 @@ static u32 timeouts, stop_errors, words_ok, edge_min = 0xFFFF, edge_max;
  * handshakes counted, and the line's idle level between transfers (it should be high: pulled up) */
 static u32 game_on, words2, stop2, timeouts2, edge_min2 = 0xFFFF, edge_max2, hs_reads, hs_run_best, hs_run, logged2;
 static u32 sd_low_after, sd_checks;
+/* 14 November (hardware, row 12a again): the game sent its handshake 0xB9A0 every time and the DUO read
+ * 0xB8A0 every time - one bit (bit 8) wrong, its neighbours right - and about one stop bit in eight
+ * missing. That's one sample taken late, at the same point of every transfer: the transfers start on
+ * the same line each frame, and a line is 1232 cycles (about 8.5 bits), so a stall once a line (an
+ * HBlank DMA left running: the only thing that stops the CPU with interrupts off) lands on bit 8 and
+ * near the stop bit. So: every running DMA is paused for the transfer (about 1 ms) and put back after;
+ * how late each sample is taken is measured, and which bit is the worst; which channels were running
+ * is reported; and why the program stopped. */
+static u32 dma_seen, late_max, late_bit, late_bad, done_why;
 
 static inline u16 tnow(void) { return TM0CNT_L; }
 static inline void until(u16 t) { while ((s16)(tnow() - t) < 0) ; }
@@ -139,10 +149,24 @@ static void put_word(u16 t0, u32 w)       /* our word on SD: start, 16 bits from
     set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */
 }
 
-static u32 sample(u16 te, u32 k256)        /* SD at that point of a word */
+static u32 word_read;
+static u16 late_at[17];                   /* how late each sample of the last word came (the sums after it) */
+static inline u32 sample_at(u16 te, u32 k256, u32 i)   /* SD at that point of a word; the time taken noted */
 {
-    until(at_bit(te, k256));
-    return !!(RCNT & P_SD);
+    u16 at = at_bit(te, k256);
+    until(at);
+    u32 v = RCNT & P_SD;
+    late_at[i] = tnow() - at;
+    return v;
+}
+
+static void lateness(void)                 /* after a word, nothing waiting: the sums over its samples */
+{
+    if (!game_on) return;
+    for (u32 i = 0; i < 17; i++) {
+        if (late_at[i] > late_max) { late_max = late_at[i]; late_bit = i; }
+        if (late_at[i] > 48) late_bad++;                     /* a third of a bit: the reading is in doubt */
+    }
 }
 
 static u32 get_word(u16 from, u16 *end)   /* the game's word off SD: 0xFFFF if it never starts */
@@ -156,10 +180,11 @@ static u32 get_word(u16 from, u16 *end)   /* the game's word off SD: 0xFFFF if i
     if (game_on) { if (d < edge_min2) edge_min2 = d; if (d > edge_max2) edge_max2 = d; }
     u32 w = 0;
     for (u32 i = 0; i < 16; i++)
-        if (sample(te, (i << 8) + 384)) w |= 1u << i;        /* the middle of bit i (after a start bit) */
-    u32 stop_ok = sample(te, 17 * 256 + 128);
+        if (sample_at(te, (i << 8) + 384, i)) w |= 1u << i; /* the middle of bit i (after a start bit) */
+    u32 stop_ok = sample_at(te, 17 * 256 + 128, 16);
     if (!stop_ok) { stop_errors++; stop2 += game_on; }
     *end = at_bit(te, 18 << 8);
+    word_read = 1;
     words_ok++;
     words2 += game_on;
     return w;
@@ -170,6 +195,14 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
 {
     u16 saved_ime = REG_IME;
     REG_IME = 0;
+    u16 dma[4];
+    for (u32 k = 0; k < 4; k++) {                            /* a running DMA stalls the CPU mid-bit: pause it */
+        dma[k] = DMACNT_H(k);
+        if (dma[k] & 0x8000) {
+            dma_seen |= (1u << k) | (u32)(dma[k] >> 12 & 3) << (8 + 2 * k);
+            DMACNT_H(k) = dma[k] & ~0x8000;
+        }
+    }
     set_pins(GP | OUT(P_SC | P_SO) | P_SO);                  /* SC low: busy; SO high */
     u16 t = tnow() + 64;
     put_word(t, mine[0]);
@@ -190,6 +223,10 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
     }
     set_pins(GP | OUT(P_SC | P_SO) | P_SC | P_SO);          /* SC high, SO high: done */
     if (game_on) { sd_checks++; if (!(RCNT & P_SD)) sd_low_after++; }   /* SD idle: pulled up by the game, high */
+    if (word_read) { word_read = 0; lateness(); }
+    for (u32 k = 0; k < 4; k++)                              /* the paused DMAs back as they were */
+        if (dma[k] & 0x8000 && dma[k] >> 12 & 3)             /* (never restart an immediate one: it would run again) */
+            DMACNT_H(k) = dma[k];
     REG_IME = saved_ime;
 }
 
@@ -367,7 +404,7 @@ static int pc_service(api_t *api)
         return 0;
     api->recv8(pkt);
     u32 arg = pkt[4] | pkt[5] << 8 | pkt[6] << 16 | (u32)pkt[7] << 24, v, idx = arg >> 8;
-    if (pkt[3] == 0x2B) { api->reply(0x2B, state | transfers << 8); stop_requested = 1; return 1; }
+    if (pkt[3] == 0x2B) { api->reply(0x2B, state | transfers << 8); stop_requested = 1; if (!done_why) done_why = 3; return 1; }
     if (pkt[3] == 0x2C) {
         if (put_at < BLOB_MAX / 4) blob_words[put_at++] = arg;
         api->reply(0x2C, put_at);
@@ -390,6 +427,10 @@ static int pc_service(api_t *api)
     case 13: v = hs_run_best; break;
     case 14: v = sd_low_after; break;                        /* SD read low just after we let go of it... */
     case 15: v = sd_checks; break;                           /* ...out of so many (the PC works out the share) */
+    case 16: v = dma_seen; break;                            /* DMA channels found running: bits 0-3, timings 8-15 */
+    case 17: v = (late_max & 0xFFFF) | late_bit << 16; break;   /* the latest sample (cycles) and its bit (16: stop) */
+    case 18: v = late_bad; break;                            /* samples a third of a bit late or more */
+    case 19: v = done_why; break;                            /* 1 not master, 2 the game closed, 3 asked to stop */
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && (PLAYERS == 1 || PLAYERS == 3);
@@ -417,7 +458,8 @@ u32 start(api_t *api)
             idle_set = 1;
             set_pins(GP | OUT(P_SC | P_SO) | P_SC | P_SO);
             for (u32 i = 0; i < 1000; i++) not_master |= RCNT & P_SI;   /* (the master's SI is held low) */
-            if (not_master) { api->log("4P lab: the DUO isn't master"); state = ST_DONE; }
+            not_master = !!not_master;                       /* (it was 4, and 4 << 31 is lost: the PC never knew) */
+            if (not_master) { api->log("4P lab: the DUO isn't master"); state = ST_DONE; done_why = 1; }
         }
         if (shown != state && (state < ST_HANDSHAKE || state == ST_DONE)) {   /* (a line costs a frame: never while linked) */
             shown = state;
@@ -437,7 +479,7 @@ u32 start(api_t *api)
         transfer(mine);
         on_words();
         if (game_closing && !close_pending) { close_pending = 1; close_at = now(); }
-        if (close_pending && now() - close_at > 30 * LINES_PER_FRAME) state = ST_DONE;
+        if (close_pending && now() - close_at > 30 * LINES_PER_FRAME) { state = ST_DONE; done_why = 2; }
     }
     RCNT = saved_rcnt;
     SIOCNT = saved_siocnt;

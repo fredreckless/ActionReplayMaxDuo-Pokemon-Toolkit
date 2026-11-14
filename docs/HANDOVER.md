@@ -51,6 +51,15 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
 
+## The four-player experiment, 14 November evening (step C)
+
+Fred chose step C (docs/MULTI.md section 2) next. Hardware 12a: the game answered every transfer but
+the DUO read 0xB9A0 as 0xB8A0 every time: an HBlank DMA's stall, fixed in `lab4p` (see
+HARDWARE_QUEUE 12a, 14 Nov). Retest 12a first, then 12b. Also seen once and not reproduced since:
+"Record Mixing with a whole record (6 November)" failed twice in one `changed` run (a command's
+checksum, link type 0x3311) and passed five times alone or two at a time. If it fails again, look
+at it properly.
+
 ## The how-to videos (14 November)
 
 `virtual/video/make_videos.py` makes nine videos from the ROMs alone (trade, battle, double battle,

@@ -128,6 +128,12 @@ What to look for, in the Trade Center (two players only):
   counted two carries on as usual: then the game's hardware didn't take slots 2 and 3 (try a
   shorter `--gap`; the record shows how soon the game's own start bit followed its turn).
 
+**Hardware, 14 November (12a, the control):** the game answered every transfer, but the DUO read
+its handshake 0xB9A0 as 0xB8A0 every time: one sample late at the same point of each transfer, the
+mark of an HBlank DMA left running on the DUO's GBA (a line is about 8.5 bits, and the transfers
+start on the same line each frame). `lab4p` now pauses running DMAs during each transfer, names
+them, and measures how late its samples are; the model reproduces the misread with such a stall.
+
 Tested against `tests/gp_link_model.py`, a model of the game's serial hardware at the level of the
 lines (it reads SD as a GBA's hardware would, and needs each unit's start bit within a window
 after the previous stop bit) and of its link layer. The real hardware's window, how soon a child
