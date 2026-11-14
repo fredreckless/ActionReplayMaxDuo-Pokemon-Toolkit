@@ -91,6 +91,19 @@ class Runner:
         self.close()
 
     # ---- commands
+    def _path(self, path):
+        """The control channel splits on spaces: a path with spaces goes through a symbolic link
+        without any (writing through one creates the file it points at)."""
+        path = os.path.abspath(path)
+        if " " not in path:
+            return path
+        import tempfile
+        if not hasattr(self, "_links"):
+            self._links = tempfile.mkdtemp(prefix="vduo_paths_")
+        link = os.path.join(self._links, f"p{len(os.listdir(self._links))}{os.path.splitext(path)[1].replace(' ', '')}")
+        os.symlink(path, link)
+        return link
+
     def status(self):
         return dict(kv.split("=", 1) for kv in self.cmd("status").split())
 
@@ -117,19 +130,19 @@ class Runner:
         self.cmd(f"write {player} {addr:#x} {bytes(data).hex()}")
 
     def state_save(self, player, path):
-        self.cmd(f"state_save {player} {os.path.abspath(path)}")
+        self.cmd(f"state_save {player} {self._path(path)}")
 
     def state_load(self, player, path):
-        self.cmd(f"state_load {player} {os.path.abspath(path)}")
+        self.cmd(f"state_load {player} {self._path(path)}")
 
     def screenshot(self, player, path):
-        self.cmd(f"screenshot {player} {os.path.abspath(path)}")
+        self.cmd(f"screenshot {player} {self._path(path)}")
 
     def save_sav(self, player, path):
-        return int(self.cmd(f"save_sav {player} {os.path.abspath(path)}"))
+        return int(self.cmd(f"save_sav {player} {self._path(path)}"))
 
     def save_flash(self, path):
-        self.cmd(f"save_flash duo {os.path.abspath(path)}")
+        self.cmd(f"save_flash duo {self._path(path)}")
 
     def power_on(self):
         self.cmd("power_on")
