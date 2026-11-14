@@ -121,6 +121,8 @@ class EmeraldEnglish:
         dict(name="at_cable_club_menu", kind="talk", warp=(14, 4, 10, 4), face="UP", task=QUESTION),
         dict(name="at_blender_question", kind="talk", warp=(13, 4, 22, 5), face="RIGHT", task=QUESTION),
         dict(name="at_contest_question", kind="talk", warp=(13, 4, 15, 4), face="UP", task=QUESTION),
+        # the Battle Tower lobby (26, 5): the link multi battle attendant at (18, 5)
+        dict(name="at_tower_link_question", kind="talk", warp=(26, 5, 18, 7), face="UP", task=QUESTION),
         # English Emerald's MYSTERY GIFT wants the Wireless Adapter before it opens (the DUO's part):
         # so the state is the title menu with MYSTERY GIFT highlighted, for the rehearsal to press A
         dict(name="at_title_mystery_gift", kind="title_menu", downs=2, select_only=True),

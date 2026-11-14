@@ -155,8 +155,30 @@ then a double battle; Record Mixing with the player in the DUO's way.
   Secret Bases once the player has Secret Power (savegen now sets FLAG_RECEIVED_SECRET_POWER,
   and mix.py insists the base lands); and Emerald sets the language byte (42) of a Ruby player's
   old man itself (SanitizeReceivedRubyOldMan), so mix.py allows that one byte for Emerald.
-- **Next:** the Battle Tower's link multi battle (Emerald; needs the Battle Frontier reached in the
-  save and a state at the multi counter); then the matrix: every
+- **The Battle Tower in the emulator (13 November, late): a real bug found and fixed.** Each Tower
+  battle links **twice**: first (`CB2_PreInitMultiBattle`) for each side's two Pokemon as the party
+  menu shows a partner's (three `MultiPartnerMenuPokemon`, 96 bytes), then closes; then
+  (`SetUpBattleVarsAndBirchZigzagoon` -> `HandleLinkBattleSetup`) the battle's own link with the
+  seven opening blocks. tower.c and the model knew only the second, so the real game waited for
+  ever at the first. Now: `partner_stage` in tower.c, the summaries from the PC in the blob
+  (`multi_partner_menu`, bytes 748-843; BLOB_MAX 844), and the model does both links and checks the
+  summary matches the party brought. `rehearsals/tower.py` (savegen's `at_tower_link_question`):
+  with the DUO as player 1, one battle and two battles with the carry-on between: PASS.
+- **Open: the Tower with the DUO as player 0** (`tower.py --duo-player 0`): the lobby, both links
+  and the opening go through, the first turn is played, then the game stalls at "Link standby..."
+  in the second turn (record kept locally: the DUO sends "done" (state 2) for all four battlers
+  where the game also does, and the game sends done for battler 0 itself with multiplayer id 1;
+  so who answers for which battler, as player 0, needs reading in battle_controllers' link
+  partner/opponent code). The model passes this case, so it's lenient there too: the planted bug
+  `pc: tower: as player 0, the PC still chooses for battler 2` is missed (here and on the laptop,
+  before and after tonight's change), which points the same way.
+- **The full tier on the laptop (overnight, 13-14 November): 123 passed, 79 failed, one planted bug
+  missed** (`fw42: run accepts an entry point outside the code`). Nearly all failures are
+  `USBTimeoutError` in hwsim, four tests at a time on the laptop (WSL, Python 3.14), the first full
+  run there since hwsim moved onto the C core. The same code here (cloud workspace, two at a time):
+  208 of 208, so it's timing under load on the laptop (four at a time), not the code. Worth making
+  check.py use two at a time there, or lengthening hwsim's USB timeouts.
+- **Next:** then the matrix: every
   ROM x activity x cable end, in parallel on the laptop, with one summary written to
   `ActionReplay\virtual\runs` for the session to read (keep check-ins few: each costs a turn).
   Videos of each run (both screens, MP4) are a wanted extra.

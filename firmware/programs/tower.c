@@ -98,7 +98,7 @@ static u32 now(void)
  * Both live in the firmware's save-transfer buffer (0x20000 bytes), which nothing uses while a
  * program runs. */
 #define BLOB_AT     0x02010030          /* build_v4.py BUFFER */
-#define BLOB_MAX    748
+#define BLOB_MAX    844
 static u32 put_at, blob_ready;
 #define blob_words  ((u32 *)BLOB_AT)
 #define BLOB        ((u8 *)BLOB_AT)
@@ -112,6 +112,7 @@ static u32 put_at, blob_ready;
 #define RETIRE_AFTER BLOB[47]           /* retire after this battle (0: carry on) */
 #define PARTY       (BLOB + 48)         /* 6 x 100: the game's party form */
 #define CARD        (BLOB + 648)        /* 100: our trainer card (struct TrainerCard) */
+#define PARTNER_MENU (BLOB + 748)       /* 96: our two Pokemon for the game's party menu (MultiPartnerMenuPokemon x 3) */
 
 #define LOG         ((u8 *)(BLOB_AT + 0x400))
 #define LOG_MAX     0x1F800             /* to the end of the buffer */
@@ -167,6 +168,8 @@ static u32 barriers;
 static u32 card_asked, lead_timer;        /* as player 0: the trainer cards' request */
 static u8 mirror[200];                    /* as player 0: the game's Tower party block, to send back */
 static u32 start_in, start_out;           /* the battle's opening blocks: the game's, ours (seven each) */
+static u32 partner_stage;                 /* each battle links twice (13 November, the emulator): 1 the first link,
+                                             for the party menu's summaries; 2 ours sent, the battle's link next */
 static u32 commands, ours_answered, outcome, choices;
 static u32 fainted, on_field[2], last_pick;
 /* a choice waiting for the PC, one per battler of ours (side 0: battler 1, side 1: battler 3) */
@@ -401,7 +404,10 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         else if (game_lp_type == LT_TOWER && retire_next) {      /* after a win: our choice first (each_cycle) */
             state = ST_RETIRE; choice_sent = 0;
         }
-        else if (game_lp_type == LT_TOWER) { state = ST_STARTING; start_in = start_out = 0; on_field[0] = PARTY_BASE; }
+        else if (game_lp_type == LT_TOWER) {
+            state = ST_STARTING; start_in = start_out = 0; on_field[0] = PARTY_BASE;
+            partner_stage = partner_stage == 2 ? 0 : 1;          /* (the first of the battle's two links, or the second) */
+        }
         return;
     }
     if (state == ST_LOBBY || state == ST_TRAINERS) {             /* the win streak, then the trainers */
@@ -423,6 +429,10 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         verdict = b[0] | b[1] << 8;
         log_event(E_VERDICT, verdict);
         return;
+    }
+    if (partner_stage == 1 && state == ST_STARTING) {          /* CB2_PreInitMultiBattle: each side's two Pokemon, */
+        if (size == 96) { send_block(PARTNER_MENU, 96); partner_stage = 2; }   /* for the party menu; then the link */
+        return;                                                /* closes and the battle's own opens */
     }
     if (state < ST_STARTING || state > ST_OVER) return;
     if (start_in < 7) {                                    /* the opening: seven blocks */

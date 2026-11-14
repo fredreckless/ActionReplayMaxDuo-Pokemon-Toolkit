@@ -7,7 +7,10 @@ The challenge (docs/MULTI.md, section 1):
      the same species on both sides fails the link-up, FinishLinkup), the link save
      (Task_LinkFullSave: three "ready" barriers), the win streaks (4 bytes each) and the Tower
      trainers' list (40 bytes; everyone keeps player 0's: LoadLinkMultiOpponentsData), then closed;
-  2. each battle (LINKTYPE_BATTLE_TOWER 0x2288; CB2_HandleStartMultiPartnerBattle): link players,
+  2. each battle links twice (13 November: found by rehearsing against the real game in the Virtual
+     DUO). First (LINKTYPE_BATTLE_TOWER 0x2288; CB2_PreInitMultiBattle): link players, each side's
+     two Pokemon as the party menu shows a partner's (three MultiPartnerMenuPokemon, 96 bytes), the
+     party menu, closed. Then (HandleLinkBattleSetup again; CB2_HandleStartMultiPartnerBattle): link players,
      the header (signature 0x0300), the party (two Pokemon, then the third), the Tower trainers'
      party (three blocks; the follower's are ignored), the recorded battle's seed; then the battle,
      four battlers: the player 0, the partner 2, the Tower's trainers 1 and 3 (the game's AI);
@@ -62,6 +65,7 @@ class EmeraldTowerMulti(RubyColosseum):
         yield ("until_ready",)
         yield from self._session(self.tower_type, self._lobby, max_frames=9000)
         for n in range(1, self.battles + 1):
+            yield from self._session(LT_TOWER, self._partner_menu, max_frames=4000)
             yield from self._session(LT_TOWER, self._tower_battle, max_frames=40000)
             if self.result["outcome"] != B_OUTCOME_WON or n == self.battles:
                 break
@@ -121,6 +125,28 @@ class EmeraldTowerMulti(RubyColosseum):
         self.result["trainers_used"] = used
         s.close()
 
+    def _partner_menu(self, s):
+        """CB2_PreInitMultiBattle: the first of each battle's two links."""
+        s.stage = "Tower battle: the party menu's summaries"
+        while not s.players_checked:
+            yield
+        mine = bytearray(96)
+        for k, m in enumerate(self.party[:3]):
+            f = mon_battle_fields(m)
+            struct.pack_into("<HH", mine, 32 * k, f["species"], 0)
+            mine[32 * k + 0x0F] = f.get("level", 50)
+        s.link.send_block(bytes(mine))
+        got = yield from self._blocks(s, 1)
+        if len(got[0]) != 96:
+            raise LinkError(f"the partner's party menu summary was {len(got[0])} bytes, not 96 (CB2_PreInitMultiBattle)")
+        species = [struct.unpack_from("<H", got[0], 32 * k)[0] for k in range(3)]
+        if not any(species):
+            raise LinkError("the partner's party menu summary has no Pokemon")
+        self.result["partner_menu_species"] = species
+        for _ in range(60):                         # (the party menu, showing the partner's)
+            yield
+        s.close()
+
     def _tower_battle(self, s):
         s.stage = "Tower battle: link players"
         while not s.players_checked:
@@ -162,6 +188,10 @@ class EmeraldTowerMulti(RubyColosseum):
         s.link.send_block(struct.pack("<I", 0x12345678))
         got = yield from self._blocks(s, 1)
         self.result["partner_party"] = theirs
+        shown = [x for x in self.result.get("partner_menu_species", []) if x]
+        sent = [mon_battle_fields(theirs[100 * i:100 * i + 100])["species"] for i in range(3) if any(theirs[100 * i:100 * i + 32])]
+        if shown and shown != sent:
+            raise LinkError(f"the party menu showed the partner's {shown}, but it brought {sent}")
         mons = lambda raw: [mon_battle_fields(raw[100 * i:100 * i + 100]) if any(raw[100 * i:100 * i + 32]) else None
                             for i in range(len(raw) // 100)]
         # party slots as the engine keeps them: link id 0's 0-2, id 2's 3-5; the trainers' 0-2, 3-5
