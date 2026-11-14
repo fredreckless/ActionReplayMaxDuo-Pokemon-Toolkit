@@ -51,6 +51,25 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
 
+## The how-to videos (14 November)
+
+`virtual/video/make_videos.py` makes nine videos from the ROMs alone (trade, battle, double battle,
+Record Mixing, Mystery Event, Berry Blender, contest, Battle Tower, Mystery Gift); on Fred's PC:
+`bash /mnt/c/Users/fredr/ActionReplay/virtual/run_videos.sh` (MP4s to `runs\videos`). 1080x1080: the
+game 4x on top, an instruction band, the terminal and the DUO 2x below (`compose.py` says why).
+Setup scenes are animated pixel art (`parts.py` sprites, `scene.py`, `setups.py`) drawn from Fred's
+reference photos in `C:\Users\fredr\ActionReplay\refs` (not committed). Facts from them: the DUO
+stands above the GBA's slot, "DS" face forwards, AR switch / mini-USB / AR button on top; a cartridge
+(any, for it to start) plugs into its back and lies flat on the GBA's back; the link plug goes into
+the GBA's EXT port in front of the DUO. AGB-005: grey, small purple master plug, purple hub. MGB-010:
+black, ferrite near the single end, junction block at the split. `unlock.py` enters the Mystery Event
+profile (Ruby) and the Mystery Gift questionnaire (Emerald) with real presses. Fred asked for pixel art
+drawn from references, no logos or label art, clear instructions; keep to that.
+
+Also: `ruby.Tool.linked()` ignores the tool's "no change for 30 s" notice. On a slow run (the laptop,
+or recording) it came before the link and stopped the tapping: that was the matrix's 8 Emerald
+Tower failures on 14 November (rerun `run_matrix.sh` to confirm).
+
 ## Where things stand (8 November)
 
 | Feature | Status |

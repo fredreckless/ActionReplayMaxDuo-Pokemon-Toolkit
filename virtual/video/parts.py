@@ -1,148 +1,184 @@
-"""parts.py - every component of the setup as a pixel sprite with anchors, drawn to the real parts'
-proportions (millimetres from their published sizes, at 0.75 art pixels per millimetre):
+"""parts.py - every component as a pixel sprite with anchors, drawn from reference photos (Fred's own
+setup and product photos) at about 0.83 art pixels per millimetre:
 
-    GBA (AGB-001, 144.5 x 82 mm)        gba(colourway)          anchors: ext, slot, screen, led
-    Game Pak (57 x 35 mm)               game_pak(game)          anchors: top, edge
-    Action Replay MAX DUO               duo()                   anchors: usb, edge, slot
-    laptop                              laptop()                anchors: usb, screen
-    USB lead, Mini-B to A               usb_mini_b(), usb_a()   anchors: tip, tail
-    GBA Game Link Cable (AGB-005)       agb005_plug(master)     the small purple plug is the master end
-                                        agb005_hub()
-    Universal Game Link Cable (MGB-010) mgb010_plug(kind)       "small" (Pocket/Color size), "large"
+    gba(colourway)          AGB-001 front: the colour face on a grey shell, grey shoulder buttons, the
+                            black screen surround, light d-pad and round A/B, START/SELECT in labelled
+                            recesses, six slanted speaker slots, the POWER lamp right of the screen;
+                            the EXT (link) port on the top edge, right of centre. Anchors: ext, slot,
+                            screen, led
+    gba_back(colourway)     its back, for fitting a cartridge into the DUO
+    duo()                   Action Replay MAX DUO from the front, as it stands above the GBA's slot:
+                            a wide silver base with two screws, a narrower block with "DS" moulded in,
+                            and on top the AR switch (left), the mini-USB socket and the AR button
+    duo_back()              its other face (with "GBA" moulded in) and the slot a cartridge plugs
+                            into, lying flat against the GBA's back
+    game_pak(game)          a Game Pak in its translucent colour, the label with the name in plain letters
+    laptop()                a laptop; its screen is the terminal
+    plugs: usb_a(), usb_mini_b(), link_plug(style) for "gba_purple" (AGB-005 master end), "gba_grey",
+           "gbc_black" (MGB-010's small plugs), "dmg_black" (MGB-010's wide original Game Boy plug)
+    agb005_hub(), mgb010_junction(), ferrite(colour)
 
-No logos or label art: each game's pak is its own colour with its name in plain letters.
+No logos or label art.
 """
 from pixel import Sprite, rgb, shade
 
 COLOURWAYS = {
-    "indigo": dict(body=rgb("#4b40a8"), light=rgb("#6e64cc"), dark=rgb("#2e2672"), btn=rgb("#9089cc"),
-                   btnd=rgb("#5d55a0")),
-    "glacier": dict(body=rgb("#8fa3d6"), light=rgb("#b7c6ec"), dark=rgb("#5d6fa8"), btn=rgb("#d9e0f4"),
-                    btnd=rgb("#8a97c4")),
-    "orange": dict(body=rgb("#e57a2e"), light=rgb("#f6a35c"), dark=rgb("#a34d16"), btn=rgb("#f4d2b0"),
-                   btnd=rgb("#c0875a")),
-    "black": dict(body=rgb("#34343c"), light=rgb("#55555f"), dark=rgb("#1e1e24"), btn=rgb("#6c6c78"),
-                  btnd=rgb("#45454e")),
+    "indigo": dict(face=rgb("#4f47b0"), shell=rgb("#c9cbd3"), btn=rgb("#dfe1e8"), dpad=rgb("#dfe1e8")),
+    "glacier": dict(face=rgb("#6fb6e6"), shell=rgb("#8cc6ec"), btn=rgb("#4f9fd8"), dpad=rgb("#4f9fd8")),
 }
-
-GAMES = {   # (label colour, name as printed in plain letters)
-    "ruby": (rgb("#c42a35"), "RUBY"), "sapphire": (rgb("#2c55c0"), "SAPPHIRE"),
-    "emerald": (rgb("#1f9a5a"), "EMERALD"), "firered": (rgb("#e05a26"), "FIRERED"),
-    "leafgreen": (rgb("#6cb83e"), "LEAFGREEN"), "other": (rgb("#6d7b8f"), "ANY GAME"),
+GAMES = {   # translucent shell colour, name in plain letters
+    "ruby": (rgb("#c2262e"), "RUBY"), "sapphire": (rgb("#2850c4"), "SAPPHIRE"),
+    "emerald": (rgb("#1e9a48"), "EMERALD"), "firered": (rgb("#e0401e"), "FIRERED"),
+    "leafgreen": (rgb("#3fae3c"), "LEAFGREEN"), "other": (rgb("#8a8c96"), "ANY GAME"),
 }
-GREY_PAK = rgb("#8e8f98")
-SILVER = rgb("#bfc5cf")
-INK = rgb("#1b1a26")
+SILVER = rgb("#c3c8d0")
+BLACK = rgb("#26262c")
 
 
 def gba(colourway="indigo"):
-    """The front of an AGB-001: a wide body with round grips, the screen in its dark surround, the
-    d-pad, A and B, START and SELECT, the power lamp and the speaker. The cartridge slot and the EXT
-    (link) port are on the top edge."""
     c = COLOURWAYS[colourway]
-    W, H = 108, 62
-    s = Sprite(W, H + 6)
-    top = 6                                  # room above for the shoulder buttons
-    # shoulder buttons (L, R) behind the body's top corners
-    for x0 in (8, W - 30):
-        s.rrect(x0, top - 4, x0 + 21, top + 8, 4, c["dark"])
-        s.hline(x0 + 3, x0 + 18, top - 3, shade(c["dark"], 1.3))
-    # body: round grips joined by a straight top edge and a gently bowed bottom
-    s.rrect(0, top, W - 1, H + top - 1, 26, c["body"])
-    s.rrect(14, top, W - 15, H + top - 3, 8, c["body"])
-    s.region_light((0, top, W - 1, H + top - 1), c["light"], c["dark"], depth=2)
-    # face bevel: a faint line inside the edge
-    # screen surround (dark, glossy) and the screen
-    s.rrect(31, top + 5, W - 32, top + 41, 4, rgb("#2a2933"))
-    s.hline(34, W - 35, top + 6, rgb("#45434f"))
-    sx, sy, sw, sh = 36, top + 9, 36, 24      # 3:2 like the real 240x160 screen
-    s.rect(sx, sy, sx + sw - 1, sy + sh - 1, rgb("#3c4638"))
+    W, H, top = 122, 70, 6
+    s = Sprite(W, H + top)
+    # grey shell showing at the shoulders, and the shoulder buttons
+    s.rrect(4, top - 2, 40, top + 18, 10, shade(c["shell"], 0.85))
+    s.rrect(W - 41, top - 2, W - 5, top + 18, 10, shade(c["shell"], 0.85))
+    s.rrect(0, top + 3, W - 1, top + H - 1, 28, c["shell"])
+    # the coloured face: rounded ends, gently bowed top and bottom
+    face = c["face"]
+    s.rrect(2, top + 3, W - 3, top + H - 3, 27, face)
+    s.d.chord([20, top - 6, W - 21, top + 14], 180, 360, fill=face + (255,))
+    s.d.chord([16, top + H - 19, W - 17, top + H], 0, 180, fill=face + (255,))
+    s.region_light((0, 0, W - 1, top + H - 1), shade(face, 1.25), shade(face, 0.72))
+    s.d.rounded_rectangle([W // 2 - 11, top + 1, W // 2 + 10, top + 5], 2, outline=shade(face, 0.75) + (255,))
+    # the screen surround (black, glossy) and the screen (3:2)
+    s.rrect(34, top + 8, W - 35, top + 56, 7, rgb("#17171c"))
+    s.hline(40, W - 41, top + 9, rgb("#3a3a44"))
+    sx, sy, sw, sh = 40, top + 13, 42, 28
+    s.rect(sx, sy, sx + sw - 1, sy + sh - 1, rgb("#2e3529"))
     s.anchors["screen"] = (sx, sy, sw, sh)
-    s.hline(42, W - 43, top + 37, rgb("#4b4957"))          # (where the console's name is printed)
-    s.px(33, top + 13, rgb("#5a2a2a"))                   # the power lamp, off
-    s.anchors["led"] = (33, top + 13)
-    # d-pad
-    dx, dy = 15, top + 24
-    for (x0, y0, x1, y1) in ((dx - 6, dy - 2, dx + 6, dy + 2), (dx - 2, dy - 6, dx + 2, dy + 6)):
-        s.rect(x0, y0, x1, y1, rgb("#26252c"))
-    s.hline(dx - 5, dx + 5, dy - 2, rgb("#45444e"))
-    s.vline(dx - 2, dy - 5, dy + 5, rgb("#3a3942"))
-    s.px(dx, dy, rgb("#1a1a20"))
-    # A (upper right) and B
-    for bx, by in ((W - 13, top + 21), (W - 23, top + 28)):
-        s.ellipse(bx - 4, by - 4, bx + 4, by + 4, c["btnd"])
-        s.ellipse(bx - 4, by - 4, bx + 4, by + 3, c["btn"])
-        s.px(bx - 2, by - 2, shade(c["btn"], 1.4))
-    # START, SELECT below the d-pad
-    for by in (top + 38, top + 44):
-        s.rrect(10, by, 16, by + 3, 1, c["btnd"])
-        s.hline(11, 15, by, shade(c["btnd"], 1.3))
-    # speaker holes, lower right
-    for i in range(5):
-        for j in range(3):
-            s.px(W - 26 + i * 3 + j, top + 46 - j * 2 + i, c["dark"])
-    # top edge: the EXT port (centre) and the slot behind it
-    s.rect(W // 2 - 6, top, W // 2 + 5, top + 1, rgb("#18171f"))
-    s.anchors["ext"] = (W // 2, top)
-    s.anchors["slot"] = (W // 2, top)          # a pak stands up out of the slot, behind
+    s.hline(46, W - 47, top + 50, rgb("#9aa0aa"))           # where the console's name is printed
+    s.hline(52, W - 53, top + 51, rgb("#6a707a"))
+    # POWER lamp right of the screen, top
+    s.px(W - 26, top + 13, rgb("#2b4a30"))
+    s.px(W - 25, top + 13, rgb("#2b4a30"))
+    s.hline(W - 22, W - 15, top + 13, shade(face, 0.78))
+    s.anchors["led"] = (W - 26, top + 13)
+    # d-pad, left
+    dx, dy = 18, top + 27
+    for (a, b, cc, d) in ((dx - 8, dy - 3, dx + 8, dy + 3), (dx - 3, dy - 8, dx + 3, dy + 8)):
+        s.rect(a, b + 1, cc, d + 1, shade(c["dpad"], 0.6))
+        s.rect(a, b, cc, d, c["dpad"])
+    s.hline(dx - 7, dx + 7, dy - 3, shade(c["dpad"], 1.2))
+    s.px(dx, dy, shade(c["dpad"], 0.8))
+    # A (upper right) and B, round
+    for bx, by in ((W - 15, top + 24), (W - 27, top + 30)):
+        s.ellipse(bx - 5, by - 4, bx + 5, by + 6, shade(c["btn"], 0.6))
+        s.ellipse(bx - 5, by - 5, bx + 5, by + 5, c["btn"])
+        s.px(bx - 2, by - 3, shade(c["btn"], 1.3))
+    # START and SELECT: small round buttons beside labelled recesses
+    for by in (top + 43, top + 50):
+        s.rrect(9, by - 2, 27, by + 3, 3, shade(face, 0.82))
+        s.ellipse(25, by - 2, 30, by + 3, c["btn"])
+    # speaker: six slanted slots, lower right
+    for i in range(6):
+        y = top + 41 + i * 3
+        s.line([(W - 32 + i, y), (W - 18 + i, y - 3)], shade(face, 0.55))
+    # top edge: the EXT port right of centre; the slot behind
+    ex = W // 2 + 8
+    s.rect(ex - 5, top - 3, ex + 5, top - 2, rgb("#121216"))
+    s.rect(ex - 6, top - 4, ex + 6, top - 4, shade(c["shell"], 0.7))
+    s.anchors["ext"] = (ex, top - 3)
+    s.anchors["slot"] = (W // 2, top + 2)
     s.outline()
     return s
 
 
-def game_pak(game, back=False):
-    """A Game Boy Advance Game Pak from the front: grey, the label inset, the gripping ridges along the
-    top, the contacts' edge at the bottom (hidden in a slot)."""
-    W, H = 43, 26
-    lab, name = GAMES[game]
+def gba_back(colourway="indigo"):
+    """The back: the shell, the battery cover, and the cartridge slot along the top."""
+    c = COLOURWAYS[colourway]
+    W, H, top = 122, 70, 6
+    s = Sprite(W, H + top)
+    shell = c["shell"] if colourway == "glacier" else rgb("#b9bbc4")
+    s.rrect(4, top - 2, 40, top + 18, 10, shade(shell, 0.85))
+    s.rrect(W - 41, top - 2, W - 5, top + 18, 10, shade(shell, 0.85))
+    s.rrect(0, top + 3, W - 1, top + H - 1, 28, shell)
+    s.region_light((0, 0, W - 1, top + H - 1), shade(shell, 1.2), shade(shell, 0.72))
+    s.rect(W // 2 - 31, top + 2, W // 2 + 31, top + 9, shade(shell, 0.6))
+    s.rrect(W // 2 - 24, top + 42, W // 2 + 24, top + 62, 4, shade(shell, 0.9))
+    s.hline(W // 2 - 22, W // 2 + 22, top + 43, shade(shell, 1.15))
+    for x in (12, W - 13):
+        s.px(x, top + 40, shade(shell, 0.5))
+    s.anchors["slot"] = (W // 2, top + 2)
+    s.outline()
+    return s
+
+
+def _moulded(s, x, y, text):
+    s.text(x - 1, y, text, shade(SILVER, 1.5), None)
+    s.text(x + 1, y + 2, text, shade(SILVER, 0.55), None)
+    s.text(x, y + 1, text, shade(SILVER, 0.9), None)
+
+
+def duo():
+    W, H = 48, 32
     s = Sprite(W, H)
-    s.rrect(0, 0, W - 1, H - 1, 3, GREY_PAK)
-    s.rect(0, H - 4, W - 1, H - 1, GREY_PAK)
-    for x in range(4, W - 4, 3):                         # ridges along the top
-        s.vline(x, 1, 3, shade(GREY_PAK, 0.8))
-    if back:
-        s.rect(6, 8, W - 7, H - 6, shade(GREY_PAK, 0.9))
-    else:
-        s.rrect(3, 6, W - 4, H - 4, 2, lab)
-        s.rect(5, 7, W - 6, 8, shade(lab, 1.25))
-        s.rect(5, H - 6, W - 6, H - 5, shade(lab, 0.75))
-        tw = len(name) * 4 - 1
-        s.text((W - tw) // 2, 12, name, rgb("#fff6e8"), None)
-    s.region_light((0, 0, W - 1, H - 1), shade(GREY_PAK, 1.3), shade(GREY_PAK, 0.7))
+    s.rect(7, 1, 12, 4, rgb("#33333b"))                # AR switch, left
+    s.rect(8, 0, 10, 1, rgb("#55555f"))
+    s.rect(20, 2, 27, 4, rgb("#1c1c20"))               # mini-USB socket
+    s.rect(21, 3, 26, 3, rgb("#b8b0a0"))
+    s.rect(36, 1, 40, 4, rgb("#33333b"))               # AR button, right
+    s.rrect(4, 4, W - 5, 20, 3, SILVER)                # the narrower upper block
+    s.rrect(0, 16, W - 1, H - 1, 3, shade(SILVER, 0.95))   # the wide base
+    s.region_light((0, 4, W - 1, H - 1), shade(SILVER, 1.3), shade(SILVER, 0.7))
+    s.hline(5, W - 6, 16, shade(SILVER, 0.75))
+    for x in (4, W - 5):                                # screws
+        s.px(x, 24, rgb("#6a6e76"))
+        s.px(x, 23, rgb("#e8ecf0"))
+    _moulded(s, W // 2 - 4, 8, "DS")
+    s.anchors["usb"] = (23, 2)
+    s.anchors["base"] = (W // 2, H - 1)
+    s.outline()
+    return s
+
+
+def duo_back():
+    W, H = 48, 32
+    s = Sprite(W, H)
+    s.rrect(4, 4, W - 5, 20, 3, SILVER)
+    s.rrect(0, 16, W - 1, H - 1, 3, shade(SILVER, 0.95))
+    s.region_light((0, 4, W - 1, H - 1), shade(SILVER, 1.3), shade(SILVER, 0.7))
+    _moulded(s, W // 2 - 6, 7, "GBA")
+    s.rect(5, H - 6, W - 6, H - 3, rgb("#18181c"))
+    for x in range(7, W - 7, 2):
+        s.px(x, H - 4, rgb("#8a7a40"))
+    s.anchors["slot"] = (W // 2, H - 3)
+    s.outline()
+    return s
+
+
+def game_pak(game):
+    W, H = 47, 29
+    col, name = GAMES[game]
+    s = Sprite(W, H)
+    s.rrect(0, 3, W - 1, H - 1, 2, shade(col, 0.8))
+    s.rect(6, 0, W - 7, 4, shade(col, 0.8))
+    s.rrect(1, 4, W - 2, H - 2, 2, col)
+    s.rect(7, 1, W - 8, 4, col)
+    s.region_light((0, 0, W - 1, H - 1), shade(col, 1.35), shade(col, 0.6))
+    for x in range(9, W - 9, 4):
+        s.vline(x, 1, 2, shade(col, 0.75))
+    s.rrect(4, 8, W - 5, H - 5, 1, rgb("#e9e6dc"))
+    s.rect(5, 9, W - 6, 11, shade(col, 1.15))
+    s.rect(5, H - 7, W - 6, H - 6, shade(col, 1.15))
+    tw = len(name) * 4 - 1
+    s.text((W - tw) // 2, 14, name, shade(col, 0.55), None)
     s.anchors["top"] = (W // 2, 0)
     s.anchors["edge"] = (W // 2, H - 1)
     s.outline()
     return s
 
 
-def duo():
-    """The Action Replay MAX DUO, front: a silver cartridge, taller than a Game Pak. Along its top edge
-    (as on the board): the button, the mini-USB socket and the slide switch; across its face, the clear
-    pass-through slot that a GBA Game Pak plugs into (the DUO needs a cartridge fitted to start)."""
-    W, H = 48, 44
-    s = Sprite(W, H + 4)
-    t = 4
-    s.rect(9, 0, 13, t, rgb("#2b2b33"))                  # button
-    s.rect(21, 1, 27, t, rgb("#c9a640"))                 # mini-USB socket (gold, as on the board)
-    s.rect(22, 2, 26, 3, rgb("#5a4a1a"))
-    s.rect(34, 1, 41, t, rgb("#8a8a90"))                 # slide switch
-    s.rect(35, 0, 37, 1, rgb("#2b2b33"))
-    s.rrect(0, t, W - 1, H + t - 1, 4, SILVER)
-    s.region_light((0, t, W - 1, H + t - 1), shade(SILVER, 1.35), shade(SILVER, 0.7))
-    s.rect(3, t + 6, W - 4, t + 18, rgb("#d8e2ea"))     # the clear slot, its contacts showing
-    for x in range(5, W - 5, 2):
-        s.vline(x, t + 8, t + 16, rgb("#b0b8c0"))
-    s.rect(3, t + 6, W - 4, t + 6, rgb("#f4f8fb"))
-    s.rrect(8, t + 23, W - 9, t + 35, 2, rgb("#30343e"))   # the label panel
-    s.text(W // 2 - 5, t + 27, "DUO", rgb("#e8eef6"), None)
-    s.anchors["usb"] = (24, 1)
-    s.anchors["slot"] = (W // 2, t + 6)
-    s.anchors["edge"] = (W // 2, H + t - 1)
-    s.outline()
-    return s
-
-
 def laptop(left_usb=False):
-    """A laptop, open, with its screen free for the terminal, and a USB-A socket on its side."""
     W, H = 156, 104
     s = Sprite(W, H)
     s.rrect(10, 0, W - 11, 84, 3, rgb("#3b3f4a"))
@@ -154,7 +190,7 @@ def laptop(left_usb=False):
     for r in range(3):
         for k in range(19):
             s.rect(16 + k * 6 + r, 87 + r * 3, 19 + k * 6 + r, 87 + r * 3, rgb("#363a44"))
-    s.rect(60 + 0, 96, W - 61, 97, rgb("#3d424d"))
+    s.rect(60, 96, W - 61, 97, rgb("#3d424d"))
     if left_usb:
         s.rect(3, 96, 5, 98, rgb("#15161b"))
         s.anchors["usb"] = (3, 97)
@@ -165,88 +201,87 @@ def laptop(left_usb=False):
     return s
 
 
-def usb_mini_b():
-    """The DUO's end of its lead: a Mini-B plug (seen from the side), the cable leaving upwards."""
-    s = Sprite(9, 12)
-    s.rrect(0, 0, 8, 7, 2, rgb("#2b2c33"))
-    s.rect(2, 8, 6, 11, rgb("#c0c4cc"))
-    s.anchors["tip"] = (4, 11)
-    s.anchors["tail"] = (4, 0)
+def _plug(body, tip, w, h, tw, th, ridges=3, shroud=None):
+    """A plug pointing down: ridged strain relief at the top, a tapered body, the tip below."""
+    s = Sprite(w, h + th)
+    rl = 4
+    s.rect(w // 2 - 2, 0, w // 2 + 1, rl, body)
+    for i in range(ridges):
+        s.hline(w // 2 - 2, w // 2 + 1, 1 + i, shade(body, 0.6))
+    s.poly([(w // 2 - 3, rl), (w // 2 + 2, rl), (w - 1, rl + 4), (w - 1, h - 1), (0, h - 1), (0, rl + 4)], body)
+    s.vline(1, rl + 4, h - 2, shade(body, 1.35))
+    s.vline(w - 2, rl + 4, h - 2, shade(body, 0.7))
+    x0 = (w - tw) // 2
+    s.rect(x0, h, x0 + tw - 1, h + th - 1, shroud or tip)
+    s.rect(x0 + 1, h, x0 + tw - 2, h, shade(shroud or tip, 0.7))
+    s.anchors["tip"] = (w // 2, h + th - 1)
+    s.anchors["tail"] = (w // 2, 0)
     s.outline()
     return s
 
 
+def link_plug(style):
+    if style == "gba_purple":
+        return _plug(rgb("#6a52c8"), rgb("#4a3a90"), 9, 15, 5, 3)
+    if style == "gba_grey":
+        return _plug(rgb("#9a9ca6"), rgb("#6e707a"), 9, 15, 5, 3)
+    if style == "gbc_black":
+        return _plug(BLACK, None, 9, 14, 5, 3, shroud=rgb("#c8ccd2"))
+    if style == "dmg_black":
+        return _plug(BLACK, None, 11, 16, 7, 4, shroud=rgb("#c8ccd2"))
+    raise ValueError(style)
+
+
+def usb_mini_b():
+    return _plug(BLACK, None, 7, 12, 3, 3, shroud=rgb("#c8ccd2"))
+
+
 def usb_a():
-    s = Sprite(14, 9)
-    s.rrect(0, 0, 9, 8, 2, rgb("#2b2c33"))
-    s.rect(9, 1, 13, 7, rgb("#c0c4cc"))
-    s.anchors["tip"] = (13, 4)
+    s = Sprite(16, 9)
+    s.rrect(0, 0, 10, 8, 2, BLACK)
+    s.vline(1, 1, 7, shade(BLACK, 1.6))
+    s.rect(10, 1, 15, 7, rgb("#c8ccd2"))
+    s.rect(12, 3, 13, 5, rgb("#7a7e86"))
+    s.anchors["tip"] = (15, 4)
     s.anchors["tail"] = (0, 4)
     s.outline()
     return s
 
 
-def agb005_plug(master):
-    """An AGB-005 plug. The master end is the small purple one; the other end's plug is grey and larger."""
-    if master:
-        s = Sprite(9, 11)
-        col = rgb("#8a58cf")
-        s.rrect(0, 0, 8, 7, 2, col)
-        s.rect(2, 8, 6, 10, rgb("#5d3d94"))
-    else:
-        s = Sprite(12, 12)
-        col = rgb("#9c9ea8")
-        s.rrect(0, 0, 11, 8, 2, col)
-        s.rect(3, 9, 8, 11, rgb("#6c6e78"))
-    s.region_light((0, 0, s.size[0] - 1, s.size[1] - 1), shade(col, 1.3), shade(col, 0.7))
-    s.anchors["tip"] = (s.size[0] // 2, s.size[1] - 1)
-    s.anchors["tail"] = (s.size[0] // 2, 0)
-    s.outline()
-    return s
-
-
 def agb005_hub():
-    s = Sprite(16, 10)
-    col = rgb("#9c9ea8")
-    s.rrect(0, 0, 15, 9, 2, col)
-    s.rect(4, 3, 11, 6, rgb("#2a2a32"))
-    s.region_light((0, 0, 15, 9), shade(col, 1.3), shade(col, 0.7))
-    s.anchors["left"] = (0, 5)
-    s.anchors["right"] = (15, 5)
+    col = rgb("#4f48b0")
+    s = Sprite(14, 12)
+    s.rrect(0, 0, 13, 11, 3, col)
+    s.region_light((0, 0, 13, 11), shade(col, 1.35), shade(col, 0.65))
+    s.rrect(4, 3, 9, 7, 1, rgb("#18181e"))
     s.outline()
     return s
 
 
-def mgb010_plug(kind="small"):
-    """MGB-010, the Universal Game Link Cable: a small (Pocket/Color) plug at one end; the other end
-    splits into a small plug and a large original Game Boy plug (only one is used)."""
-    col = rgb("#8f9099")
-    if kind == "small":
-        s = Sprite(12, 13)
-        s.rrect(0, 0, 11, 9, 2, col)
-        for y in (2, 4, 6):
-            s.hline(2, 9, y, shade(col, 0.8))
-        s.rect(3, 10, 8, 12, rgb("#5f6068"))
-    else:
-        s = Sprite(17, 15)
-        s.rrect(0, 0, 16, 11, 2, col)
-        for y in (2, 4, 6, 8):
-            s.hline(2, 14, y, shade(col, 0.8))
-        s.rect(4, 12, 12, 14, rgb("#5f6068"))
-    s.region_light((0, 0, s.size[0] - 1, s.size[1] - 1), shade(col, 1.3), shade(col, 0.7))
-    s.anchors["tip"] = (s.size[0] // 2, s.size[1] - 1)
-    s.anchors["tail"] = (s.size[0] // 2, 0)
+def mgb010_junction():
+    s = Sprite(16, 10)
+    s.rrect(0, 0, 15, 9, 2, BLACK)
+    s.region_light((0, 0, 15, 9), shade(BLACK, 1.8), shade(BLACK, 0.6))
+    s.rrect(3, 3, 12, 6, 1, shade(BLACK, 1.5))
+    s.outline()
+    return s
+
+
+def ferrite(colour):
+    s = Sprite(8, 8)
+    s.rrect(0, 0, 7, 7, 3, colour)
+    s.region_light((0, 0, 7, 7), shade(colour, 1.4), shade(colour, 0.6))
     s.outline()
     return s
 
 
 def sheet(path, scale=4):
-    """Every sprite on one sheet, to look at."""
     from PIL import Image
-    items = [gba("indigo"), gba("glacier"), duo(), laptop()] + [game_pak(g) for g in GAMES] + \
-        [usb_mini_b(), usb_a(), agb005_plug(True), agb005_plug(False), agb005_hub(), mgb010_plug("small"),
-         mgb010_plug("large")]
-    W = 520
+    items = [gba("indigo"), gba("glacier"), gba_back("glacier"), duo(), duo_back(), laptop()] + \
+        [game_pak(g) for g in GAMES] + \
+        [usb_mini_b(), usb_a(), link_plug("gba_purple"), link_plug("gba_grey"), link_plug("gbc_black"),
+         link_plug("dmg_black"), agb005_hub(), mgb010_junction(), ferrite(rgb("#9a9ca6")), ferrite(BLACK)]
+    W = 540
     x = y = 4
     rowh = 0
     pos = []
@@ -258,7 +293,7 @@ def sheet(path, scale=4):
         pos.append((x, y))
         x += w + 6
         rowh = max(rowh, h)
-    img = Image.new("RGBA", (W, y + rowh + 4), (36, 42, 66, 255))
+    img = Image.new("RGBA", (W, y + rowh + 4), (42, 47, 79, 255))
     for it, p in zip(items, pos):
         img.alpha_composite(it.img, p)
     img.resize((img.size[0] * scale, img.size[1] * scale), Image.NEAREST).save(path)

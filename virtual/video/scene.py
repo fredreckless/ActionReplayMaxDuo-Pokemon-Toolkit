@@ -1,27 +1,29 @@
 """scene.py - animated setup scenes, full screen (1080x1080): sprites from parts.py on a 360x360 art
-canvas scaled 3x, moving by keyframes (a pak sliding into a slot, a plug going into a port, a lead
-drawing itself across, a power lamp and screen coming on), with labels pointing at the parts, the
+canvas scaled 3x, moving by keyframes (a pak sliding into a slot, a GBA turned over, a lead drawing
+itself across and plugging in, a power lamp and screen coming on), labels pointing at the parts, the
 terminal running on the laptop's own screen, and the instruction in a band along the bottom.
+
+Cables are smooth splines through waypoints: each leaves its plug straight out of the port, then
+flows through the waypoints, with ferrite beads, a hub or a junction block riding along it and,
+for a split cable, a branch from the junction.
 """
 import math, os
 from PIL import Image, ImageDraw, ImageFont
 
-import parts
 from pixel import rgb, shade
 
 CW = CH = 360
 SCALE = 3
 SIZE = CW * SCALE
 FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_fonts = {}
 
 
 def font(name, size):
-    return ImageFont.truetype(os.path.join(FONTS, name), size)
+    if (name, size) not in _fonts:
+        _fonts[name, size] = ImageFont.truetype(os.path.join(FONTS, name), size)
+    return _fonts[name, size]
 
-
-F_CAP = lambda: font("Jersey10.ttf", 50)
-F_LABEL = lambda: font("Jersey10.ttf", 34)
-F_TERM = lambda: font("VT323-Regular.ttf", 19)
 
 INK, GOLD, PAPER = (250, 246, 232), (250, 204, 72), (18, 20, 34)
 
@@ -36,11 +38,12 @@ def lerp(a, b, t):
 
 
 class Actor:
-    def __init__(self, sprite, x, y, z=0, t_in=0.0, alpha=1.0):
-        self.s, self.x, self.y, self.z, self.t_in = sprite, x, y, z, t_in
+    def __init__(self, sprite, x, y, z=0, t_in=0.0, t_out=1e9):
+        self.s, self.x, self.y, self.z, self.t_in, self.t_out = sprite, x, y, z, t_in, t_out
         self.moves = []                       # (t0, t1, (x0, y0), (x1, y1))
-        self.on_at = None                     # the power lamp lights at this time
-        self.screen = None                    # fn(t) -> an image for the sprite's screen, or None
+        self.squash = None                    # (t0, t1, from, to): horizontal scale, for a flip
+        self.on_at = None
+        self.screen = None
 
     def move(self, t0, t1, frm, to):
         self.moves.append((t0, t1, frm, to))
@@ -60,34 +63,75 @@ class Actor:
         return x + a[0], y + a[1]
 
     def visible(self, t):
-        return t >= self.t_in
+        return self.t_in <= t < self.t_out
+
+
+def catmull(points, step=0.7):
+    """A smooth curve through the points (centripetal Catmull-Rom), sampled about every step pixels."""
+    if len(points) < 2:
+        return list(points)
+    p = [points[0]] + list(points) + [points[-1]]
+    out = []
+    for i in range(1, len(p) - 2):
+        p0, p1, p2, p3 = p[i - 1], p[i], p[i + 1], p[i + 2]
+
+        def tj(ti, a, b):
+            return ti + max(1e-3, math.hypot(b[0] - a[0], b[1] - a[1])) ** 0.5
+        t0 = 0.0
+        t1 = tj(t0, p0, p1)
+        t2 = tj(t1, p1, p2)
+        t3 = tj(t2, p2, p3)
+        n = max(2, int(math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / step))
+        for k in range(n):
+            t = t1 + (t2 - t1) * k / n
+
+            def L(a, b, ta, tb):
+                if tb - ta < 1e-9:
+                    return a
+                return ((tb - t) / (tb - ta) * a[0] + (t - ta) / (tb - ta) * b[0],
+                        (tb - t) / (tb - ta) * a[1] + (t - ta) / (tb - ta) * b[1])
+            a1, a2, a3 = L(p0, p1, t0, t1), L(p1, p2, t1, t2), L(p2, p3, t2, t3)
+            b1, b2 = L(a1, a2, t0, t2), L(a2, a3, t1, t3)
+            out.append(L(b1, b2, t1, t2))
+    out.append(points[-1])
+    return out
 
 
 class Cable:
-    """A lead between two points (each fixed or an actor's anchor), drawn on from the first end over
-    t0..t1, with a plug sprite at each end and optionally a hub in the middle."""
-    def __init__(self, a, b, t0, t1, colour, width=2, sag=40, plug_a=None, plug_b=None, hub=None, dangling=None):
-        self.a, self.b, self.t0, self.t1 = a, b, t0, t1
-        self.colour, self.width, self.sag = colour, width, sag
-        self.plug_a, self.plug_b, self.hub, self.dangling = plug_a, plug_b, hub, dangling
+    """A lead from end a to end b through via points. An end is a fixed point, or (actor, anchor) with
+    a plug sprite pushed into that port (the plug points down into it; the lead leaves upwards).
+    beads: [(fraction along, sprite)] for ferrites, a hub, a junction. branch: (fraction, [via...],
+    plug sprite) for a split end, which ends lying loose."""
+    def __init__(self, a, b, via, t0, t1, colour, width=3, plug_a=None, plug_b=None, beads=(), branch=None,
+                 rise=12):
+        self.a, self.b, self.via, self.t0, self.t1 = a, b, list(via), t0, t1
+        self.colour, self.width, self.plug_a, self.plug_b = colour, width, plug_a, plug_b
+        self.beads, self.branch, self.rise = list(beads), branch, rise
 
     @staticmethod
     def point(p, t):
         if isinstance(p, tuple) and len(p) == 2 and isinstance(p[0], Actor):
             return p[0].anchor(p[1], t)
+        if isinstance(p, tuple) and len(p) == 2 and isinstance(p[0], Cable):
+            pts = p[0].path(t)
+            return pts[int((len(pts) - 1) * p[1])]
         return p
 
-    def path(self, t, n=60):
-        (x0, y0), (x1, y1) = self.point(self.a, t), self.point(self.b, t)
-        # leave each plug upwards, then hang between them
-        c0 = (x0, y0 - self.sag)
-        c1 = (x1, y1 - self.sag)
-        pts = []
-        for i in range(n + 1):
-            u = i / n
-            a, b, c, d = (1 - u) ** 3, 3 * (1 - u) ** 2 * u, 3 * (1 - u) * u * u, u ** 3
-            pts.append((a * x0 + b * c0[0] + c * c1[0] + d * x1, a * y0 + b * c0[1] + c * c1[1] + d * y1))
-        return pts
+    def ends(self, t):
+        out = []
+        for end, plug in ((self.a, self.plug_a), (self.b, self.plug_b)):
+            x, y = self.point(end, t)
+            if plug is not None:
+                tx, ty = plug.anchors["tip"]
+                tail = (x, y - ty)                      # the plug's top, where the lead leaves it
+                out.append(((x, y), tail, (tail[0], tail[1] - self.rise)))
+            else:
+                out.append(((x, y), (x, y), (x, y)))
+        return out
+
+    def path(self, t):
+        (pa, ta, ua), (pb, tb, ub) = self.ends(t)
+        return catmull([ta, ua] + self.via + [ub, tb])
 
 
 class Label:
@@ -95,11 +139,30 @@ class Label:
         self.text, self.target, self.at, self.t0, self.t1 = text, target, at, t0, t1
 
 
+def draw_lead(d, pts, colour, width):
+    if len(pts) < 2:
+        return
+    ipts = [(round(x), round(y)) for x, y in pts]
+    d.line(ipts, fill=shade(colour, 0.45) + (255,), width=width + 2, joint="curve")
+    d.line(ipts, fill=colour + (255,), width=width, joint="curve")
+    hl = shade(colour, 1.45) + (255,)
+    for (x0, y0), (x1, y1) in zip(ipts[::2], ipts[2::2]):
+        dx, dy = x1 - x0, y1 - y0
+        if dx * dx + dy * dy == 0:
+            continue
+        nx, ny = (-dy, dx) if dx >= 0 else (dy, -dx)        # the side facing up/left
+        if ny > 0:
+            nx, ny = -nx, -ny
+        m = math.hypot(nx, ny)
+        o = (width - 1) / 2
+        d.point((round(x0 + nx / m * o), round(y0 + ny / m * o)), fill=hl)
+
+
 class Scene:
     def __init__(self, duration):
         self.duration = duration
         self.actors, self.cables, self.labels, self.captions, self.badges = [], [], [], [], []
-        self.terminal = None                 # (actor, fn(t) -> list of lines)
+        self.terminal = None
 
     def add(self, actor):
         self.actors.append(actor)
@@ -111,69 +174,81 @@ class Scene:
     def badge(self, t, actor, anchor, text):
         self.badges.append((t, actor, anchor, text))
 
-    # -- drawing -------------------------------------------------------------------------------------
     def background(self):
+        if hasattr(self, "_bg"):
+            return self._bg.copy()
         img = Image.new("RGBA", (CW, CH))
         d = ImageDraw.Draw(img)
-        top, mid = rgb("#1c2340"), rgb("#141a30")
+        top, low = rgb("#232a48"), rgb("#1a2038")
         for y in range(CH):
-            k = y / CH
-            d.line([(0, y), (CW, y)], fill=tuple(int(lerp(a, b, k)) for a, b in zip(top, mid)) + (255,))
-        desk = rgb("#2a2f4f")
-        d.rectangle([0, 214, CW, CH], fill=desk + (255,))
-        d.line([(0, 214), (CW, 214)], fill=shade(desk, 1.25) + (255,))
-        for x in range(0, CW, 4):                     # a faint pixel texture on the desk
-            for y in range(218, CH, 6):
-                if (x * 7 + y * 3) % 23 == 0:
-                    d.point((x, y), fill=shade(desk, 1.1) + (255,))
-        return img
+            d.line([(0, y), (CW, y)], fill=tuple(int(lerp(a, b, y / CH)) for a, b in zip(top, low)) + (255,))
+        for x in range(0, CW, 3):                     # a woven desk mat
+            for y in range(0, CH, 3):
+                if (x * 7 + y * 13) % 29 == 0:
+                    d.point((x, y), fill=shade(top, 1.12) + (255,))
+        self._bg = img
+        return img.copy()
+
+    def _draw_cable(self, art, d, c, t, plugs_only=False):
+        pts = c.path(t)
+        k = ease((t - c.t0) / max(1e-6, c.t1 - c.t0))
+        n = max(2, int(len(pts) * k))
+        done = n >= len(pts)
+        if not plugs_only:
+            draw_lead(d, pts[:n], c.colour, c.width)
+            if c.branch and done:
+                f, via, plug = c.branch
+                j = pts[int(len(pts) * f)]
+                bpts = catmull([j] + via)
+                draw_lead(d, bpts, c.colour, c.width)
+            return
+        # plugs and beads on top of the leads
+        for frac, spr in c.beads:
+            i = int(len(pts) * frac)
+            if i < n:
+                x, y = pts[i]
+                art.alpha_composite(spr.img, (int(x - spr.size[0] / 2), int(y - spr.size[1] / 2)))
+        (pa, ta, _), (pb, tb, _) = c.ends(t)
+        if c.plug_a is not None:
+            tx, ty = c.plug_a.anchors["tip"]
+            art.alpha_composite(c.plug_a.img, (int(pa[0] - tx), int(pa[1] - ty)))
+        if c.plug_b is not None:
+            tx, ty = c.plug_b.anchors["tip"]
+            x, y = (pb[0], pb[1]) if done else (pts[n - 1][0], pts[n - 1][1] + ty)
+            if done or n > 3:
+                art.alpha_composite(c.plug_b.img, (int(x - tx), int(y - ty)))
+        if c.branch and done:
+            f, via, plug = c.branch
+            x, y = via[-1]
+            tx, ty = plug.anchors["tail"]
+            art.alpha_composite(plug.img, (int(x - tx), int(y - ty)))
 
     def render(self, t):
         art = self.background()
         d = ImageDraw.Draw(art)
-        actors = sorted((a for a in self.actors if a.visible(t)), key=lambda a: a.z)
-        # cables behind the parts they plug into (drawn first), plugs on top later
-        for c in self.cables:
-            if t < c.t0:
-                continue
-            pts = c.path(t)
-            k = ease((t - c.t0) / max(1e-6, c.t1 - c.t0))
-            shown = pts[:max(2, int(len(pts) * k))]
-            d.line(shown, fill=shade(c.colour, 0.5) + (255,), width=c.width + 2, joint="curve")
-            d.line(shown, fill=c.colour + (255,), width=c.width, joint="curve")
-            d.line([(x, y - 1) for x, y in shown], fill=shade(c.colour, 1.3) + (255,), width=1)
-            c._shown = shown
-        for a in actors:
+        live = [c for c in self.cables if t >= c.t0]
+        for c in live:
+            self._draw_cable(art, d, c, t)
+        for a in sorted((a for a in self.actors if a.visible(t)), key=lambda a: a.z):
             x, y = a.pos(t)
-            art.alpha_composite(a.s.img, (int(round(x)), int(round(y))))
+            img = a.s.img
+            if a.squash:
+                t0, t1, f0, f1 = a.squash
+                k = lerp(f0, f1, ease((t - t0) / max(1e-6, t1 - t0))) if t >= t0 else f0
+                w = max(1, int(img.size[0] * k))
+                img = img.resize((w, img.size[1]), Image.NEAREST)
+                x += (a.s.size[0] - w) / 2
+            art.alpha_composite(img, (int(round(x)), int(round(y))))
             if a.on_at is not None and t >= a.on_at and "led" in a.s.anchors:
                 lx, ly = a.anchor("led", t)
-                d.rectangle([lx, ly, lx, ly + 1], fill=(90, 240, 110, 255))
+                d.rectangle([lx, ly, lx + 1, ly], fill=(110, 250, 120, 255))
             if a.screen and "screen" in a.s.anchors:
-                img = a.screen(t)
-                if img is not None:
+                sc = a.screen(t)
+                if sc is not None:
                     sx, sy, sw, sh = a.s.anchors["screen"]
-                    px, py = a.pos(t)
-                    art.paste(img.convert("RGBA").resize((sw, sh), Image.BOX), (int(px + sx), int(py + sy)))
-        for c in self.cables:                          # plugs and hubs on top
-            if t < c.t0 or not getattr(c, "_shown", None):
-                continue
-            shown = c._shown
-            for plug, p in ((c.plug_a, shown[0]), (c.plug_b, shown[-1] if len(shown) == len(c.path(t)) else None)):
-                if plug and p:
-                    tx, ty = plug.anchors["tip"]
-                    art.alpha_composite(plug.img, (int(p[0] - tx), int(p[1] - ty)))
-            if c.hub and len(shown) > 30:
-                hx, hy = c.path(t)[30]
-                art.alpha_composite(c.hub.img, (int(hx - c.hub.size[0] / 2), int(hy - c.hub.size[1] / 2)))
-            if c.dangling and len(shown) == len(c.path(t)):
-                plug, (dx, dy) = c.dangling
-                ex, ey = shown[-1]
-                bx, by = ex + dx, ey + dy
-                d.line([(ex, ey - 8), (bx, by - plug.size[1])], fill=shade(c.colour, 0.5) + (255,), width=c.width + 2)
-                d.line([(ex, ey - 8), (bx, by - plug.size[1])], fill=c.colour + (255,), width=c.width)
-                art.alpha_composite(plug.img, (int(bx - plug.size[0] / 2), int(by - plug.size[1])))
-                # (plugs at the cable's ends are drawn above)
+                    art.paste(sc.convert("RGBA").resize((sw, sh), Image.BOX), (int(x + sx), int(y + sy)))
+        for c in live:
+            self._draw_cable(art, d, c, t, plugs_only=True)
         big = art.resize((SIZE, SIZE), Image.NEAREST).convert("RGB")
         g = ImageDraw.Draw(big)
         if self.terminal:
@@ -182,7 +257,7 @@ class Scene:
                 sx, sy, sw, sh = actor.s.anchors["screen"]
                 px, py = actor.pos(t)
                 X, Y = int((px + sx) * SCALE) + 8, int((py + sy) * SCALE) + 6
-                f = F_TERM()
+                f = font("VT323-Regular.ttf", 19)
                 cols = int((sw * SCALE - 16) / g.textlength("M", font=f))
                 rows = []
                 for col, line in lines_fn(t):
@@ -194,7 +269,7 @@ class Scene:
                 fit = (sh * SCALE - 10) // lh
                 for i, (col, line) in enumerate(rows[-fit:]):
                     g.text((X, Y + i * lh), line, font=f, fill=col)
-        fl = F_LABEL()
+        fl = font("Jersey10.ttf", 34)
         for lb in self.labels:
             if not (lb.t0 <= t < lb.t1):
                 continue
@@ -218,7 +293,7 @@ class Scene:
         for t0, actor, anchor, text in self.badges:
             if t >= t0 and actor.visible(t):
                 ax, ay = actor.anchor(anchor, t)
-                X, Y = ax * SCALE, ay * SCALE
+                X, Y = ax * SCALE + 40, ay * SCALE - 30
                 g.rectangle([X - 26, Y - 26, X + 26, Y + 26], fill=GOLD, outline=(30, 30, 40), width=4)
                 g.text((X, Y + 1), text, font=fb, fill=(30, 30, 40), anchor="mm")
         cap = None
