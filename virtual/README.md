@@ -25,6 +25,7 @@ Linux and a C compiler: on Windows, WSL2. The tool itself, talking to a real DUO
 | `mgba/lockstep.patch`, `mgba/apply_lockstep.py` | One correction to mGBA's link cable: a master's START while the others aren't ready still transfers, as on hardware (see below). |
 | `runner/build.sh`, `runner/vduo.c`, `runner/vduo.py` | `vduo`: two GBAs in one process on a link cable, one with the DUO in its slot; the DUO's USB on a TCP port; a text control channel driven from Python. |
 | `rehearsals/` | Rehearsals against a real game: `trade.py`, `colosseum.py` (single or double), `mix.py`, `event.py`, `blender.py`, `contest.py` and `tower.py`, with `ruby.py`'s helpers (any ROM savegen knows: Ruby, and Emerald and LeafGreen in every language, from the Cable Club menu); `all.sh` runs English Ruby's seven, `all_games.sh` Emerald's ten or LeafGreen's three. |
+| `video/` | The how-to videos: `make_videos.py` makes every one from the ROMs (savegen, the rehearsals and `unlock.py`'s Mystery Event and Mystery Gift unlocks, recorded), with pixel-art parts (`parts.py`), animated setup scenes (`setups.py`, `scene.py`) and the 1080x1080 layout (`compose.py`). Fonts under the OFL in `video/fonts`. |
 | `savegen/` | The save generator: a save and the rehearsals' states from a ROM alone, written by the game's own code (`savegen/README.md`). |
 | `check.py` | This folder's own check (`--toolkit` adds the toolkit's `check.py full`). |
 

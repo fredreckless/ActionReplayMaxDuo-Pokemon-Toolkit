@@ -117,6 +117,19 @@ def battle_press(v):
         v.press("partner", "A", frames=6, then=40)
 
 
+def record(v, **what):
+    """With VDUO_RECORD set (vduo.py saves both screens there), note something against the frame
+    being recorded, in terminal.jsonl: the tool's command and each line it prints (the video's
+    terminal), or a mark (mark=...) at a moment in the rehearsal that a caption can follow."""
+    rec = os.environ.get("VDUO_RECORD")
+    if not rec:
+        return
+    import json
+    os.makedirs(rec, exist_ok=True)
+    with open(os.path.join(rec, "terminal.jsonl"), "a") as f:
+        f.write(json.dumps(dict(n=getattr(v, "_rec_n", 0), **what)) + "\n")
+
+
 class Tool:
     """duo_events.py --virtual, run beside the runner, its output gathered line by line. (-u: unbuffered,
     or Python holds the tool's lines back when its output is a pipe, and "Ready" never arrives.)"""
@@ -127,11 +140,28 @@ class Tool:
                                    f"127.0.0.1:{v.usb_port}", "--wait", "60", *args],
                                   cwd=cwd or os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                   text=True, bufsize=1)
+        self.v = v
+        record(v, cmd=self.shown(args))
         threading.Thread(target=self._read, daemon=True).start()
+
+    @staticmethod
+    def shown(args):
+        """The command as someone with the real DUO would type it: no --virtual, --wait or --seconds
+        (the rehearsal's own time limit), and files by their names alone."""
+        out, skip = [], False
+        for x in args:
+            if skip:
+                skip = False
+            elif x == "--seconds":
+                skip = True
+            else:
+                out.append(os.path.basename(x) if os.sep in x else x)
+        return "python duo_events.py " + " ".join(out)
 
     def _read(self):
         for line in self.p.stdout:
             self.lines.append(line.rstrip())
+            record(self.v, line=line.rstrip())
             if self.log:
                 self.log.write(line); self.log.flush()
 
@@ -150,7 +180,9 @@ class Tool:
         return [l for l in self.lines if l.startswith("  [")]
 
     def linked(self):
-        return any("waiting" not in l.lower() for l in self.phases())      # ("WAITING" in the blender)
+        """A phase past waiting. ("WAITING" in the blender; and the tool's "no change for 30 s" notice
+        isn't a phase: on a slow run, such as a recorded one, it comes before the link does.)"""
+        return any("waiting" not in l.lower() and "no change for" not in l for l in self.phases())
 
     def finish(self, v, frames=7200):
         """Let the tool end on its own while the game keeps running."""
