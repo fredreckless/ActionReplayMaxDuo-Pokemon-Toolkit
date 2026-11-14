@@ -27,7 +27,8 @@ if [ "$GAME" = emerald ]; then
     run blender0 blender --state "$STATES/at_blender_question.state" --duo-player 0 --out "$OUT/blender0"
     run contest1 contest --state "$STATES/at_contest_question.state" --pk3 "$PK3S/team1.pk3" --duo-player 1 --out "$OUT/contest1"
     run contest0 contest --state "$STATES/at_contest_question.state" --pk3 "$PK3S/team1.pk3" --duo-player 0 --out "$OUT/contest0"
-    run tower tower --state "$STATES/at_tower_link_question.state" --pk3 "$PK3S/team1.pk3" "$PK3S/team2.pk3" --retire-after 2 --out "$OUT/tower"
+    run tower1 tower --state "$STATES/at_tower_link_question.state" --pk3 "$PK3S/team1.pk3" "$PK3S/team2.pk3" --retire-after 2 --duo-player 1 --out "$OUT/tower1"
+    run tower0 tower --state "$STATES/at_tower_link_question.state" --pk3 "$PK3S/team1.pk3" "$PK3S/team2.pk3" --retire-after 2 --duo-player 0 --out "$OUT/tower0"
 fi
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

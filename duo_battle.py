@@ -2356,17 +2356,20 @@ class TowerLink(LinkBattle):
     game keeps them: the player's 0-2 and ours 3-5 on our side, trainer A's 0-2 and trainer B's 3-5 on
     the other. The opening blocks: the header, the player's party (two Pokemon, then a third), the
     Tower trainers' (three blocks), the seed.
-    leader=True (11 November): the DUO is player 0, so battler 0 with party slots 0-2, and the player
-    battler 2 with 3-5; the game still runs the battle."""
+    leader=True (11 November): the DUO is player 0. The game still runs the battle, so it is still
+    battler 0 and the DUO battler 2 (InitLinkBtlControllers), but the parties are filed by link id: the
+    DUO's Pokemon are slots 0-2 (commanded by the player) and the player's 3-5 (commanded by the DUO;
+    14 November, found against the real game in the Virtual DUO)."""
     OUR_SIDE, CONTROLLED, FOES = (0, 2), (2,), (1, 3)
 
     def __init__(self, ours, level="medium", seed=None, leader=False):
         super().__init__(ours, level=level, double=True, seed=seed)
         self.leader = leader
-        self.me = 0 if leader else 2                   # (our battler)
-        self.base = 0 if leader else 3                 # (our first party slot)
+        self.me = 2                                    # (our battler, whichever end of the cable)
+        self.base = 3                                  # (its first party slot)
         self.CONTROLLED = (self.me,)
-        self.mine = self.ours                          # (our own Pokemon, in order)
+        self._fresh = [m.clone() for m in self.ours]   # (each battle starts with them as they came)
+        self.mine = [m.clone() for m in self._fresh]   # (our own Pokemon, in order)
         self.ally = [None] * 3
         self.enemy = [None] * 6
         self.active = {0: 0, 1: 0, 2: 3, 3: 3}
@@ -2403,6 +2406,9 @@ class TowerLink(LinkBattle):
                 code, arg = b[0] | b[1] << 8, b[2] | b[3] << 8
                 if code == 1:
                     self.session, self.opening, self._party_blocks = arg, 0, []
+                    if arg == 0x2288:                  # (a battle's link: everyone back at full health and
+                        self.active = {0: 0, 1: 0, 2: 3, 3: 3}    # in first place; 14 November: the
+                        self.mine = [m.clone() for m in self._fresh]   # second battle kept the first's)
                 continue
             if self.session != 0x2288:
                 continue
@@ -2444,9 +2450,9 @@ class TowerLink(LinkBattle):
         return c
 
     def choose(self, battler):
-        """As LinkBattle.choose, for our battler (2, or 0 as leader): fight (no switching in the Tower's
-        multi battle), a move at one of the Tower's trainers, a replacement from our own two (party
-        slots 3-4, or 0-1 as leader)."""
+        """As LinkBattle.choose, for our battler (2): fight (no switching in the Tower's multi battle),
+        a move at one of the Tower's trainers, a replacement from party slots 3-5 (as leader, the
+        player's own)."""
         cmd, d = self.pending[battler]
         if not self.theirs:
             raise ValueError("the Tower trainers' party isn't in the record yet")
@@ -2461,7 +2467,8 @@ class TowerLink(LinkBattle):
             if slot not in usable:
                 slot = usable[0] if usable else 0
             return slot, target if target in self.FOES else self.FOES[0]
-        bench = [self.base + k for k, m in enumerate(self.mine) if not m.fainted and self.base + k != self.active.get(battler)]
+        team = self.side_team(battler)[self.base:self.base + 3]    # (as leader, the player's own)
+        bench = [self.base + k for k, m in enumerate(team) if m and not m.fainted and self.base + k != self.active.get(battler)]
         if not bench:
             return 6, 0
         foes = [f for f in self.FOES if self.mon(f) and not self.mon(f).fainted] or [self.FOES[0]]

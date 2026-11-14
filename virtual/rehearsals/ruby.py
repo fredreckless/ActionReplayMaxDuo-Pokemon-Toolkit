@@ -77,10 +77,10 @@ def battle_press(v):
             alive = [i for i in range(6) if struct.unpack_from("<HH", party, 100 * i + 86)[1]
                      and struct.unpack_from("<H", party, 100 * i + 86)[0]]
             target = alive[(_party_visits - 1) % len(alive)] if alive else None
-            for _ in range(8):
-                if target is None or v.read("partner", PARTY_MENU + 9, 1)[0] == target:
+            for k in range(18):                   # (DOWN within a column, RIGHT across: a multi battle's
+                if target is None or v.read("partner", PARTY_MENU + 9, 1)[0] == target:    # screen has two)
                     break
-                v.press("partner", "DOWN", frames=4, then=20)
+                v.press("partner", "RIGHT" if k % 3 == 2 else "DOWN", frames=4, then=20)
         else:
             for _ in range(1 + (_party_visits - 1) % 5):
                 v.press("partner", "DOWN", frames=4, then=20)

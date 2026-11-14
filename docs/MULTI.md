@@ -34,9 +34,14 @@ battles the trainers it chose itself. The rest of player 0's jobs:
 - the header: signature 0x0001. `FindLinkBattleMaster` (two players on different versions): the
   lowest-numbered player on 0x0300 or above is master, so the game, player 1 on 0x0300, runs the
   battle (0x0100 would have made player 0 the master; 0x0300 too, as the same version);
-- the battle: the link players' ids are fixed (`gLinkPlayers[0].id = 0`, `[1].id = 2`), so the DUO
-  is battler 0 with party slots 0-2, and the player battler 2 with 3-5. The game's engine sends every
-  command; the DUO answers battler 0's;
+- the battle: the link players' ids are fixed (`gLinkPlayers[0].id = 0`, `[1].id = 2`), and the
+  parties are filed by them: the DUO's Pokemon in party slots 0-2, the player's in 3-5. But
+  `InitLinkBtlControllers` gives the battle's master (the game) battler 0 and the other GBA battler 2
+  whatever the ids, and battler 0 commands slots 0-2. So **the player commands the DUO's Pokemon
+  and the DUO, still battler 2, commands the player's** (14 November, found against the real game in
+  the Virtual DUO: as battler 0 the DUO answered for the player's battler and the game waited at
+  "Link standby..." for battler 2's choice). The tool says so; for their own Pokemon, the player puts
+  the DUO's GBA on the other end. The game's engine sends every command; the DUO answers battler 2's;
 - after a win: the game, the member, sends its choice; the DUO, the leader, sends the verdict
   (`BOTH_RETIRE` 1, `MEMBER_RETIRE` 2 when only the player retires, `LEADER_RETIRE` 3 when only the
   DUO does, else `CONTINUE` 0), and the game says "your partner has retired" for 3.

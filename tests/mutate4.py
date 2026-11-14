@@ -72,7 +72,7 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 PC_MUTANTS = {
     "contest: the applause meter never empties": ("        self.meter = max(0, self.meter + r3)\n        if self.meter > 4:\n            self.meter = 0\n", "        self.meter = max(0, self.meter + r3)\n", "Contest, live moves"),
     "contest: the DUO always taken to appeal last": ("        mine = order[self.me]\n", "        mine = 3\n", "Contest, live moves"),
-    "tower: as player 0, the PC still chooses for battler 2": ("        self.me = 0 if leader else 2                   # (our battler)\n", "        self.me = 2\n", "Battle Tower, the DUO as player 0 (11 November)"),
+    "tower: as player 0, the PC chooses for battler 0 (the game's)": ("        self.me = 2                                    # (our battler, whichever end of the cable)\n", "        self.me = 0 if leader else 2\n", "Battle Tower, the DUO as player 0 (11 November)"),
     "contest: the plan without combos": ("        if prev is not None and is_combo(moves[prev], m):\n            s += appeal\n", "        if prev is not None and is_combo(moves[prev], m):\n            s += 0\n", "Contest planning"),
     "contest: the names not in the link's form": ("        name[length - 1], name[5] = name[5], 0xFF\n", "        name[length - 1] = name[5]\n", "Contest (8 November)"),
     "contest: --order ignored (the PC's plan instead)": ("    if order:                                          # (--order: the slots in turn, five rounds)\n", "    if False:\n", "Contest: the DUO's moves"),
@@ -333,7 +333,7 @@ TOWER_MUTANTS = {          # firmware/programs/tower.c: the Battle Tower's link 
     "tower: as player 0, zeros for the Tower's party": ("    else if (start_out < 6) send_block(is_master ? mirror : zeros, 200);", "    else if (start_out < 6) send_block(zeros, 200);", "Battle Tower, the DUO as player 0 (11 November)"),
     "tower: as player 0, never asks for the cards": ("        queue(0xCCCC, 2, 0); card_asked = 1;                     /* (as player 0: cable_club.c, the cards) */", "        card_asked = 1;", "Battle Tower, the DUO as player 0 (11 November)"),
     "tower: as player 0, the leader's and member's retirements swapped": ("        verdict = ours && theirs ? 1 : theirs ? 2 : ours ? 3 : 0;", "        verdict = ours && theirs ? 1 : theirs ? 3 : ours ? 2 : 0;", "the DUO as player 0: the verdicts"),
-    "tower: as player 0, our Pokemon still taken as party slots 3-5": ("#define PARTY_BASE    (is_master ? 0 : 3)", "#define PARTY_BASE    3", "the DUO as player 0: its first Pokemon faints"),
+    "tower: as player 0, the game's battler answered (battler 0, party slots 0-2)": ("#define OUR_BATTLER   2 ", "#define OUR_BATTLER   (is_master ? 0 : 2) ", "the DUO as player 0"),
     "tower: never retires": ("        small[0] = RETIRE_AFTER && battles >= RETIRE_AFTER;", "        small[0] = 0;", "the DUO retires after the first battle"),
     "tower: the trainers' list never answered": ("        else if (size == 40 && lobby_blocks == 1) { memcpy(small, b, 40); send_block(small, 40); lobby_blocks = 2; }", "", "Battle Tower link multi battle (8 November)"),
     "tower: answers the Tower trainers' battlers too": ("    u32 battler = b[1], cmd = b[8], ours = battler == OUR_BATTLER, side = 0;", "    u32 battler = b[1], cmd = b[8], ours = battler & 1, side = 0;", "Battle Tower link multi battle (8 November)"),

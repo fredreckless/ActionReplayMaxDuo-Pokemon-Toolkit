@@ -164,15 +164,16 @@ then a double battle; Record Mixing with the player in the DUO's way.
   (`multi_partner_menu`, bytes 748-843; BLOB_MAX 844), and the model does both links and checks the
   summary matches the party brought. `rehearsals/tower.py` (savegen's `at_tower_link_question`):
   with the DUO as player 1, one battle and two battles with the carry-on between: PASS.
-- **Open: the Tower with the DUO as player 0** (`tower.py --duo-player 0`): the lobby, both links
-  and the opening go through, the first turn is played, then the game stalls at "Link standby..."
-  in the second turn (record kept locally: the DUO sends "done" (state 2) for all four battlers
-  where the game also does, and the game sends done for battler 0 itself with multiplayer id 1;
-  so who answers for which battler, as player 0, needs reading in battle_controllers' link
-  partner/opponent code). The model passes this case, so it's lenient there too: the planted bug
-  `pc: tower: as player 0, the PC still chooses for battler 2` is missed here, before and after
-  tonight's change (on the laptop it counted as caught, but by a 166 s failure, most likely one of
-  its timeouts), which points the same way.
+- **The Tower with the DUO as player 0: solved (14 November, morning).** Emerald files the parties by
+  link id (the DUO's in slots 0-2, the player's in 3-5) but gives the battle's master, the game,
+  battler 0 whatever the ids (`InitLinkBtlControllers`). So the player commands the DUO's Pokemon
+  and the DUO, still battler 2, the player's: Emerald's own rules, which the DUO can't change
+  without running the battle itself. tower.c (OUR_BATTLER 2, PARTY_BASE 3 always), the PC's
+  TowerLink (`me` 2; the bench from slots 3-5) and the model now follow it; the tool tells the player.
+  Also: the PC's picture of the battle now starts afresh each battle (it kept the first's active
+  and fainted Pokemon). Rehearsals: three battles from either end, all won; `all_games.sh` runs both
+  (tower1, tower0). The rehearsal's own player got two fixes on the way: the multi-battle party
+  screen has two columns (RIGHT as well as DOWN, watching gPartyMenu.slotId).
 - **The full tier on the laptop (overnight, 13-14 November): 123 passed, 79 failed, one planted bug
   missed** (`fw42: run accepts an entry point outside the code`). Nearly all failures are
   `USBTimeoutError` in hwsim, four tests at a time on the laptop (WSL, Python 3.14), the first full

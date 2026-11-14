@@ -3873,7 +3873,7 @@ def _():
     assert "didn't get as far as the Tower's trainers" in hw.text, hw.text[-800:]
 
 
-@test("Battle Tower, the DUO as player 0 (11 November): it asks for the cards, sends the game's own trainers' list and Tower party back (player 1 keeps player 0's), a header signature below Emerald's so the game runs the battles, plays battler 0 from party slots 0-2, and gives the verdict 'carry on' between battles")
+@test("Battle Tower, the DUO as player 0 (11 November): it asks for the cards, sends the game's own trainers' list and Tower party back (player 1 keeps player 0's), a header signature below Emerald's so the game runs the battles, still plays battler 2 (the game, the battle's master, is battler 0; 14 November, the real game) commanding party slots 3-5, and gives the verdict 'carry on' between battles")
 def _():
     hw, game, report = tower_run(battles=3, duo_wins=True, master=False)
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
@@ -3884,9 +3884,13 @@ def _():
     enemy = b"".join(game.enemy[:2]).ljust(300, b"\0") + b"".join(game.enemy[2:4]).ljust(300, b"\0")
     assert r["enemy_used"] == enemy
     assert r["partner_verdicts"] == [TWG.LINKSTAT_CONTINUE] * 2, r["partner_verdicts"]
-    assert r["partner_choices"] and all(b == 0 and t in (1, 3) for _, b, _, t in r["partner_choices"]), r["partner_choices"]
+    assert r["partner_choices"] and all(b == 2 and t in (1, 3) for _, b, _, t in r["partner_choices"]), r["partner_choices"]
     assert report["battles"] == 3 and report["won"] == 3 and report["pc_answers"] > 0 and report["fallbacks"] == 0, report
     assert "The DUO is player 0" in hw.text and "3 battles, 3 won" in hw.text, hw.text[-1200:]
+    assert "you command the DUO's" in hw.text, hw.text[-1200:]
+    import re as _re
+    said = _re.findall(r"PC \(medium\): (\S+) uses", hw.text)          # (battler 2 commands the player's own:
+    assert said and set(said) == {"TESTMON"}, said                       # the game's party, not DUO0/DUO1)
 
 
 @test("Battle Tower, the DUO as player 0: the verdicts - the DUO retiring after the first battle (the leader retires: the game says its partner has retired), and the player retiring while the DUO would carry on (the member retires)")
@@ -3901,12 +3905,22 @@ def _():
     assert game.result["partner_verdicts"] == [TWG.LINKSTAT_MEMBER_RETIRE] and report["verdict"] == TWG.LINKSTAT_MEMBER_RETIRE
 
 
-@test("Battle Tower, the DUO as player 0: its first Pokemon faints - the PC sends in its second from party slot 1 (its own half, 0-2, as link id 0), the game takes it, and the DUO's own choice is never needed")
+@test("Battle Tower, the DUO as player 0: its battler's first Pokemon faints - the PC sends in the second from party slot 4 (battler 2's half, 3-5: the player's own, as the game files them with the game on link id 2), the game takes it, and the DUO's own choice is never needed")
 def _():
     hw, game, report = tower_run(battles=1, master=False, hit_share=0.3, partner_hit_share=0.55)
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
     r = game.result
-    assert r["partner_switches"] and all(b == 0 and pick == 1 for _, b, pick in r["partner_switches"]), r["partner_switches"]
+    assert r["partner_switches"] and all(b == 2 and pick == 4 for _, b, pick in r["partner_switches"]), r["partner_switches"]
+    assert report["fallbacks"] == 0, report
+
+
+@test("Battle Tower, two battles running with the DUO's lead fainting in each (14 November): the second battle starts with everyone back at full health and in first place, so the PC sends in party slot 4 again rather than finding no one left")
+def _():
+    hw, game, report = tower_run(battles=2, duo_wins=True, hit_share=0.7, partner_hit_share=0.55)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert r["battles_played"] == 2, {k: r.get(k) for k in ("battles_played", "battles_won", "partner_switches", "outcome", "retire_sessions")}
+    assert len(r["partner_switches"]) >= 2 and all(b == 2 and pick == 4 for _, b, pick in r["partner_switches"]), r["partner_switches"]
     assert report["fallbacks"] == 0, report
 
 

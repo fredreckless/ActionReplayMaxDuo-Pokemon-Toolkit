@@ -44,7 +44,11 @@ class EmeraldTowerMulti(RubyColosseum):
         trainer A's two, trainer B's two); player_retires_after: the battle after which the player
         retires (None: carries on); battles: how many the challenge is (7)."""
         super().__init__(master=master, party=party, game="emerald", **kw)
-        self.partner = PARTNER if master else 0        # (the DUO's battler: its link id, 2 or 0)
+        # (the DUO's battler: always 2. The game runs the battle (the higher version signature), and
+        # InitLinkBtlControllers gives the battle's master battler 0 and the other GBA battler 2 whatever
+        # the link ids; with the DUO as player 0 its Pokemon are party slots 0-2, so the game's player
+        # commands the DUO's Pokemon and the DUO the player's (14 November: the real game, in the Virtual DUO))
+        self.partner = PARTNER
         # (link.c LINKCMD_SEND_LINK_TYPE: the game answers 0x2222 with its own link player whatever type
         # it names. A leader at the Tower can't tell the lobby's level before the game's link player,
         # so any of the Tower's three types is taken here)

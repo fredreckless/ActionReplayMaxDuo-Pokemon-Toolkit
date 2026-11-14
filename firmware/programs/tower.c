@@ -7,8 +7,11 @@
  *   - player 0 (the DUO's GBA on the master end): we ask for the trainer cards, send the game's own
  *     trainers' list and Tower party straight back (player 1 keeps player 0's), send the header
  *     signature 0x0001 (below Emerald's 0x0300: FindLinkBattleMaster makes the game, on the highest
- *     version, the battle's master), and give the verdict on carrying on from both choices. Our
- *     Pokemon are then party slots 0-2 and battler 0, the game's 3-5 and battler 2.
+ *     version, the battle's master), and give the verdict on carrying on from both choices. The
+ *     game files the Pokemon by link id (ours 0-2, its own 3-5) but gives the battle's master battler 0
+ *     whatever the link ids (InitLinkBtlControllers): so we are still battler 2, now commanding party
+ *     slots 3-5, the player's own Pokemon, while the player commands ours (14 November, found in the
+ *     Virtual DUO: as battler 0 we answered for the player's battler and the game waited for ours).
  *   - the lobby (LINKTYPE_BATTLE_TOWER_50 0x2266 / _OPEN 0x2277): link players (the game's version:
  *     Emerald), our trainer card (our two Pokemon's species at 0x54: the same species as the
  *     player's fails the link-up), the link save's three "ready" barriers, the win streaks (4 bytes
@@ -68,8 +71,8 @@ typedef struct {
 #define LT_TOWER_50   0x2266   /* the lobby's link-up, level 50 */
 #define LT_TOWER_OPEN 0x2277   /* ... open level */
 #define LT_TOWER      0x2288   /* each battle, and the link after it */
-#define PARTY_BASE    (is_master ? 0 : 3)   /* our Pokemon's party slots (link id 0: 0-2; id 2: 3-5) */
-#define OUR_BATTLER   (is_master ? 0 : 2)   /* our battler: the link player's id (0 or 2) */
+#define PARTY_BASE    3                     /* our battler's party slots, as the game numbers them (3-5) */
+#define OUR_BATTLER   2                     /* our battler: always 2 (the game, the battle's master, is 0) */
 
 /* controller commands (pokeruby battle_controllers.h) and the replies we send */
 #define C_SWITCHINANIM    5
