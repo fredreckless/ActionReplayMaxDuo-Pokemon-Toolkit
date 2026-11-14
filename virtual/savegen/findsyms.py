@@ -162,14 +162,14 @@ NEEDS = {
                      gPlayerPartyCount="gPlayerPartyCount", gPlayerParty="gPlayerParty",
                      sb1_ptr="gSaveBlock1Ptr", sb2_ptr="gSaveBlock2Ptr", sStartMenuCursorPos="sStartMenuCursorPos",
                      sNumStartMenuActions="sNumStartMenuActions", sCurrentStartMenuActions="sCurrentStartMenuActions",
-                     gSelectedOrderFromParty="gSelectedOrderFromParty"),
+                     gSelectedOrderFromParty="gSelectedOrderFromParty", gPartyMenu="gPartyMenu"),
                 dict(CB2_Overworld="CB2_Overworld", CB2_MainMenu="CB2_MainMenu", CB2_NamingScreen="CB2_NamingScreen",
                      Task_StartMenu="Task_ShowStartMenu", Task_HandleYesNoInput="Task_HandleYesNoInput",
                      Task_HandleMultichoiceInput="Task_HandleMultichoiceInput", Task_MysteryGift="Task_MysteryGift",
                      CB2_PartyMenu="CB2_UpdatePartyMenu")),
 }
-NEEDS["leafgreen"] = (dict(NEEDS["emerald"][0], sNumStartMenuActions="sNumStartMenuItems",
-                           sCurrentStartMenuActions="sStartMenuOrder"),
+NEEDS["leafgreen"] = ({k: v for k, v in dict(NEEDS["emerald"][0], sNumStartMenuActions="sNumStartMenuItems",
+                           sCurrentStartMenuActions="sStartMenuOrder").items() if k != "gSelectedOrderFromParty"},
                       dict(NEEDS["emerald"][1], Task_StartMenu="Task_StartMenuHandleInput",
                            Task_HandleYesNoInput="Task_YesNoMenu_HandleInput",
                            Task_HandleMultichoiceInput="Task_MultichoiceMenu_HandleInput"))

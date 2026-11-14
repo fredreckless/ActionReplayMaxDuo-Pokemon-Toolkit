@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "savegen"))
 OBJECTS = 0x030048A0          # gMapObjects (16 of 0x24 bytes) in English Ruby 1.1
 GMAIN = 0x03001770            # gMain: callback1, callback2, ...
 CB2_PARTY_MENU = 0x0806AEFC   # CB2_PartyMenuMain
+PARTY_MENU, PARTY = None, 0x03004360  # gPartyMenu (Emerald, FireRed/LeafGreen), gPlayerParty
 TOOLKIT = os.environ.get("TOOLKIT", os.path.dirname(os.path.dirname(HERE)))     # the repository: virtual/..
 
 
@@ -55,13 +56,34 @@ class Walker:
             v.press("partner", face, frames=3, then=12)       # a short tap only turns
 
 
+_party_visits = 0
+
+
 def battle_press(v):
     """The game's side in a battle: A throughout (FIGHT, then the first move), except in the party
     menu after one of its Pokemon faints, where the cursor starts on the fainted one and A would only
     say so: there, move down to the next Pokemon, A, and A again for SHIFT. (A fainted one there just
     says so, and the next press moves on.)"""
+    global _party_visits
     if struct.unpack("<I", v.read("partner", GMAIN + 4, 4))[0] & ~1 == CB2_PARTY_MENU:
-        v.press("partner", "DOWN", frames=4, then=20)
+        # one more DOWN on each visit: in a multi battle the partner's Pokemon are on the same screen
+        # (the game refuses them and comes back with the cursor reset), so a single DOWN can land on
+        # the same wrong one for ever (Italian Emerald's Tower, 14 November)
+        _party_visits += 1
+        if PARTY_MENU:
+            # closed loop: the cursor (gPartyMenu.slotId) moved onto a Pokemon that can still fight,
+            # a different one each visit (one still on the field, or the partner's, gets refused)
+            party = v.read("partner", PARTY, 600)
+            alive = [i for i in range(6) if struct.unpack_from("<HH", party, 100 * i + 86)[1]
+                     and struct.unpack_from("<H", party, 100 * i + 86)[0]]
+            target = alive[(_party_visits - 1) % len(alive)] if alive else None
+            for _ in range(8):
+                if target is None or v.read("partner", PARTY_MENU + 9, 1)[0] == target:
+                    break
+                v.press("partner", "DOWN", frames=4, then=20)
+        else:
+            for _ in range(1 + (_party_visits - 1) % 5):
+                v.press("partner", "DOWN", frames=4, then=20)
         v.press("partner", "A", frames=6, then=40)
         v.press("partner", "A", frames=6, then=60)
     else:
@@ -151,10 +173,11 @@ def common_args(description):
 
 def set_game(rom):
     """Point the helpers at this ROM's RAM and code (savegen/profiles.py); returns its profile."""
-    global OBJECTS, GMAIN, CB2_PARTY_MENU
+    global OBJECTS, GMAIN, CB2_PARTY_MENU, PARTY_MENU, PARTY
     import profiles
     p = profiles.for_rom(rom)
     OBJECTS, GMAIN, CB2_PARTY_MENU = p.gObjectEvents, p.gMain, p.sym["CB2_PartyMenu"]
+    PARTY_MENU, PARTY = getattr(p, "gPartyMenu", None), p.gPlayerParty
     return p
 
 

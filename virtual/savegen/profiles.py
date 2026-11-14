@@ -83,6 +83,7 @@ class EmeraldEnglish:
     sNumStartMenuActions = 0x0203760F
     sCurrentStartMenuActions = 0x02037610
     gSelectedOrderFromParty = 0x0203CEF8  # (the Battle Frontier's choice of Pokemon: the tower rehearsal)
+    gPartyMenu = 0x0203CEC8               # (slotId at +9: the rehearsals' party screen after a faint)
     SB1_FLAGS, SB1_KEYITEMS, SB1_BERRIES = 0x1270, 0x5D8, 0x790
     sym = {
         "CB2_Overworld": 0x08085E5C,
@@ -147,6 +148,7 @@ class LeafGreenEnglish11:
     sStartMenuCursorPos = 0x020370F4
     sNumStartMenuActions = 0x020370F5     # sNumStartMenuItems
     sCurrentStartMenuActions = 0x020370F6 # sStartMenuOrder
+    gPartyMenu = 0x0203B0A0
     SB1_FLAGS, SB1_KEYITEMS, SB1_BERRIES = 0x0EE0, 0x3B8, 0x54C
     sym = {
         "CB2_Overworld": 0x080565C8,
@@ -185,25 +187,25 @@ class LeafGreenEnglish11:
 # 2026): code by its masked bytes, RAM by the literal pools of the functions that use it. None:
 # not found (the Japanese naming screens differ; mashing A gets through them instead).
 DERIVED = {
-    "BPED": dict(gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
+    "BPED": dict(gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(CB2_Overworld=0x08085E78, CB2_MainMenu=0x0802F6B4, CB2_NamingScreen=0x080E4BC0, Task_StartMenu=0x0809FA50, Task_HandleYesNoInput=0x080E1DB4, Task_HandleMultichoiceInput=0x080E1CB0, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFCD8)),
-    "BPEF": dict(gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
+    "BPEF": dict(gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(CB2_Overworld=0x08085E6C, CB2_MainMenu=0x0802F6B0, CB2_NamingScreen=0x080E4BE0, Task_StartMenu=0x0809FA48, Task_HandleYesNoInput=0x080E1DD4, Task_HandleMultichoiceInput=0x080E1CD0, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFDEC)),
-    "BPEI": dict(gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
+    "BPEI": dict(gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(CB2_Overworld=0x08085E70, CB2_MainMenu=0x0802F6B4, CB2_NamingScreen=0x080E4BAC, Task_StartMenu=0x0809FA48, Task_HandleYesNoInput=0x080E1DAC, Task_HandleMultichoiceInput=0x080E1CA8, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFCB8)),
-    "BPEJ": dict(gSelectedOrderFromParty=0x0203CBC4, gMain=0x03002360, gTasks=0x03005B60, gObjectEvents=0x02036FF0, gPlayerPartyCount=0x0202418D, gPlayerParty=0x02024190, sb1_ptr=0x03005AEC, sb2_ptr=0x03005AF0, sStartMenuCursorPos=0x020372AE, sNumStartMenuActions=0x020372AF, sCurrentStartMenuActions=0x020372B0,
+    "BPEJ": dict(gPartyMenu=0x0203CB94, gSelectedOrderFromParty=0x0203CBC4, gMain=0x03002360, gTasks=0x03005B60, gObjectEvents=0x02036FF0, gPlayerPartyCount=0x0202418D, gPlayerParty=0x02024190, sb1_ptr=0x03005AEC, sb2_ptr=0x03005AF0, sStartMenuCursorPos=0x020372AE, sNumStartMenuActions=0x020372AF, sCurrentStartMenuActions=0x020372B0,
                  sym=dict(CB2_Overworld=0x080857C4, CB2_MainMenu=0x0802F314, CB2_NamingScreen=None, Task_StartMenu=0x0809F30C, Task_HandleYesNoInput=0x080E166C, Task_HandleMultichoiceInput=0x080E1568, Task_MysteryGift=0x08018C5C, CB2_PartyMenu=0x081AFE88)),
-    "BPES": dict(gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
+    "BPES": dict(gPartyMenu=0x0203CEC8, gSelectedOrderFromParty=0x0203CEF8, gMain=0x030022C0, gTasks=0x03005E00, gObjectEvents=0x02037350, gPlayerPartyCount=0x020244E9, gPlayerParty=0x020244EC, sb1_ptr=0x03005D8C, sb2_ptr=0x03005D90, sStartMenuCursorPos=0x0203760E, sNumStartMenuActions=0x0203760F, sCurrentStartMenuActions=0x02037610,
                  sym=dict(CB2_Overworld=0x08085E70, CB2_MainMenu=0x0802F6B0, CB2_NamingScreen=0x080E4BB4, Task_StartMenu=0x0809FA48, Task_HandleYesNoInput=0x080E1DB4, Task_HandleMultichoiceInput=0x080E1CB0, Task_MysteryGift=0x080191F4, CB2_PartyMenu=0x081AFDD0)),
-    "BPGD": dict(gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
+    "BPGD": dict(gPartyMenu=0x0203B0A0, gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
                  sym=dict(CB2_Overworld=0x080565D4, CB2_MainMenu=0x0800C254, CB2_NamingScreen=0x0809FC38, Task_StartMenu=0x0806F154, Task_HandleYesNoInput=0x0809CF0C, Task_HandleMultichoiceInput=0x0809CD50, Task_MysteryGift=0x08142F28, CB2_PartyMenu=0x0811EBAC)),
-    "BPGF": dict(gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
+    "BPGF": dict(gPartyMenu=0x0203B0A0, gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
                  sym=dict(CB2_Overworld=0x08056694, CB2_MainMenu=0x0800C240, CB2_NamingScreen=0x0809FCF8, Task_StartMenu=0x0806F214, Task_HandleYesNoInput=0x0809CFCC, Task_HandleMultichoiceInput=0x0809CE10, Task_MysteryGift=0x08142FE4, CB2_PartyMenu=0x0811EC6C)),
-    "BPGI": dict(gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
+    "BPGI": dict(gPartyMenu=0x0203B0A0, gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
                  sym=dict(CB2_Overworld=0x080565C0, CB2_MainMenu=0x0800C254, CB2_NamingScreen=0x0809FC18, Task_StartMenu=0x0806F140, Task_HandleYesNoInput=0x0809CEF8, Task_HandleMultichoiceInput=0x0809CD3C, Task_MysteryGift=0x08142F68, CB2_PartyMenu=0x0811EBF0)),
-    "BPGJ": dict(gMain=0x03003130, gTasks=0x030050D0, gObjectEvents=0x02036D6C, gPlayerPartyCount=0x02023F89, gPlayerParty=0x020241E4, sb1_ptr=0x03005048, sb2_ptr=0x0300504C, sStartMenuCursorPos=0x02037028, sNumStartMenuActions=0x02037029, sCurrentStartMenuActions=0x0203702A,
+    "BPGJ": dict(gPartyMenu=0x0203B014, gMain=0x03003130, gTasks=0x030050D0, gObjectEvents=0x02036D6C, gPlayerPartyCount=0x02023F89, gPlayerParty=0x020241E4, sb1_ptr=0x03005048, sb2_ptr=0x0300504C, sStartMenuCursorPos=0x02037028, sNumStartMenuActions=0x02037029, sCurrentStartMenuActions=0x0203702A,
                  sym=dict(CB2_Overworld=0x08055E74, CB2_MainMenu=0x0800BCB4, CB2_NamingScreen=None, Task_StartMenu=0x0806E9E4, Task_HandleYesNoInput=0x0809C85C, Task_HandleMultichoiceInput=0x0809C6A0, Task_MysteryGift=0x08143580, CB2_PartyMenu=0x0811F380)),
-    "BPGS": dict(gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
+    "BPGS": dict(gPartyMenu=0x0203B0A0, gMain=0x03003040, gTasks=0x03004FE0, gObjectEvents=0x02036E38, gPlayerPartyCount=0x02024029, gPlayerParty=0x02024284, sb1_ptr=0x03004F58, sb2_ptr=0x03004F5C, sStartMenuCursorPos=0x020370F4, sNumStartMenuActions=0x020370F5, sCurrentStartMenuActions=0x020370F6,
                  sym=dict(CB2_Overworld=0x080566A8, CB2_MainMenu=0x0800C240, CB2_NamingScreen=0x0809FD00, Task_StartMenu=0x0806F228, Task_HandleYesNoInput=0x0809CFE0, Task_HandleMultichoiceInput=0x0809CE24, Task_MysteryGift=0x08143054, CB2_PartyMenu=0x0811ECD8)),
 }
 
