@@ -808,8 +808,18 @@ EREADER_STATES = ("waiting for the game", "handshaking", "link up", "got the gam
 MEV_NOP, MEV_CHECKCOMPAT, MEV_END, MEV_SETMSG, MEV_SETSTATUS = 0, 1, 2, 3, 4
 MEV_INITRAMSCRIPT, MEV_SETRECORDMIXINGGIFT, MEV_CHECKSUM, MEV_CRC = 6, 11, 15, 16
 MEV_BASE = 0x02000000                   # the address our scripts are written for (checkcompat's word)
-MEV_LANGUAGE_MASKS = {"Japanese": 1 << 0, "English": 1 << 1, "German": 1 << 2}   # Japanese and English as on
-                                        # Nintendo's own e-Cards (decoded, Stage 6); German from pokeruby
+MEV_LANGUAGE_MASKS = {"Japanese": 1 << 0, "English": 1 << 1, "German": 1 << 2,   # Japanese and English as on
+                      "French": 1 << 3, "Italian": 1 << 4, "Spanish": 1 << 5}     # Nintendo's own e-Cards
+# checkcompat has two language masks: its 32-bit one is the language's own bit (above), its 16-bit
+# one is 1 for Japanese, 2 for English and 4 for the other European languages. Read from every
+# Ruby and Sapphire's CheckCompatibility (15 November): German's two are both 4, French 4 and 8,
+# Italian 4 and 0x10, Spanish 4 and 0x20.
+MEV_REGION_MASKS = {"Japanese": 1, "English": 2, "German": 4, "French": 4, "Italian": 4, "Spanish": 4}
+
+
+def mev_masks(language):
+    """checkcompat's (16-bit, 32-bit) language masks for a language's Ruby and Sapphire."""
+    return MEV_REGION_MASKS[language], MEV_LANGUAGE_MASKS[language]
 MEV_VERSIONS = {"Ruby": 1 << 7, "Sapphire": 1 << 8}          # pokeruby VERSION_MASK
 MEV_MAX = 2004                          # the game's receive buffer (cleared for 0x7D4 bytes)
 RAM_SCRIPT_MAGIC, RAM_SCRIPT_DATA, RAM_SCRIPT_MAX = 0x33, 1000, 995
@@ -877,7 +887,7 @@ def parse_me3(data):
 
 def build_event_script(me3, language="English", versions=("Ruby", "Sapphire")):
     """The Mystery Event script that makes the game store exactly what a .me3 holds."""
-    lang_mask = MEV_LANGUAGE_MASKS[language]
+    mask16, mask32 = mev_masks(language)
     ver_mask = 0
     for v in versions:
         ver_mask |= MEV_VERSIONS[v]
@@ -885,7 +895,7 @@ def build_event_script(me3, language="English", versions=("Ruby", "Sapphire")):
     head_len = 17 + 13 + 12 + (5 if gift else 0) + 1         # checkcompat, checksum, initramscript, gift, end
     start = MEV_BASE + head_len
     end = start + len(me3["script"])
-    out = bytearray([MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", MEV_BASE, lang_mask, lang_mask, 0x4, ver_mask)
+    out = bytearray([MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", MEV_BASE, mask16, mask32, 0x4, ver_mask)
     out += bytes([MEV_CHECKSUM]) + struct.pack("<iII", sum(me3["script"]), start, end)
     out += bytes([MEV_INITRAMSCRIPT, me3["map_group"], me3["map_num"], me3["person"]]) + struct.pack("<II", start, end)
     if gift:
@@ -944,7 +954,7 @@ def parse_ecb(data):
 
 def build_berry_script(berry, language="English", versions=("Ruby", "Sapphire")):
     """The Mystery Event script that makes the game store exactly the berry a .ecb holds."""
-    lang_mask = MEV_LANGUAGE_MASKS[language]
+    mask16, mask32 = mev_masks(language)
     ver_mask = 0
     for v in versions:
         ver_mask |= MEV_VERSIONS[v]
@@ -952,7 +962,7 @@ def build_berry_script(berry, language="English", versions=("Ruby", "Sapphire"))
     rec[ECB_POINTERS] = bytes(8)                  # the saving game's addresses: meaningless here
     head_len = 17 + 13 + 5 + 1                    # checkcompat, checksum, setenigmaberry, end
     start = MEV_BASE + head_len
-    out = bytearray([MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", MEV_BASE, lang_mask, lang_mask, 0x4, ver_mask)
+    out = bytearray([MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", MEV_BASE, mask16, mask32, 0x4, ver_mask)
     out += bytes([MEV_CHECKSUM]) + struct.pack("<iII", sum(rec), start, start + len(rec))
     out += bytes([MEV_SETENIGMABERRY]) + struct.pack("<I", start)
     out += bytes([MEV_END])
@@ -1591,13 +1601,13 @@ def parse_ect(data):
 
 
 def build_trainer_script(rec, language="English", versions=("Ruby", "Sapphire")):
-    lang_mask = MEV_LANGUAGE_MASKS[language]
+    mask16, mask32 = mev_masks(language)
     ver_mask = 0
     for v in versions:
         ver_mask |= MEV_VERSIONS[v]
     head_len = 17 + 13 + 5 + 1 + 0                # checkcompat, checksum, addtrainer, end
     start = MEV_BASE + head_len
-    out = bytearray([MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", MEV_BASE, lang_mask, lang_mask, 0x4, ver_mask)
+    out = bytearray([MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", MEV_BASE, mask16, mask32, 0x4, ver_mask)
     out += bytes([MEV_CHECKSUM]) + struct.pack("<iII", sum(rec), start, start + len(rec))
     out += bytes([MEV_ADDTRAINER]) + struct.pack("<I", start)
     out += bytes([MEV_END])
@@ -1610,13 +1620,13 @@ def describe_event_script(script):
     if len(script) < 17 or script[0] != MEV_CHECKCOMPAT:
         return [], [], ["it doesn't start with checkcompat (command 1), so the game would store nothing"]
     _, l0, l1, flag, ver = struct.unpack_from("<IHIHI", script, 1)
-    langs = [n for n, m in MEV_LANGUAGE_MASKS.items() if l0 & m and l1 & m]
+    langs = [n for n, m in MEV_LANGUAGE_MASKS.items() if l0 & MEV_REGION_MASKS[n] and l1 & m]
     vers = [n for n, m in MEV_VERSIONS.items() if ver & m]
     problems = []
     if not flag & 0x4:
         problems.append("its compatibility flags lack 0x4, so every game would refuse it")
     if not langs:
-        problems.append("it isn't marked for Japanese, English or German games")
+        problems.append("it isn't marked for any language's games")
     if not vers:
         problems.append("it isn't marked for Ruby or Sapphire")
     return langs, vers, problems
@@ -1635,8 +1645,7 @@ def prepare_event(data, path=""):
     if len(data) == EREADER_TRAINER_SIZE:
         trainer, problems = parse_ect(data)
         if language not in MEV_LANGUAGE_MASKS:
-            raise ValueError(f"the trainer is for {language} games; Mystery Event scripts are only known for "
-                             "Japanese, English and German Ruby/Sapphire")
+            raise ValueError(f"the trainer is for {language} games, which have no Mystery Event")
         script = build_trainer_script(data, language)
         name = trainer["name"] if language != "Japanese" else "Japanese-named"
         text = (f"a saved e-Reader trainer (.ect): {name}; sent as a Mystery Event script for {language} games "
@@ -1645,8 +1654,7 @@ def prepare_event(data, path=""):
     if len(data) == ECB_SIZE:
         berry, problems = parse_ecb(data)
         if language not in MEV_LANGUAGE_MASKS:
-            raise ValueError(f"the berry is for {language} games; Mystery Event scripts are only known for "
-                             "Japanese, English and German Ruby/Sapphire")
+            raise ValueError(f"the berry is for {language} games, which have no Mystery Event")
         script = build_berry_script(data, language)
         if language == "Japanese":
             berry["name"] = "Japanese-named"                    # (the name is in Japanese characters)
@@ -1655,8 +1663,7 @@ def prepare_event(data, path=""):
         return script, text, problems
     me3, problems = parse_me3(data)
     if language not in MEV_LANGUAGE_MASKS:
-        raise ValueError(f"the file is for {language} games; Mystery Event scripts are only known for "
-                         "Japanese, English and German Ruby/Sapphire")
+        raise ValueError(f"the file is for {language} games, which have no Mystery Event")
     script = build_event_script(me3, language)
     place = RS_PLACES.get((me3["map_group"], me3["map_num"]), f"map {me3['map_group']}.{me3['map_num']}")
     text = f"a saved Mystery Event (.me3): a script for person {me3['person']} in {place}"

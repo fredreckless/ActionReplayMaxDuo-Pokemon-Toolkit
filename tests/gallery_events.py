@@ -9,10 +9,8 @@ line timing the emulator doesn't model) and Mystery Event in every language.
 A .wc3 runs against each game its name gives (E - ... Emerald; FL - ... FireRed and LeafGreen), in
 its own language: the simulated game searches, connects and receives, and must end up holding exactly
 the file's Wonder Card and RAM script. A .me3 (the Eon Ticket) runs against Ruby and Sapphire in its
-language: the game must receive exactly what the tool sends, and where the Mystery Event model knows
-the language (Japanese, English, German) the game's own script engine must store the ticket. The
-tool itself declines French, Italian and Spanish events (their scripts aren't known yet): those are
-reported NOT SUPPORTED, not as failures.
+language: the game must receive exactly what the tool sends, and the Mystery Event model (every
+language: Japanese, English, French, German, Italian, Spanish) must store the ticket.
 The files stay where they are and are only read.
 """
 import contextlib, glob, io, os, re, sys

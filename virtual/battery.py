@@ -80,9 +80,8 @@ def tests_for(game, lang, S, P, kit, gallery):
                 ("mix", "mix", ["--state", f"{S}/at_record_question.state", "@OUT", *mix]),
                 ("blender1", "blender", ["--state", f"{S}/at_blender_question.state", "--duo-player", "1"]),
                 ("blender0", "blender", ["--state", f"{S}/at_blender_question.state", "--duo-player", "0"])]
-        # (the tool sends Mystery Events only for Japanese, English and German games so far: the others'
-        # files go through gallery_events.py, which reports them as not supported yet)
-        for me3 in (gallery_files(gallery, lang, "RS - *.me3") if lang in ("Japanese", "English", "German") else []):
+        # the gallery's Mystery Events for the game's language, each through the game itself
+        for me3 in gallery_files(gallery, lang, "RS - *.me3"):
             tag = re.sub(r"[^a-z0-9]+", "_", os.path.basename(me3).lower().replace(".me3", ""))[-24:].strip("_")
             out.append((f"event_{tag}", "event", ["--state", f"{S}/at_link_standby.state", "--me3", me3]))
     else:

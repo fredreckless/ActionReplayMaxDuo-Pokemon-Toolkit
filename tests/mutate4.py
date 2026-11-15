@@ -127,6 +127,7 @@ PC_MUTANTS = {
     "card strips joined without skipping the later strips' titles": ("        card += data[CARD_TITLE:]\n", "        card += data[CARD_TITLE:] if not card else data\n", "e-Card scans"),
     "card strips' Reed-Solomon parity never checked": ("    damaged = [i for i, c in enumerate(cw) if rs_parity(c[:48]) != bytes(c[48:])]", "    damaged = []", "e-Card scans"),
     "vpk0 one-sample distances (method 1) off by four": ("else (m << 2) - 8", "else (m << 2) - 4", "e-Card"),
+    "European Mystery Events get English's 16-bit mask": ('MEV_REGION_MASKS = {"Japanese": 1, "English": 2, "German": 4, "French": 4, "Italian": 4, "Spanish": 4}', 'MEV_REGION_MASKS = {"Japanese": 1, "English": 2, "German": 4, "French": 2, "Italian": 2, "Spanish": 2}', "Mystery Event files (15 November)"),
     "Japanese Mystery Events get the English mask": ('MEV_LANGUAGE_MASKS = {"Japanese": 1 << 0,', 'MEV_LANGUAGE_MASKS = {"Japanese": 1 << 1,', "Mystery Event files"),
     "a card's trainer record cut four bytes short": ("EREADER_TRAINER_SIZE = 0xBC", "EREADER_TRAINER_SIZE = 0xB8", "e-Card scans"),
     "pk3 blocks unshuffled with personality mod 23": ('form, plain, order = "the game\'s (encrypted)", decrypted, PK3_ORDERS[pid % 24]', 'form, plain, order = "the game\'s (encrypted)", decrypted, PK3_ORDERS[pid % 23]', "Pokemon files"),

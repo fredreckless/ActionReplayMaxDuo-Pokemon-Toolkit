@@ -173,7 +173,7 @@ python duo_events.py event                      (a dry run: link players only)
   - for **Japanese Emerald**, its **Trainer Hill e-Cards** (`.raw`), up to four at once: `event --event CARD1.raw CARD2.raw`. On Emerald, choose the title menu's ふしぎなおくりもの with no Wireless Adapter attached: it opens the e-Reader screen;
   - for **Japanese FireRed/LeafGreen**, its **Trainer Tower e-Cards**, up to four floors at once, the same way.
 
-  Japanese, English and German games ([docs/EREADER.md](docs/EREADER.md)).
+  Every language's Ruby and Sapphire take them: Japanese, English, French, German, Italian and Spanish ([docs/EREADER.md](docs/EREADER.md)).
 - **Mystery Event unlocked.** Tell the man by the PC in **Petalburg City's Pokémon Center** "**MYSTERY EVENT IS EXCITING**" (after beating Norman), then save and restart: MYSTERY EVENT appears on the title menu (ふしぎな できごと in Japanese). Other languages have their own words: [every language's phrase](docs/UNLOCKING.md).
 
 **Which end of the cable.** The game must be the link's **master**: Ruby's MYSTERY EVENT menu only carries on as master. Which end makes a GBA master depends on the cable (on Nintendo's own, the small purple plug). You don't need to know in advance: if the DUO comes up as player 0, the tool says so, and you switch both GBAs off and swap the ends.

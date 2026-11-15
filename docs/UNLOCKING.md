@@ -45,7 +45,7 @@ Japanese Emerald shows ふしぎな おくりもの instead when it finds a Wire
 
 The European versions of Emerald have no Mystery Event, and the questionnaire doesn't accept this phrase. FireRed and LeafGreen still have the phrase in their code in every language, but none of their scripts uses it (going by pret's FireRed).
 
-Once Mystery Event is unlocked, the DUO can send events to Japanese, English and German games. French, Italian and Spanish events aren't supported by the tool yet: their event scripts are still unknown ([EREADER.md](EREADER.md)).
+Once Mystery Event is unlocked, the DUO can send events to Ruby and Sapphire in every language here ([EREADER.md](EREADER.md)). Each French, Italian and Spanish Eon Ticket from the EventsGallery was checked in its own Ruby and Sapphire in the emulator.
 
 ## The ROMs this was checked in
 

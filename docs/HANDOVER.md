@@ -123,6 +123,11 @@ run and stretched once (frame by frame it warbled); the tall team panel scrolls;
 Mixing video ends in a battle with the base's owner, once both first Pokémon are out (owners only
 battle after the Champion, so FLAG_SYS_GAME_CLEAR is set for it).
 
+Mystery Events in every language (15 November): checkcompat's 16-bit mask is 4 for every European
+language but English and its 32-bit mask the language's own bit (French 8, Italian 0x10, Spanish
+0x20), read from each ROM's CheckCompatibility. The French, Italian and Spanish Eon Tickets were
+stored by all six games in the emulator (event.py), and the battery now runs every language's.
+
 Also: `ruby.Tool.linked()` ignores the tool's "no change for 30 s" notice. On a slow run (the laptop,
 or recording) it came before the link and stopped the tapping: that was the matrix's 8 Emerald
 Tower failures on 14 November (rerun `run_matrix.sh` to confirm).

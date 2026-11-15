@@ -1414,6 +1414,21 @@ TEST_ME3 = test_me3()
 TEST_EVENT = W.prepare_event(TEST_ME3, "x (ENG).me3")[0]       # the script the DUO actually sends
 
 
+@test("Mystery Event files (15 November): French, Italian and Spanish games take events too - checkcompat's 16-bit mask is 4 for every European language but English, its 32-bit one the language's own bit - and each refuses the others'")
+def _():
+    me3 = test_me3(gift=(1, 0x97, 0x113))
+    for lang, tag, m16, m32 in (("French", "FRE", 4, 8), ("Italian", "ITA", 4, 0x10), ("Spanish", "SPA", 4, 0x20),
+                                ("German", "GER", 4, 4)):
+        script, text, problems = W.prepare_event(me3, f"x ({tag}).me3")
+        assert not problems and struct.unpack_from("<HI", script, 5) == (m16, m32), (lang, script[:17].hex())
+        for version in ("Ruby", "Sapphire"):
+            status, saved, store = ME.run(script, lang, version)
+            assert (status, saved) == (ME.LOAD_OK, True) and store["ram_script"] == me3[:1004], (lang, version)
+        for other in ("English", "Japanese") + tuple(l for l in ("French", "Italian", "Spanish", "German") if l != lang):
+            assert ME.run(script, other, "Ruby")[:2] == (ME.FAILURE, False), (lang, other)
+        assert W.describe_event_script(script)[0] == [lang], W.describe_event_script(script)
+
+
 @test("Mystery Event files: a .me3 is wrapped so Ruby stores exactly it; raw scripts are checked; damage, wrong language and other files are refused")
 def _():
     for gift in ((1, 0x97, 0x113), None):
@@ -1438,8 +1453,7 @@ def _():
     damaged = bytearray(TEST_ME3); damaged[1009] ^= 1
     assert "Record Mixing" in " ".join(W.prepare_event(bytes(damaged), "x.me3")[2])
     for data, name, word in ((bytes(300), "x.bin", "not a saved Mystery Event"),
-                             (bytes([0x10]) + bytes(1011), "x.me3", "not a saved Mystery Event"),
-                             (TEST_ME3, "x (FRE).me3", "French")):
+                             (bytes([0x10]) + bytes(1011), "x.me3", "not a saved Mystery Event")):
         try:
             W.prepare_event(data, name); raise AssertionError(f"{name} accepted")
         except ValueError as e:
@@ -1520,10 +1534,9 @@ def _():
     assert "growth time" in " ".join(W.prepare_event(bytes(empty), "x.ecb")[2])
     jp, text, _ = W.prepare_event(TEST_ECB, "x (JPN).ecb")
     assert jp[5] == 1 and ME.run(jp, "Japanese")[2]["berry_valid"] and "Japanese-named" in text, text
-    try:
-        W.prepare_event(TEST_ECB, "x (ITA).ecb"); raise AssertionError("Italian berry accepted")
-    except ValueError as e:
-        assert "Italian" in str(e), e
+    it = W.prepare_event(TEST_ECB, "x (ITA).ecb")[0]                           # Italian (15 November): 4 and 0x10
+    assert struct.unpack_from("<HI", it, 5) == (4, 0x10) and ME.run(it, "Italian")[2]["berry_valid"]
+    assert ME.run(it, "English")[:2] == (ME.FAILURE, False)
     assert "Norman" in W.event_hint(TEST_ECB) and "TESTER BERRY" in W.event_hint(TEST_ECB)
     try:
         quiet(W.load_event, None, event_file(bytes(damaged), "x (ENG).ecb")); raise AssertionError("damaged berry sent")

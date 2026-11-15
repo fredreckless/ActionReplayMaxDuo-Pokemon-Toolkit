@@ -14,7 +14,11 @@ then writes the save (it does for status 0 "loaded OK" and 2 "success").
 import struct
 
 LOAD_OK, LOAD_ERROR, SUCCESS, FAILURE, STATUS_FF = 0, 1, 2, 3, 0xFF
-LANGUAGE_MASK = {"Japanese": 1 << 0, "English": 1 << 1, "German": 1 << 2}
+LANGUAGE_MASK = {"Japanese": 1 << 0, "English": 1 << 1, "German": 1 << 2, "French": 1 << 3, "Italian": 1 << 4,
+                 "Spanish": 1 << 5}
+# CheckCompatibility's other (16-bit) mask, as each ROM has it: 4 for every European language but
+# English (read from all ten European Ruby and Sapphire ROMs, 15 November)
+REGION_MASK = {"Japanese": 1, "English": 2, "German": 4, "French": 4, "Italian": 4, "Spanish": 4}
 VERSION_MASK = {"Ruby": 1 << 7, "Sapphire": 1 << 8}
 N_COMMANDS = 17                            # nop .. crc
 BUFFER = 0x7D4                             # gSharedMem, cleared to this size around each event
@@ -58,6 +62,7 @@ class Engine:
     def __init__(self, buffer, language, version, berry=None):
         self.buf = bytes(buffer[:BUFFER]).ljust(BUFFER, b"\0")
         self.lang_mask, self.ver_mask = LANGUAGE_MASK[language], VERSION_MASK[version]
+        self.region_mask = REGION_MASK[language]
         self.ptr, self.offset, self.base = 0, 0, 0     # mScriptBase = the buffer's own start
         self.status, self.valid, self.stopped = LOAD_OK, False, False
         self.message = None
@@ -112,7 +117,7 @@ class Engine:
     def cmd_1(self):                              # checkcompat
         self.offset = self.word()
         unk0, unk1, unk2, version = self.half(), self.word(), self.half(), self.word()
-        if unk0 & self.lang_mask and unk1 & self.lang_mask and unk2 & 0x4 and version & self.ver_mask:
+        if unk0 & self.region_mask and unk1 & self.lang_mask and unk2 & 0x4 and version & self.ver_mask:
             self.valid = True
         else:
             self.message, self.status = "can't be used", FAILURE      # SetIncompatible

@@ -136,7 +136,7 @@ From pokeruby's `mystery_event_script.c` and `script.c`.
 
   | No. | Command | Arguments | Notes |
   |---|---|---|---|
-  | 1 | `checkcompat` | base (u32), languages (u16), languages (u32), flags (u16), versions (u32) | Sets the script's base address for pointers. Valid only if both language fields have the game's bit (English 1<<1, German 1<<2), flags has 0x4, and versions has Ruby 1<<7 or Sapphire 1<<8. Otherwise status 3. Yields |
+  | 1 | `checkcompat` | base (u32), languages (u16), languages (u32), flags (u16), versions (u32) | Sets the script's base address for pointers. Valid only if the 16-bit field has the game's region bit (Japanese 1, English 2, any other European language 4) and the 32-bit field its language's bit (Japanese 1<<0, English 1<<1, German 1<<2, French 1<<3, Italian 1<<4, Spanish 1<<5), flags has 0x4, and versions has Ruby 1<<7 or Sapphire 1<<8. Otherwise status 3. Yields |
   | 2 | `end` | | |
   | 3 | `setmsg` | status (u8), text (pointer) | Shows the text if the status matches (0xFF: any) |
   | 4 | `setstatus` | status (u8) | |
@@ -269,6 +269,11 @@ A `.raw` is one dot-code strip as the e-Reader reads it. Read back to front:
 - **The language masks, from the cards.** `checkcompat`'s two language fields are **0x0001** on
   every Japanese card and **0x0002** on every English one (German, 0x0004, is from pokeruby). So
   Japanese `.me3` and `.ecb` files are now wrapped with 0x0001, and Japanese cards go as they are.
+- **French, Italian and Spanish (15 November).** Read from every European Ruby and Sapphire's
+  `CheckCompatibility`: the 16-bit field must have 4 (as German's), the 32-bit field the language's
+  own bit: French 8, Italian 0x10, Spanish 0x20 (German's two are both 4). With these the gallery's
+  French, Italian and Spanish Eon Tickets were stored byte for byte by the real games in the
+  emulator (all six ROMs), and a French one sent with English's 16-bit mask was refused.
 - **The tool warns at link-up** when an event's language isn't the game's, since the game would
   only say it can't be used.
 - **Menus.** The Japanese title menu says ふしぎな できごと (fushigi na dekigoto). It's unlocked the

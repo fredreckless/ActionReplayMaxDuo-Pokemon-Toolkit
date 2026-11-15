@@ -119,8 +119,8 @@ def test_trainer(name=b"\xbb\xbc\xbd", seed=1):
 
 def trainer_script(trainer, language="English", ram_script=None):
     """A Mystery Event script like the real trainer cards': checkcompat, (initramscript), addtrainer, end."""
-    mask = W.MEV_LANGUAGE_MASKS[language]
-    head = bytearray([W.MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", W.MEV_BASE, mask, mask, 4, 0x180)
+    m16, m32 = W.mev_masks(language)
+    head = bytearray([W.MEV_CHECKCOMPAT]) + struct.pack("<IHIHI", W.MEV_BASE, m16, m32, 4, 0x180)
     n = 17 + (12 if ram_script else 0) + 5 + 1
     n += -n % 4
     tail = trainer
