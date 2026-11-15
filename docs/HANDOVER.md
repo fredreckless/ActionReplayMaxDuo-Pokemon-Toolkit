@@ -108,6 +108,15 @@ Pokémon from the EventsGallery (`savegen/events.py`: three at random, only thos
 level 50, raised to 50, still legal); and the Record Mixing video ends by going to the base's spot
 on its route and walking in (`unlock.py visit_base`).
 
+Third round (15 November, afternoon): from the GBA's back the cartridge goes up into the DUO's
+lower edge, label out and upside down, lying on the GBA's back (Fred's photo); the workshop is a
+slideshow of its main parts, each slide fading through the background; and the videos have sound.
+vduo keeps the game GBA's sound while recording (`audio`/`audio_pos`: 16-bit stereo at 32768 Hz,
+with where each recorded frame's sound starts, in partner.pcm and partner_pos.txt; mGBA's volume
+defaults to silence, so vduo sets it). The music is the Record Corner's own theme, cut from the
+Record Mixing recording and looped under everything; wherever the game plays at its own speed its
+real sound takes over.
+
 Also: `ruby.Tool.linked()` ignores the tool's "no change for 30 s" notice. On a slow run (the laptop,
 or recording) it came before the link and stopped the tapping: that was the matrix's 8 Emerald
 Tower failures on 14 November (rerun `run_matrix.sh` to confirm).

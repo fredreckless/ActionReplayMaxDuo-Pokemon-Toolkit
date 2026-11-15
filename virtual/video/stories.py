@@ -177,7 +177,7 @@ def link_story(out, rec_dir, s, crf=20):
     rec = Recording(rec_dir)
     lines_of(rec)
     game = s["game"]
-    v = Video(out, s["title"], s["game_name"], crf=crf)
+    v = Video(out, s["title"], s["game_name"], crf=crf, theme=s.get("theme"))
     v.overview()
     v.title_card(s["title"], s["sub"])
     v.scene(setups.games("gba", focus=game))
@@ -185,9 +185,10 @@ def link_story(out, rec_dir, s, crf=20):
         import json
         from PIL import Image
         steps = json.load(open(os.path.join(s["workshop"], "steps.json")))
+        main = ("Open", "Generate again", "The owner", "Save")     # the main parts only, as slides
         for st in steps:
-            v.still(Image.open(os.path.join(s["workshop"], st["png"])), st["words"], "Workshop", secs=2.6)
-        v.crossfade()
+            if st["words"].startswith(main):
+                v.still(Image.open(os.path.join(s["workshop"], st["png"])), st["words"], "Workshop", secs=3.4)
     if s.get("unlock"):
         u = UNLOCKS[s["unlock"]]
         play_marked(v, Recording(s["unlock_rec"]), u["cues"], u["speed"], "Unlock")
@@ -236,12 +237,12 @@ CLAIM = [("title", "Proof: the card, kept as the game keeps one it has received 
          ("got", "He hands over what the card promised: it's in the bag")]
 
 
-def gift_story(out, unlock_rec, crf=20, claim_rec=None):
+def gift_story(out, unlock_rec, crf=20, claim_rec=None, theme=None):
     """Mystery Gift: the questionnaire unlock (recorded), then the cable and the steps to receive a card.
     (No rehearsal of receiving yet, so no game footage of it, and no tool output is shown.)"""
     rec = Recording(unlock_rec)
     title = "Mystery Gift with Emerald"
-    v = Video(out, title, "Pokémon Emerald (English)", crf=crf)
+    v = Video(out, title, "Pokémon Emerald (English)", crf=crf, theme=theme)
     v.overview()
     v.title_card(title, "duo_events.py gift: the DUO's GBA plays a Wireless Adapter\nover a cross-wired Game Boy cable")
     v.scene(setups.games("gb", focus="emerald"))
@@ -274,10 +275,11 @@ VISIT = [("arrive", "Then go and see it: here, straight to its spot on the route
          ("inside", "The base, as it was made in the workshop, with its owner waiting to battle")]
 
 
-def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=None, visit_rec=None):
+def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=None, visit_rec=None, theme=None):
     if name == "mystery_gift":
-        return gift_story(out, unlock_rec, crf, claim_rec)
+        return gift_story(out, unlock_rec, crf, claim_rec, theme)
     s = dict(STORIES[name])
+    s["theme"] = theme
     if workshop:
         s["workshop"] = workshop
     if visit_rec:

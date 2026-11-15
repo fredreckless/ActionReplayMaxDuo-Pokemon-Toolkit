@@ -213,21 +213,35 @@ def duo():
 
 
 def duo_back():
-    """Its other face, "GBA" moulded in (upside down too), with the slot along the block's top edge
-    that the cartridge (any, for it to start) goes into; the slot part's recessed label area below."""
+    """Its other face, "GBA" moulded in (upside down too). From the GBA's back the cartridge goes in
+    along the block's lower edge, contacts first, label outwards and so upside down, and lies flat on
+    the GBA's back (Fred's photo, 15 November): the slot is that edge. The slot part below is drawn
+    for when the DUO is seen alone; in a GBA it's inside."""
     W, top = DUO_W, 3
     s = Sprite(W, top + DUO_BLOCK + DUO_TONGUE)
     tx = _duo_shape(s, top)
-    s.rect(5, top, W - 6, top + 3, rgb("#18181c"))        # the cartridge slot
-    for x in range(7, W - 7, 2):
-        s.px(x, top + 2, rgb("#8a7a40"))
-    _moulded(s, W // 2 - 7, top + 11, "GBA", upside_down=True)
+    _moulded(s, W // 2 - 7, top + 8, "GBA", upside_down=True)
     yb = top + DUO_BLOCK
+    s.rect(4, yb - 3, W - 5, yb - 1, rgb("#18181c"))     # the cartridge slot, along the lower edge
+    for x in range(6, W - 6, 2):
+        s.px(x, yb - 2, rgb("#8a7a40"))
     s.rrect(tx + 4, yb + 3, tx + DUO_TONGUE_W - 5, yb + DUO_TONGUE - 6, 2, shade(SILVER, 0.86))
-    s.anchors["slot"] = (W // 2, top + 1)
+    s.anchors["slot"] = (W // 2, yb - 2)
     s.anchors["plug"] = (W // 2, yb)
     s.outline()
     return s
+
+
+def duo_block(sprite):
+    """Just the block of a DUO sprite (its slot part cut off): as it shows over a GBA's back."""
+    out = Sprite(sprite.size[0], 3 + DUO_BLOCK)
+    out.img.alpha_composite(sprite.img.crop((0, 0, sprite.size[0], 3 + DUO_BLOCK)))
+    out.anchors = dict(sprite.anchors)
+    return out
+
+
+# how far a cartridge goes into the DUO's slot from the GBA's back: 10 mm
+PAK_IN_DUO = 8
 
 
 def _pak_shape(s, col):

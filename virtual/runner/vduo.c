@@ -19,6 +19,8 @@
  *   state_save PLAYER PATH         an mGBA save state (the DUO's GBA: the core's state too)
  *   state_load PLAYER PATH
  *   screenshot PLAYER PATH         a PNG of the current frame
+ *   audio PLAYER PATH|-            from now on, its sound to PATH (16-bit stereo, 32768 Hz, raw); - stops
+ *   audio_pos PLAYER               how many samples of its sound are in the file so far
  *   save_sav PLAYER PATH           the cartridge's save as it stands now, to a new file
  *   save_flash duo PATH            the DUO's own flash (512 KB) as it stands: its codes database
  *                                  survives switch-ons, so this is what --duo-fw takes next time
@@ -37,6 +39,7 @@
  * which keeps every link transfer deterministic.
  */
 #include <mgba/core/core.h>
+#include <mgba/core/blip_buf.h>
 #include <mgba/core/config.h>
 #include <mgba/core/log.h>
 #include <mgba/core/lockstep.h>
@@ -212,6 +215,7 @@ struct Player {
 	int64_t clock;          /* emulated cycles run (mGBA's own 64-bit count needs its debuggers) */
 	uint32_t lastMaster;
 	struct VFile* save;     /* in memory: the files on disk are never written */
+	FILE* audio;            /* recording: its sound, 16-bit stereo at 32768 Hz, raw */
 };
 
 static struct Player players[2];
@@ -401,12 +405,30 @@ static struct VFile* memCopy(const uint8_t* data, size_t len) {
 	return vf;
 }
 
+#define AUDIO_RATE 32768
+
+static void drainAudio(struct Player* p) {     /* the sound so far, interleaved, to its file */
+	blip_t* l = p->core->getAudioChannel(p->core, 0);
+	blip_t* r = p->core->getAudioChannel(p->core, 1);
+	int16_t buf[2 * 1024];
+	int n;
+	while ((n = blip_samples_avail(l)) > 0) {
+		if (n > 1024) {
+			n = 1024;
+		}
+		blip_read_samples(l, buf, n, true);
+		blip_read_samples(r, buf + 1, n, true);
+		fwrite(buf, 4, n, p->audio);
+	}
+}
+
 static struct mCore* newCore(struct Player* p) {
 	struct mCore* core = GBACoreCreate();
 	core->init(core);
 	mCoreInitConfig(core, NULL);
 	mCoreConfigSetValue(&core->config, "idleOptimization", "ignore");   /* never skip a polling loop */
 	mCoreConfigSetIntValue(&core->config, "skipBios", 1);              /* mGBA's own BIOS, straight to the cartridge */
+	mCoreConfigSetIntValue(&core->config, "volume", 0x100);            /* full volume (its default is silence) */
 	mCoreLoadConfig(core);
 	unsigned w, h;
 	core->desiredVideoDimensions(core, &w, &h);
@@ -686,6 +708,33 @@ static void command(char* line) {
 			reply("ok");
 		}
 		free(buf);
+	} else if (!strcmp(c, "audio") && argc == 3) {
+		struct Player* p = named(argv[1]);
+		if (!p) {
+			reply("err no player %s", argv[1]);
+			return;
+		}
+		if (p->audio) {
+			fclose(p->audio);
+			p->audio = NULL;
+		}
+		if (strcmp(argv[2], "-")) {
+			p->audio = fopen(argv[2], "ab");
+			for (int ch = 0; ch < 2; ++ch) {
+				blip_t* b = p->core->getAudioChannel(p->core, ch);
+				blip_set_rates(b, p->core->frequency(p->core), AUDIO_RATE);
+				blip_clear(b);
+			}
+		}
+		reply(p->audio || !strcmp(argv[2], "-") ? "ok" : "err can't write %s", argv[2]);
+	} else if (!strcmp(c, "audio_pos") && argc == 2) {
+		struct Player* p = named(argv[1]);
+		if (!p || !p->audio) {
+			reply("err no sound being kept for %s", argv[1]);
+			return;
+		}
+		drainAudio(p);
+		reply("ok %ld", ftell(p->audio) / 4);
 	} else if (!strcmp(c, "screenshot") && argc == 3) {
 		unsigned w, h;
 		p->core->desiredVideoDimensions(p->core, &w, &h);
@@ -889,6 +938,9 @@ int main(int argc, char** argv) {
 		int ran = 0;
 		if (next) {
 			next->core->runLoop(next->core);
+			if (next->audio) {
+				drainAudio(next);
+			}
 			tick(next);
 			logLink(next);
 			ran = 1;

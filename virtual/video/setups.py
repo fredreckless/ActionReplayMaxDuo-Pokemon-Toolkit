@@ -52,24 +52,27 @@ def composite(layers):
 
 
 def duo_gba(sc, x, y, cart, colour, t0, label_at, cart_label):
-    """A GBA with the DUO in its slot: seen from the back first, a cartridge slides into the DUO and
-    lies flat on the GBA's back; then the GBA is turned over. Returns the front actors (gba, duo)."""
+    """A GBA with the DUO in its slot: seen from the back first, a cartridge slides up into the DUO's
+    lower edge, label out (upside down), and lies flat on the GBA's back; then the GBA is turned
+    over. Returns the front actors (gba, duo)."""
     back, front = parts.gba_back(colour), parts.gba(colour)
-    db, df = parts.duo_back(), parts.duo()
+    db, df = parts.duo_block(parts.duo_back()), parts.duo()     # (from the back: its slot part is inside)
     pak = parts.game_pak(cart)
+    pak.img = pak.img.rotate(180)                        # contacts up into the DUO, label out, upside down
+    pak.anchors["edge"] = (pak.size[0] // 2, 0)
     sx, sy = back.anchors["slot"]
-    dbx, dby = x + sx - db.size[0] / 2, y + sy - db.anchors["plug"][1]     # (its slot part inside the GBA)
-    px, py = x + sx - pak.size[0] / 2, dby + db.anchors["slot"][1] - 2
+    dbx, dby = x + sx - db.size[0] / 2, y + sy - db.anchors["plug"][1]
+    px, py = x + sx - pak.size[0] / 2, dby + db.anchors["slot"][1] - parts.PAK_IN_DUO
     tb = t0 + 2.2                                        # when the turn-over starts
     A = sc.add(Actor(back, x, y, z=5, t_in=t0, t_out=tb))
     A.move(t0, t0 + 0.6, (x, y + 160), (x, y))
-    D = sc.add(Actor(db, dbx, dby, z=4, t_in=t0, t_out=tb))
+    D = sc.add(Actor(db, dbx, dby, z=7, t_in=t0, t_out=tb))
     D.move(t0, t0 + 0.6, (dbx, dby + 160), (dbx, dby))
-    P = sc.add(Actor(pak, px, py, z=7, t_in=t0 + 0.9, t_out=tb))
-    P.move(t0 + 0.9, t0 + 1.6, (px, py + 60), (px, py))
+    P = sc.add(Actor(pak, px, py, z=6, t_in=t0 + 0.9, t_out=tb))
+    P.move(t0 + 0.9, t0 + 1.6, (px, py + 60), (px, py))       # slid up into the DUO
     sc.labels.append(Label(cart_label, (P, "edge"), label_at, t0 + 1.2, tb))
     # turned over: the back squashes away, the front opens out
-    bsp, (bx, by) = composite([(db, dbx, dby), (back, x, y), (pak, px, py)])
+    bsp, (bx, by) = composite([(back, x, y), (pak, px, py), (db, dbx, dby)])
     B = sc.add(Actor(bsp, bx, by, z=5, t_in=tb, t_out=tb + 0.3))
     B.squash = (tb, tb + 0.3, 1.0, 0.02)
     fx, fy = front.anchors["slot"]

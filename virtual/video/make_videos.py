@@ -66,6 +66,29 @@ def run(cmd, log, env=None):
     return r.returncode == 0 and last.startswith("PASS"), last
 
 
+def record_corner_theme(work):
+    """WORK/theme.pcm: the music while the game sits in the Record Corner, from the Record Mixing
+    recording (between going in and the mixing), 6 to 40 seconds of it; None without one."""
+    from compose import Recording
+    theme = os.path.join(work, "theme.pcm")
+    rec = os.path.join(work, "rec_record_mixing")
+    try:
+        r = Recording(rec)
+    except SystemExit:
+        return theme if os.path.exists(theme) else None
+    i0, i1 = r.find("in the Record Corner"), r.find("mixing records")
+    if not r.pos or i0 is None or i1 is None or i1 <= i0:
+        return theme if os.path.exists(theme) else None
+    a, b = r.pos[min(i0, len(r.pos) - 1)], r.pos[min(i1, len(r.pos) - 1)]
+    b = min(b, a + 40 * 32768)
+    if b - a < 6 * 32768:
+        return theme if os.path.exists(theme) else None
+    with open(r.pcm, "rb") as f, open(theme, "wb") as o:
+        f.seek(4 * a)
+        o.write(f.read(4 * (b - a)))
+    return theme
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--roms", help="a folder of ROMs: the English one of each game is used")
@@ -94,7 +117,7 @@ def main():
     roms = english_roms(a.roms)
     roms.update({k: v for k, v in (("ruby", a.ruby), ("emerald", a.emerald)) if v})
     names = a.only.split(",") if a.only else list(RECIPES)
-    made, saves, results = {}, {}, []
+    made, saves, results, jobs = {}, {}, [], []
     t0 = time.time()
     for name in names:
         if name not in RECIPES:
@@ -204,11 +227,15 @@ def main():
                     print(f"  (the visit didn't play: {last})")
             if not os.path.exists(os.path.join(vrec, "terminal.jsonl")):
                 vrec = None
-        # the video
+        jobs.append((name, story, rec, dict(unlock_rec=urec, workshop=shop, claim_rec=crec, visit_rec=vrec)))
+    # the music: the Record Corner's own theme, from the Record Mixing recording's sound
+    theme = record_corner_theme(work)
+    print("music: " + (f"the Record Corner's theme ({os.path.getsize(theme) / 4 / 32768:.0f} s, looped)" if theme
+                       else "none (no Record Mixing recording with sound): the game's own sound only"), flush=True)
+    for name, story, rec, extra in jobs:
         print(f"composing: {name} ...", flush=True)
         mp4 = os.path.join(out, f"{name}.mp4")
-        secs = stories.make(story, mp4, rec, crf=a.crf, unlock_rec=urec, workshop=shop, claim_rec=crec,
-                            visit_rec=vrec)
+        secs = stories.make(story, mp4, rec, crf=a.crf, theme=theme, **extra)
         results.append((name, f"{mp4} ({secs / 60:.1f} min)"))
         made[name] = mp4
     print()

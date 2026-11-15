@@ -116,6 +116,13 @@ class Runner:
         if not hasattr(self, "_rec_n"):
             os.makedirs(rec, exist_ok=True)
             self._rec_n, self._rec_left = 0, 0
+            # the game's sound too, from the same moment: 16-bit stereo at 32768 Hz (548.57 samples a
+            # frame), so recorded frame i starts at sample i x step x 548.57
+            try:
+                self.cmd(f"audio partner {self._path(os.path.join(rec, 'partner.pcm'))}")
+                self._rec_audio = open(os.path.join(rec, "partner_pos.txt"), "a")
+            except Exception:
+                self._rec_audio = None
         while n > 0:
             k = min(n, step - self._rec_left)
             self.cmd(f"run_frames {player} {k}")
@@ -125,6 +132,9 @@ class Runner:
                 self._rec_left = 0
                 for who in ("partner", "duo"):
                     self.cmd(f"screenshot {who} {self._path(os.path.join(rec, f'{self._rec_n:06d}_{who}.png'))}")
+                if self._rec_audio:
+                    self._rec_audio.write(self.cmd("audio_pos partner").strip() + "\n")
+                    self._rec_audio.flush()
                 self._rec_n += 1
 
     def keys(self, player, *names):

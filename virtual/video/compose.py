@@ -50,6 +50,17 @@ class Recording:
         self.events.sort(key=lambda e: e["n"])
         self.cmd = next((e["cmd"] for e in self.events if "cmd" in e), None)
         self._hash = {}
+        # the game's sound (vduo.py: partner.pcm, and where each recorded frame's sound starts)
+        self.pcm, self.pos = os.path.join(path, "partner.pcm"), []
+        if os.path.exists(self.pcm) and os.path.exists(os.path.join(path, "partner_pos.txt")):
+            with open(os.path.join(path, "partner_pos.txt")) as f:
+                self.pos = [int(l) for l in f if l.strip()]
+
+    def sound(self, i):
+        """(start, length) of recorded frame i's sound in partner.pcm, or None."""
+        if i + 1 < len(self.pos):
+            return self.pos[i], max(1, self.pos[i + 1] - self.pos[i])
+        return None
 
     def frame(self, i, who):
         return os.path.join(self.path, f"{i:06d}_{who}.png")
@@ -81,8 +92,10 @@ def blank(img):
 
 
 class Video:
-    def __init__(self, out, title, game_name, crf=20, preset="veryfast"):
+    def __init__(self, out, title, game_name, crf=20, preset="veryfast", theme=None):
         self.out, self.title, self.game_name = out, title, game_name
+        self.theme = theme                   # music under everything (a .pcm, looped), or None
+        self.sounds = []                     # (video frame, .pcm, start, length): the game's own sound
         self.caption, self.step = "", None
         self.term = []                       # (kind, text)
         self.typing = None
@@ -97,7 +110,7 @@ class Video:
         self.p = subprocess.Popen(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{S}x{S}",
              "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
-             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out], stdin=subprocess.PIPE)
+             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out + ".silent.mp4"], stdin=subprocess.PIPE)
 
     # -- panels ------------------------------------------------------------------------------------------
     def _cached(self, key, make):
@@ -283,13 +296,24 @@ class Video:
         img = img.convert("RGB")
         if box:
             img = img.crop(box)
+        if img.height > img.width * 1.1:                 # a tall panel: its top part, to stay readable
+            img = img.crop((0, 0, img.width, int(img.width * 0.8)))
         H = S - 140
         k = min((S - 40) / img.width, (H - 30) / img.height)
         img = img.resize((int(img.width * k), int(img.height * k)), Image.LANCZOS)
         frame = Image.new("RGB", (S, S), BG)
         frame.paste(img, ((S - img.width) // 2, (H - img.height) // 2 + 10))
         draw_band(frame, caption, step, S - 132)
-        self.emit(self.seconds(secs), full=frame)
+        # a slideshow: each slide fades up from the background and back down to it, never blended
+        # into whatever came before (15 November: the kit scene showed through the first slide)
+        self._fade, self._from = 0, None
+        blank = Image.new("RGB", (S, S), BG)
+        n, k = self.seconds(secs), 8
+        for i in range(k):
+            self.emit(full=Image.blend(blank, frame, (i + 1) / k))
+        self.emit(max(1, n - 2 * k), full=frame)
+        for i in range(k):
+            self.emit(full=Image.blend(frame, blank, (i + 1) / k))
 
     def scene(self, sc, speed=1.0):
         """An animated setup scene, full screen, from start to end; blends in and out."""
@@ -336,6 +360,9 @@ class Video:
             last = dg
             if still < idle * FPS * max(1.0, speed) or new:
                 self.game, self.duo = rec.image(i, "partner"), rec.image(i, "duo")
+                snd = rec.sound(i) if speed <= 1 else None      # (the game's sound, at its own speed)
+                if snd:
+                    self.sounds.append((self.frames, rec.pcm) + snd)
                 self.emit()
             pos += speed
         lines = rec.lines_until(end)
@@ -349,4 +376,60 @@ class Video:
     def close(self):
         self.p.stdin.close()
         self.p.wait()
+        silent = self.out + ".silent.mp4"
+        if self.theme or self.sounds:
+            wav = self.out + ".wav"
+            self._soundtrack(wav)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", silent, "-i", wav, "-c:v", "copy",
+                            "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", self.out], check=True)
+            os.remove(wav)
+            os.remove(silent)
+        else:
+            os.replace(silent, self.out)
         return self.frames / FPS
+
+    def _soundtrack(self, wav):
+        """The music (the theme, looped, faded in and out) under everything, giving way to the game's
+        own sound wherever the game plays at its own speed, with short crossfades between them."""
+        import numpy as np
+        import wave
+        rate = 32768
+        total = int(self.frames * rate / FPS) + rate
+        music = np.zeros((total, 2), np.float32)
+        if self.theme:
+            loop = np.fromfile(self.theme, dtype="<i2").reshape(-1, 2).astype(np.float32)
+            if len(loop) > rate:
+                x = rate // 2                                # crossfade the loop's ends
+                ramp = np.linspace(0, 1, x)[:, None]
+                loop = np.concatenate([loop[x:-x], loop[-x:] * (1 - ramp) + loop[:x] * ramp])
+                music = np.resize(loop, (total, 2)) if len(loop) else music
+        game = np.zeros((total, 2), np.float32)
+        mask = np.zeros(total, np.float32)
+        maps = {}
+        per = rate / FPS
+        for f, pcm, start, n in self.sounds:
+            if pcm not in maps:
+                maps[pcm] = np.memmap(pcm, dtype="<i2", mode="r").reshape(-1, 2)
+            src = maps[pcm][start:start + n].astype(np.float32)
+            a, b = int(f * per), int((f + 1) * per)
+            if len(src) < 2 or b > total:
+                continue
+            idx = np.linspace(0, len(src) - 1, b - a)
+            game[a:b] = src[idx.astype(int)]
+            mask[a:b] = 1
+        k = int(0.15 * rate)                                 # smooth the switch over 0.15 s
+        if k > 1:
+            mask = np.convolve(mask, np.ones(k) / k, mode="same").astype(np.float32)
+        mix = music * 0.5 * (1 - mask)[:, None] + game * 0.95
+        fade = int(1.0 * rate)
+        env = np.ones(total, np.float32)
+        end = int(self.frames * rate / FPS)
+        env[:fade] = np.linspace(0, 1, fade)
+        env[max(0, end - fade):end] = np.linspace(1, 0, end - max(0, end - fade))
+        env[end:] = 0
+        mix = np.clip(mix * env[:, None], -32767, 32767).astype("<i2")
+        with wave.open(wav, "wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(mix.tobytes())
