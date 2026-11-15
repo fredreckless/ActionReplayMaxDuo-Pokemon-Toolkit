@@ -163,7 +163,7 @@ class Video:
             for i, (kind, t) in enumerate(rows[-fit:]):
                 col = {"cmd": (130, 230, 150), "phase": (255, 214, 120), "warn": (255, 140, 120)}.get(
                     kind, (214, 220, 230))
-                d.text((10, 32 + i * lh), t, font=self.f_term, fill=col)
+                d.text((10, 32 + i * lh), t.replace("fi", "f\u200ci"), font=self.f_term, fill=col)   # (VT323's "fi" drops the i)
             return img
         return self._cached(("term", len(self.term), self.typing), make)
 
@@ -288,6 +288,54 @@ class Video:
             draw_band(frame, "What it is, and what it does now", "MAX DUO", S - 132)
             f = min(1.0, i / 12, (n - i) / 12)
             self.emit(full=Image.blend(Image.new("RGB", frame.size, BG), frame, f) if f < 1 else frame)
+
+    SETUP = [   # (what, then the words or commands, as the README has them)
+        ("Get the toolkit from GitHub",
+         ["github.com/fredreckless/ActionReplayMaxDuo-Pokemon-Toolkit", "Code > Download ZIP, and unzip it"]),
+        ("Install Python 3.10 or newer, then the helpers",
+         ["(tick \"Add Python to PATH\")", "pip install -r requirements.txt"]),
+        ("Let Windows talk to the DUO, with Zadig",
+         ["Options > List All Devices; USB ID 05FD DAAE", "WinUSB > Install Driver"]),
+        ("Build the firmware from Datel's 1.06 update, and install it",
+         ["python firmware/build_firmware.py us_update_v1_06.bin",
+          "(DUO in USB SERVER MODE)  python maxduo_saves.py --update",
+          "  firmware/build/duo_1.06_reckless_v4.2.bin   (type UPDATE)",
+          "The USB screen then says RECKLESS V4 - READY"]),
+    ]
+
+    def setup(self, secs=13.0):
+        """Setting the MAX DUO up, once: GitHub, Python, Zadig, the firmware (the README's steps)."""
+        from scene import Scene
+        bg = Scene(1).background().resize((S, S), Image.NEAREST).convert("RGB")
+        ft, fh, fc = font("Jersey10.ttf", 60), font("Jersey10.ttf", 36), font("VT323-Regular.ttf", 30)
+        n = self.seconds(secs)
+        frames = []
+        for j in range(len(self.SETUP) + 1):              # one frame per step shown so far
+            fr = bg.copy()
+            d = ImageDraw.Draw(fr)
+            d.text((S // 2, 80), "Setting up the MAX DUO (once)", font=ft, fill=GOLD, anchor="mm")
+            y = 150
+            for k, (what, lines) in enumerate(self.SETUP[:j]):
+                d.rounded_rectangle([40, y, 92, y + 48], 10, fill=GOLD)
+                d.text((66, y + 24), str(k + 1), font=fh, fill=BG, anchor="mm")
+                d.text((112, y + 4), what, font=fh, fill=INK)
+                y += 50
+                for line in lines:
+                    d.rounded_rectangle([108, y, S - 40, y + 36], 6, fill=(8, 10, 18))
+                    d.text((120, y + 2), line.replace("fi", "f\u200ci"), font=fc,      # (no "fi" ligature: VT323's drops the i)
+                           fill=(150, 230, 160) if not line.startswith("(") else DIM)
+                    y += 40
+                y += 22
+            draw_band(fr, "One time only: the toolkit, Python, the USB driver and the new firmware", "Setup", S - 132)
+            frames.append(fr)
+        step_at = [int(FPS * (0.6 + 2.2 * j)) for j in range(len(self.SETUP))]
+        blank = Image.new("RGB", (S, S), BG)
+        self._fade, self._from = 0, None
+        for i in range(n):
+            j = sum(1 for t in step_at if i >= t)
+            fr = frames[j]
+            f = min(1.0, (i + 1) / 10, (n - i) / 10)
+            self.emit(full=fr if f >= 1 else Image.blend(blank, fr, f))
 
     def still(self, img, caption, step=None, secs=3.0, box=None):
         """A screenshot (the Secret Base Workshop, say) as a slide above the instruction band: fitted

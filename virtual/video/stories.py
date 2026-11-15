@@ -85,11 +85,11 @@ STORIES = {
         speed=[("battling", "the battle is over", 3)],
         finish="Done: a double battle, with the PC following every turn"),
     "record_mixing": dict(
-        title="Secret Bases by Record Mixing", sub="duo_events.py mix: bases, songs and trends go into Ruby",
+        title="Secret Bases by Record Mixing", sub="duo_events.py mix: a Secret Base made in the workshop goes into Ruby",
         game="ruby", game_name="Pokémon Ruby (English)", master="either", cable="gba",
         intro="Upstairs in a Pokémon Center: RECORD CORNER with the attendant on the right, and let the game save",
         cues=[("in the Record Corner", "In the room, sit at the table on your side: the DUO takes a seat on its side"),
-              ("mixing records", "Mixing records: the DUO brings a Secret Base, the old man's song and a trend"),
+              ("mixing records", "Mixing records: the DUO brings the Secret Base"),
               ("mixed: the game is saving", "The game files what it was given by its own rules, and saves"),
               ("walking back to the door", "Walk out, or wait: the DUO stands up and leaves, and the game follows")],
         finish="Done: the base is in the game, and the game's own bases are kept on the PC"),
@@ -179,6 +179,7 @@ def link_story(out, rec_dir, s, crf=20):
     game = s["game"]
     v = Video(out, s["title"], s["game_name"], crf=crf, theme=s.get("theme"))
     v.overview()
+    v.setup()
     v.title_card(s["title"], s["sub"])
     v.scene(setups.games("gba", focus=game))
     if s.get("workshop"):
@@ -244,6 +245,7 @@ def gift_story(out, unlock_rec, crf=20, claim_rec=None, theme=None):
     title = "Mystery Gift with Emerald"
     v = Video(out, title, "Pokémon Emerald (English)", crf=crf, theme=theme)
     v.overview()
+    v.setup()
     v.title_card(title, "duo_events.py gift: the DUO's GBA plays a Wireless Adapter\nover a cross-wired Game Boy cable")
     v.scene(setups.games("gb", focus="emerald"))
     u = UNLOCKS["mystery_gift"]

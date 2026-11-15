@@ -269,7 +269,7 @@ class Scene:
                 lh = 19
                 fit = (sh * SCALE - 10) // lh
                 for i, (col, line) in enumerate(rows[-fit:]):
-                    g.text((X, Y + i * lh), line, font=f, fill=col)
+                    g.text((X, Y + i * lh), line.replace("fi", "f\u200ci"), font=f, fill=col)   # (VT323's "fi" drops the i)
         fl = font("Jersey10.ttf", 34)
         for lb in self.labels:
             if not (lb.t0 <= t < lb.t1):

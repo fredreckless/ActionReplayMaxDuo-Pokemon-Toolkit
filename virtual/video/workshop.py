@@ -63,8 +63,12 @@ def main():
             page.click("#genBtn")
             page.wait_for_timeout(400)
             note = page.inner_text("#genNote")
-            shot("Generate: the workshop designs a room by the game's rules" if k == 0 else
-                 "Generate again for another idea: " + note.split(":")[0].lower())
+            if k == 0:
+                shot("Generate: the workshop designs a room by the game's rules (Solid Boards over the holes)")
+            else:                                         # the whole designer: the slide scrolls down it
+                page.evaluate("() => document.querySelectorAll('.panel details').forEach(d => d.open = false)")
+                page.wait_for_timeout(200)
+                shot("Generate again for another idea: " + note.split(":")[0].lower(), ".panel:has(#board)")
         shot("The owner and their team, ready to battle anyone who visits", "#team")
         shot("The Checks: everything the game will check, before it's saved", "#checks")
         with page.expect_download() as dl:

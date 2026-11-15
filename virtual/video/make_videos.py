@@ -9,7 +9,7 @@ MP4s, 1080x1080 (see compose.py for why), 30 a second. Needs ffmpeg and Pillow.
         [--only trade,blender] [--work DIR] [--reuse] [--crf 20]
 
 KIT holds what the Mystery Event and Record Mixing rehearsals bring: eon.me3 (your own event file),
-willow.sb3 (used only if the Secret Base Workshop can't run here), bard.om3, trend.dt3; and for
+willow.sb3 (used only if the Secret Base Workshop can't run here); and for
 Mystery Gift's proof in the game, gift.wc3 (your own English Emerald Wonder Card). A video whose ROM or kit file is missing is skipped, with a note.
 A range of games: FireRed trades, LeafGreen battles, Sapphire's double battle and Berry Blender,
 Ruby's Record Mixing and Mystery Event, Emerald's contest, Tower and Mystery Gift, each from the
@@ -29,8 +29,8 @@ RECIPES = {   # a range of games: each video uses the English ROM of the game na
                "battle"),
     "double_battle": ("sapphire", "colosseum", "--state {S}/at_colosseum_question.state --mode double "
                       "--pk3 {P}/team1.pk3 {P}/team2.pk3", "double_battle"),
-    "record_mixing": ("ruby", "mix", "--state {S}/at_record_question.state -- --base {W}/willow.sb3 "
-                      "--old-man {K}/bard.om3 --trend {K}/trend.dt3", "record_mixing"),
+    "record_mixing": ("ruby", "mix", "--state {S}/at_record_question.state -- --base {W}/willow.sb3",
+                      "record_mixing"),      # (just the base: the video is about Secret Bases)
     "mystery_event": ("ruby", "event", "--state {S}/at_link_standby.state --me3 {K}/eon.me3", "mystery_event"),
     "berry_blender": ("sapphire", "blender", "--state {S}/at_blender_question.state", "blender"),
     "contest": ("emerald", "contest", "--state {S}/at_contest_question.state --pk3 {P}/team1.pk3", "contest"),
