@@ -31,7 +31,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None):
+                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None, silent_lead=None):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -66,6 +66,9 @@ class GpLinkGame:
         # lead_window (15 November, hardware: the game never took the DUO's 0x8FFF in 374 tries): the game reads
         # the DUO's word right only if its start bit comes within (lo, hi) cycles of SC going low
         self.lead_window, self.lead0, self.leads = lead_window, None, set()
+        # silent_lead (15 November, late: leads of 146 and 220 silenced the game): no answer at all when the DUO's
+        # start bit comes more than this many cycles after SC going low
+        self.silent_lead = silent_lead
         hw.mu.hook_add(UC_HOOK_BLOCK, self.on_block)
         hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
@@ -139,11 +142,15 @@ class GpLinkGame:
         sc = v & P_SC if v & (P_SC << 4) else 1
         so = v & P_SO if v & (P_SO << 4) else 1
         if not sc and not self.in_transfer:
-            self.in_transfer, self.t_start, self.sd_edges = True, t, [(t, None)]
+            self.in_transfer, self.t_start, self.sd_edges = True, t, [(t, level)]   # (a start bit with SC: kept)
             self.t_so_low, self.game_t0 = None, None
         if self.in_transfer and not so and self.t_so_low is None:
             self.t_so_low = t
             self.game_t0 = t + self.delay * BIT          # the game's start bit, its turn given
+            if self.silent_lead is not None:
+                first = next((et for et, el in self.sd_edges if el == 0), None)
+                if first is None or first - self.t_start > self.silent_lead:
+                    self.game_t0 = None                      # the game never saw a word it could take: quiet
         if self.in_transfer and sc:
             self.in_transfer = False
             self.end_transfer(t)

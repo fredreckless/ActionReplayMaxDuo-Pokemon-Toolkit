@@ -4137,14 +4137,25 @@ def _():
     assert "never took the DUO's master handshake" in hw.text, hw.text[-1200:]
 
 
-@test("lab4p (15 November, hardware: the game never took the DUO's 0x8FFF in 374 tries): a game that reads the DUO's words only when its start bit comes 170-200 cycles after SC goes low - the DUO tries its sending timings in turn, three tries each, links with the third (146 cycles), and the tool names it")
+@test("lab4p (15 November, hardware: the game never took the DUO's 0x8FFF in 374 tries): a game that reads the DUO's words only when its start bit comes 55-75 cycles after SC goes low - the DUO tries its sending timings in turn, three tries each, links with the third (a lead of 32 cycles), and the tool names it")
 def _():
-    hw, game, report = lab4p_run(players=1, link="trade", seconds=30, max_players=2, lead_window=(170, 200))   # (146 plus the time it takes the DUO to get there)
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=30, max_players=2, lead_window=(55, 75))   # (32 plus the time it takes the DUO to get there)
     r = game.result
     assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, (r, hw.text[-1200:])
-    assert report["hs_taken_after"] == 7 and report["taken_setting"] == (146, 0), report
-    assert "start bit 146 cycles after SC went low" in hw.text, hw.text[-1200:]
+    assert report["hs_taken_after"] == 7 and report["taken_setting"] == (32, 0), report
+    assert "start bit 32 cycles after SC went low" in hw.text, hw.text[-1200:]
     assert "the DUO's sending timing changed" in open(report["file"] + ".txt").read()
+
+
+@test("lab4p (15 November, late, hardware: with a lead of 146 the game stopped answering, and the DUO waited on it for good): a game that goes quiet when the DUO's start bit comes over 50 cycles after SC - the DUO leaves each quiet setting, and links where the game reads it (SC and the start bit together, the bit time +1)")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=40, max_players=2, miss_master=6, lead_window=(0, 10), silent_lead=50)
+    r = game.result
+    assert r["handshake_players"] == 2 and r["checksum_errors"] == 0, (r, hw.text[-1200:])
+    assert report["hs_taken_after"] == 7 and report["taken_setting"] == (0, 256), report
+    rec = open(report["file"] + ".txt").read()
+    assert rec.count("the game went quiet") == 2, rec[-2000:]
+    assert not game.errors, game.errors[:3]
 
 
 @test("lab4p (15 November, hardware: the report said taken on try 494, with most of the game's words misread): a game that never takes the DUO's 0x8FFF, with the DUO misreading a third of its handshakes (one bit) - never taken for a yes; the DUO goes through all its sending timings, and the tool says so")
@@ -4152,7 +4163,7 @@ def _():
     hw, game, report = lab4p_run(players=1, link="trade", seconds=25, max_players=2, miss_master=10 ** 6, garble=0.33)
     assert game.result["handshake_players"] is None, game.result
     assert report["hs_taken_after"] == 0 and report["hs_tries"] >= 3 * len(report["sweep"]), report
-    assert "with any of the 13 sending timings" in hw.text, hw.text[-1200:]
+    assert "with any of the 12 sending timings" in hw.text, hw.text[-1200:]
     assert not report["not_master"], report
 
 

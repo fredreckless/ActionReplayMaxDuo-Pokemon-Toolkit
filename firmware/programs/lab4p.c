@@ -141,12 +141,25 @@ static u32 confirm, hs_tries, hs_taken_after;
  * game's words keeps its own). The setting that worked is kept and reported. And "taken" is now
  * decided over three transfers, the game's handshake allowing two bits misread, as a misread 0xB9A0
  * passed for "taken" before (on 15 November, try 494 with a missing stop bit in two words of three). */
-static const short SWEEP[][2] = {        /* the lead (cycles), the bit time's change (1/256 cycle a bit) */
-    { 64, 0 }, { 16, 0 }, { 146, 0 }, { 64, 128 }, { 64, -128 }, { 64, 256 }, { 64, -256 },
-    { 64, 512 }, { 64, -512 }, { 0, 0 }, { 220, 0 }, { 16, 256 }, { 16, -256 },
+/* 15 November, late (hardware): the leads of 146 and 220 silenced the game - it stopped answering at all
+ * with them, and the DUO waited on it for good. So the game times its slot from SC going low, and the
+ * DUO's start bit belongs close to it: the leads are all short now, the first 0 (SC and the start bit
+ * in one write, as a GBA master does), and a setting the game goes quiet with is left after a while. */
+static const short SWEEP[][2] = {        /* the lead (cycles; 0: with SC), the bit time's change (1/256 cycle a bit) */
+    { 0, 0 }, { 16, 0 }, { 32, 0 }, { 64, 0 }, { 0, 256 }, { 0, -256 }, { 16, 256 }, { 16, -256 },
+    { 0, 512 }, { 0, -512 }, { 8, 0 }, { 48, 0 },
 };
 #define N_SWEEP (sizeof SWEEP / sizeof SWEEP[0])
+static u32 silent_run;
 static u32 sweep_at, sweep_tries, taken_setting = 0xFF, hs_like_count, tx_fp, lead = 64;
+static void sweep_apply(void);
+static void sweep_next(u32 why)
+{
+    sweep_tries = 0; silent_run = 0;
+    if (++sweep_at == N_SWEEP) sweep_at = 0;
+    sweep_apply();
+    log_event(E_TIMING, why | sweep_at);
+}
 static void sweep_apply(void)
 {
     lead = SWEEP[sweep_at][0];
@@ -235,7 +248,10 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
             DMACNT_H(k) = dma[k] & ~0x8000;
         }
     }
-    set_pins(GP | OUT(P_SC | P_SO) | P_SO);                  /* SC low: busy; SO high */
+    if (lead)
+        set_pins(GP | OUT(P_SC | P_SO) | P_SO);              /* SC low: busy; SO high */
+    else
+        set_pins(GP | OUT(P_SC | P_SO | P_SD) | P_SO);       /* SC low and the start bit at once */
     u16 t = tnow() + lead;
     put_word(t, mine[0]);
     words[0] = mine[0];
@@ -362,6 +378,10 @@ static void on_words(void)                /* after each transfer: the link layer
     if (!game_on && words[1] != 0 && words[1] != 0xFFFF) game_on = 1;   /* (the game's GBA is on: its first real word) */
     if (game_on && logged2 < 32) { logged2++; log_event(E_WORD, words[1]); }
     if ((words[1] & ~3) == SLAVE_HS) { hs_reads++; if (++hs_run > hs_run_best) hs_run_best = hs_run; } else hs_run = 0;
+    if (state < ST_LINKED && hs_seen && taken_setting == 0xFF) {   /* the game quiet with this setting: the next */
+        if (words[1] != 0xFFFF) silent_run = 0;
+        else if (++silent_run >= 150) sweep_next(0x100);
+    }
     if (state < ST_LINKED) {
         static u32 prev, seen_all;
         u32 n = 0;
@@ -396,12 +416,8 @@ static void on_words(void)                /* after each transfer: the link layer
             if (hs_like_count >= 2) {                        /* no: still its handshake. Back to the handshake */
                 confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;
                 log_event(E_HANDSHAKE, 0x100 | (hs_tries & 0xFF));
-                if (taken_setting == 0xFF && ++sweep_tries >= 3) {   /* the next sending timing */
-                    sweep_tries = 0;
-                    if (++sweep_at == N_SWEEP) sweep_at = 0;
-                    sweep_apply();
-                    log_event(E_TIMING, sweep_at);
-                }
+                if (taken_setting == 0xFF && ++sweep_tries >= 3)     /* the next sending timing */
+                    sweep_next(0);
                 return;
             }
             confirm = 0;
