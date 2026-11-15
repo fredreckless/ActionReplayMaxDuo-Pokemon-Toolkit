@@ -31,7 +31,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None, garble=0.0, hblank_stall=0):
+                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -60,6 +60,9 @@ class GpLinkGame:
         # hblank_stall (14 November, hardware: one bit read late at the same place every transfer): while a DMA
         # channel is enabled with HBlank timing, the DUO's CPU loses this many cycles at each line's HBlank
         self.stall, self.next_hblank, self.stalls = hblank_stall, 960, 0
+        # miss_master (14 November, hardware: the game never left its handshake): the game misreads the
+        # DUO's first so many master handshakes (0x8FFF), as if the bits came out wrong
+        self.miss_master = miss_master
         hw.mu.hook_add(UC_HOOK_BLOCK, self.on_block)
         hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
@@ -182,6 +185,9 @@ class GpLinkGame:
     # ------------------------------------------------------------ the game's link layer (link.c)
     def on_words(self, w):
         if not self.linked:
+            if w[0] == MASTER_HS and self.miss_master > 0:
+                self.miss_master -= 1
+                w = [0x8FFE] + list(w[1:])                  # misread: not a handshake word, so no players
             n = 0
             for x in w:
                 if (x & ~3) == SLAVE_HS or x == MASTER_HS:

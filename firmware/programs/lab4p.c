@@ -129,6 +129,12 @@ static u32 sd_low_after, sd_checks;
  * how late each sample is taken is measured, and which bit is the worst; which channels were running
  * is reported; and why the program stopped. */
 static u32 dma_seen, late_max, late_bit, late_bad, done_why;
+/* 14 November (hardware, 12a with the DMA fix): the handshake finished in the DUO's reading, but the game
+ * went on sending its handshake 0xB9A0 for ever: link.c's child finishes only on reading the master's
+ * 0x8FFF in slot 0 (with the player count as before), and the DUO sent it once. So after its 0x8FFF and
+ * the first checksum slot the DUO looks at the game's word: still the handshake, and it goes back (one
+ * plain handshake transfer for the count, then 0x8FFF again), counting the tries. */
+static u32 confirm, hs_tries, hs_taken_after;
 
 static inline u16 tnow(void) { return TM0CNT_L; }
 static inline void until(u16 t) { while ((s16)(tnow() - t) < 0) ; }
@@ -339,7 +345,7 @@ static void on_words(void)                /* after each transfer: the link layer
         }
         if (n > 1 && state < ST_HANDSHAKE) state = ST_HANDSHAKE;
         if (n > 1 && n == prev && words[0] == MASTER_HS) {    /* the handshake done, as DoHandshake sees it */
-            players_seen = n; hs_seen++;
+            players_seen = n; hs_seen++; hs_tries++; confirm = 1;
             state = ST_LINKED; sessions++;
             send_idx = CMD_LEN; recv_idx = 0; cycles = 0;     /* (the first transfer after: a checksum slot, 0) */
             sum_two = sum_four = 0;
@@ -349,6 +355,15 @@ static void on_words(void)                /* after each transfer: the link layer
         prev = n;
         seen_all = n == (PLAYERS >= 3 ? 4u : 2u) ? seen_all + 1 : 0;
         return;
+    }
+    if (confirm == 1) {                                      /* the first transfer after our 0x8FFF: did the game take it? */
+        if ((words[1] & ~3) == SLAVE_HS) {                   /* no: still its handshake. Back to the handshake */
+            confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;
+            log_event(E_HANDSHAKE, 0x100 | (hs_tries & 0xFF));
+            return;
+        }
+        confirm = 0;
+        if (!hs_taken_after) hs_taken_after = hs_tries;
     }
     if (send_idx == 0) {                                     /* the checksum slot just went */
         if (cycles > 1) {
@@ -376,7 +391,10 @@ static void our_words(u16 *mine)          /* what our slots send in the next tra
         /* the game's handshake about 20 times (not 20 in a row: on hardware, 12 November, the reads were
          * patchy and a run of 20 never came), then ours as master */
         sent = ready ? sent + 1 : sent > 2 && sent < 20 ? sent - 2 : sent >= 20 ? sent : 0;
-        mine[0] = sent >= 20 ? MASTER_HS : SLAVE_HS;
+        static u32 retry_plain;
+        if (confirm == 2) { confirm = 0; retry_plain = 1; }      /* the game missed it: back, one plain transfer first */
+        mine[0] = sent >= 20 && !retry_plain ? MASTER_HS : SLAVE_HS;
+        retry_plain = 0;
         mine[2] = SLAVE_HS | 2; mine[3] = SLAVE_HS | 3;
         return;
     }
@@ -431,6 +449,7 @@ static int pc_service(api_t *api)
     case 17: v = (late_max & 0xFFFF) | late_bit << 16; break;   /* the latest sample (cycles) and its bit (16: stop) */
     case 18: v = late_bad; break;                            /* samples a third of a bit late or more */
     case 19: v = done_why; break;                            /* 1 not master, 2 the game closed, 3 asked to stop */
+    case 22: v = hs_tries | hs_taken_after << 16; break;     /* 0x8FFF sent so many times; taken on try N (0: never) */
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && (PLAYERS == 1 || PLAYERS == 3);

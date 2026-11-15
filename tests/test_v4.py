@@ -4107,6 +4107,23 @@ def _():
     assert struct.unpack("<H", bytes(hw.mu.mem_read(0x040000BA, 2)))[0] == 0xA200     # put back as it was
 
 
+@test("lab4p (14 November, hardware: the game went on sending its handshake after the DUO's one 0x8FFF): when the game misreads the DUO's first three master handshakes, the DUO sees the game still handshaking after each, goes back (a plain handshake transfer, then 0x8FFF again), links on the fourth try, and the tool says so")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=25, max_players=2, miss_master=3)
+    r = game.result
+    assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, (r, hw.text[-1200:])
+    assert report["hs_tries"] == 4 and report["hs_taken_after"] == 4, report
+    assert "took the DUO's master handshake (0x8FFF) on try 4" in hw.text, hw.text[-1200:]
+
+
+@test("lab4p (14 November): a game that never reads the DUO's master handshake - the DUO keeps trying, and the tool says the game isn't reading the DUO's words")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=12, max_players=2, miss_master=10 ** 6)
+    assert game.result["handshake_players"] is None, game.result
+    assert report["hs_tries"] > 5 and report["hs_taken_after"] == 0, report
+    assert "never took the DUO's master handshake" in hw.text, hw.text[-1200:]
+
+
 @test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")
 def _():
     hw, duo = run42()

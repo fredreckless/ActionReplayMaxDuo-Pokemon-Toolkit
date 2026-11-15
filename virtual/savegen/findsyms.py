@@ -177,6 +177,21 @@ NEEDS["leafgreen"] = ({k: v for k, v in dict(NEEDS["emerald"][0], sNumStartMenuA
                            Task_HandleMultichoiceInput="Task_MultichoiceMenu_HandleInput"))
 
 
+# Ruby and Sapphire (14 November): pokeruby's names (rev1 = English Ruby 1.1). Their save blocks are
+# fixed in RAM (sb1, sb2), and BLENDER_ptr becomes profiles' BLENDER (with Ruby's struct offsets).
+NEEDS["ruby"] = (dict(gMain="gMain", gTasks="gTasks", gObjectEvents="gObjectEvents",
+                      gPlayerPartyCount="gPlayerPartyCount", gPlayerParty="gPlayerParty", sb1="gSaveBlock1",
+                      sb2="gSaveBlock2", sStartMenuCursorPos="sStartMenuCursorPos",
+                      sNumStartMenuActions="sNumStartMenuActions", sCurrentStartMenuActions="sCurrentStartMenuActions",
+                      gBattleMons="gBattleMons", gMoveSelectionCursor="gMoveSelectionCursor",
+                      gBattlerControllerFuncs="gBattlerControllerFuncs", BLENDER_ptr="gBerryBlenderData"),
+                 dict(CB2_Overworld="CB2_Overworld", CB2_MainMenu="CB2_MainMenu", CB2_NamingScreen="sub_80B5AA0",
+                      CB2_MysteryEventMenu="CB2_MysteryEventMenu", Task_StartMenu="sub_80712B4",
+                      Task_HandleYesNoInput="Task_HandleYesNoInput",
+                      Task_HandleMultichoiceInput="Task_HandleMultichoiceInput", CB2_PartyMenu="CB2_PartyMenuMain",
+                      HandleInputChooseMove="HandleInputChooseMove"))
+
+
 def table(game, eng, symp, others):
     E, S = open(eng, "rb").read(), Syms(symp)
     ram, code = NEEDS[game]
@@ -185,7 +200,8 @@ def table(game, eng, symp, others):
         O = open(path, "rb").read()
         d = {k: find(E, S, O, n)[0] for k, n in ram.items()}
         c = {k: find(E, S, O, n)[0] for k, n in code.items()}
-        print(f'    "{O[0xAC:0xB0].decode()}": dict(' + ", ".join(f"{k}={h(v)}" for k, v in d.items()) + ",")
+        key = O[0xAC:0xB0].decode() + (str(O[0xBC]) if O[0xBC] else "")      # (version 1: e.g. AXPE1)
+        print(f'    "{key}": dict(' + ", ".join(f"{k}={h(v)}" for k, v in d.items()) + ",")
         print("                 sym=dict(" + ", ".join(f"{k}={h(v)}" for k, v in c.items()) + ")),")
 
 
