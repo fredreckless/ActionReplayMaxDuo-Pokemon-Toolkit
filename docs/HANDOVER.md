@@ -72,8 +72,33 @@ stands above the GBA's slot, "DS" face forwards, AR switch / mini-USB / AR butto
 (any, for it to start) plugs into its back and lies flat on the GBA's back; the link plug goes into
 the GBA's EXT port in front of the DUO. AGB-005: grey, small purple master plug, purple hub. MGB-010:
 black, ferrite near the single end, junction block at the split. `unlock.py` enters the Mystery Event
-profile (Ruby) and the Mystery Gift questionnaire (Emerald) with real presses. Fred asked for pixel art
+profile (Ruby) and the Mystery Gift questionnaire (Emerald) with real presses; `savegen/phrases.py`
+does it in every language (docs/UNLOCKING.md, 30 ROMs checked, 15 November). Fred asked for pixel art
 drawn from references, no logos or label art, clear instructions; keep to that.
+
+15 November, after Fred's notes on the first cut:
+- **Shapes from the references.** The GBA's outline, row by row, is the reference drawing's own
+  silhouette (`refs\front top bottom back views.jpg`, scaled at 0.83 px/mm to 120 x 68 for 144.5 x
+  82 mm), with every feature placed by its measured position. Same for the Game Pak (57.5 x 35 mm: a
+  full-width grip, the body 1.4 mm narrower). The back is the face's colour. 13 mm of a Game Pak shows
+  above a GBA, back first.
+- **Layers.** Cables are drawn over the GBAs. The USB-A plug's metal is hidden in the laptop's side.
+- **The kit screen** shows the five games, the DUO, its USB lead, and only the cable that video uses.
+  There's no backup step any more.
+- **The laptop's times** come from frame counts (59.7275 a second, recorded every second frame), not
+  the PC's clock.
+- **A range of English ROMs** (`--roms DIR`): FireRed trades, LeafGreen battles, Sapphire has the
+  double battle and the Blender, Ruby has mixing and the event, Emerald has the rest.
+- **Battles:** savegen teaches every Pokémon four strong attacks of different types
+  (`elite_moves`). The game's side picks the best move by type and stats, and sends out the best
+  Pokémon after a faint. It backs out of SUMMARY if a press lands there.
+- **Record Mixing's base** is made in the Secret Base Workshop, in headless Chrome
+  (`workshop.py`, Playwright): the real ROM tiles, step by step, then saved as the `.sb3` the
+  rehearsal brings.
+- **Mystery Gift's proof:** `unlock.py mystery_gift_claim` puts KIT/gift.wc3 where the game keeps a
+  received card, and the Mystery Gift man upstairs hands over the item. The Aurora Ticket (item 371)
+  arrived. English Emerald's MYSTERY GIFT menu goes back to the title without an adapter, so the card
+  itself can't be shown.
 
 Also: `ruby.Tool.linked()` ignores the tool's "no change for 30 s" notice. On a slow run (the laptop,
 or recording) it came before the link and stopped the tapping: that was the matrix's 8 Emerald

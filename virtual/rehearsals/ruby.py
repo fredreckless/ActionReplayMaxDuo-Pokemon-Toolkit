@@ -19,28 +19,96 @@ MOVES = (0x02024A80, 0x02024E64, 0x03004330, 0x0802C68C)   # gBattleMons, gMoveS
 #                                     gBattlerControllerFuncs, HandleInputChooseMove (English Ruby 1.1)
 
 
+_BATTLE_CB2 = {}                # the battle's own callback, seen on the first press outside the party menu
+PHYSICAL = set(range(9))       # Gen 3: a move's kind follows its type (Normal to Steel physical)
+
+
+def _battler(v, b):
+    """gBattleMons[b]: species, the four stats, moves, types, PP, HP."""
+    mons = MOVES[0]
+    m = v.read("partner", mons + 0x58 * b, 0x58)
+    return dict(species=struct.unpack_from("<H", m, 0)[0], stats=struct.unpack_from("<5H", m, 2),
+                moves=struct.unpack_from("<4H", m, 0x0C), types=(m[0x21], m[0x22]), pp=m[0x24:0x28],
+                hp=struct.unpack_from("<H", m, 0x28)[0])
+
+
+def _score(move, att_types, att_stats, foe_types, foe_stats):
+    """What a good player weighs: power x accuracy, x1.5 for the attacker's own type, x how well the
+    type does against the foe's (both types), x attack over defence for the move's kind. Moves that
+    need a turn to charge, or recharge after, count for half."""
+    if TOOLKIT not in sys.path:
+        sys.path.insert(0, TOOLKIT)
+    import duo_battle as B
+    eff, power, typ, acc = B.MOVES[move][0], B.MOVES[move][1], B.MOVES[move][2], B.MOVES[move][3] or 100
+    if not power:
+        return 0.0
+    if power == 1:                               # (fixed or variable damage: count it as a middling hit)
+        power = 60
+    mult = 1.0
+    for d in set(foe_types):
+        m = B.CHART.get((typ, d))
+        if m:
+            mult *= m[0] / 10
+    stab = 1.5 if typ in att_types else 1.0
+    atk, df = (att_stats[0], foe_stats[1]) if typ in PHYSICAL else (att_stats[3], foe_stats[4])
+    half = 0.5 if B.EFFECT.get(eff) in B.AWKWARD else 1.0
+    return power * acc / 100 * stab * mult * atk / max(1, df) * half
+
+
+def _foes(v, b):
+    return [f for f in range(4) if f % 2 != b % 2 and _battler(v, f)["hp"]]
+
+
 def _move_with_pp(v):
-    """In the game's own move menu, with the cursor on a move that has no PP left (A would only say
-    so, for ever): move the cursor to the first move that has some. (14 November: Aggron's first
-    move, Iron Defense, ran out, and the DUO's Altaria couldn't finish the battle either.)"""
+    """In the game's own move menu: move the cursor to the best move against the foes on the field
+    (_score), as a good player would choose; never one with no PP left (A would only say so, for
+    ever: 14 November, Aggron's Iron Defense ran out). With nothing left, the game picks Struggle."""
     mons, cursor, funcs, choose = MOVES
     f = struct.unpack("<4I", v.read("partner", funcs, 16))
     for b in range(4):
         if f[b] & ~1 != choose & ~1:
             continue
         c = v.read("partner", cursor + b, 1)[0] & 3
-        m = v.read("partner", mons + 0x58 * b, 0x28)
-        moves, pp = struct.unpack_from("<4H", m, 0x0C), m[0x24:0x28]
-        if pp[c] or not moves[c]:
+        me = _battler(v, b)
+        foes = [_battler(v, x) for x in _foes(v, b)] or [_battler(v, b ^ 1)]
+        usable = [i for i in range(4) if me["moves"][i] and me["pp"][i]]
+        if not usable:
             return
-        t = next((i for i in range(4) if moves[i] and pp[i]), None)
-        if t is None:
-            return                                # (nothing left: the game picks Struggle on A)
+        try:
+            t = max(usable, key=lambda i: (max(_score(me["moves"][i], me["types"], me["stats"], fo["types"],
+                                                      fo["stats"]) for fo in foes), -i))
+        except Exception:                         # (never let the choosing stop a rehearsal)
+            t = c if c in usable else usable[0]
         if (t ^ c) & 1:
             v.press("partner", "RIGHT" if t & 1 else "LEFT", frames=4, then=12)
         if (t ^ c) & 2:
             v.press("partner", "DOWN" if t & 2 else "UP", frames=4, then=12)
         return
+
+
+def _party_order(v, alive):
+    """The party's Pokemon that can fight, best first against the foe now on the field: each one's
+    best move's _score (from its own species' types and base stats, and its moves)."""
+    if TOOLKIT not in sys.path:
+        sys.path.insert(0, TOOLKIT)
+    import duo_battle as B
+    import duo_events as E
+    try:
+        foe = next((_battler(v, f) for f in (1, 3) if _battler(v, f)["hp"]), _battler(v, 1))
+        party = v.read("partner", PARTY, 600)
+        def best(i):
+            f, problems = E.parse_pk3(bytes(party[100 * i:100 * i + 100]))
+            if problems:
+                return 0
+            sp = B.SPECIES[f["species"]]
+            stats = (sp[1], sp[2], sp[3], sp[4], sp[5])
+            return max((_score(m, (sp[6], sp[7]), stats, foe["types"], foe["stats"]) for m in f["moves"] if m),
+                       default=0)
+        return sorted(alive, key=lambda i: -best(i))
+    except Exception:
+        return alive
+
+
 TOOLKIT = os.environ.get("TOOLKIT", os.path.dirname(os.path.dirname(HERE)))     # the repository: virtual/..
 
 
@@ -102,6 +170,7 @@ def battle_press(v):
             party = v.read("partner", PARTY, 600)
             alive = [i for i in range(6) if struct.unpack_from("<HH", party, 100 * i + 86)[1]
                      and struct.unpack_from("<H", party, 100 * i + 86)[0]]
+            alive = _party_order(v, alive)
             target = alive[(_party_visits - 1) % len(alive)] if alive else None
             for k in range(18):                   # (DOWN within a column, RIGHT across: a multi battle's
                 if target is None or v.read("partner", PARTY_MENU + 9, 1)[0] == target:    # screen has two)
@@ -110,9 +179,17 @@ def battle_press(v):
         else:
             for _ in range(1 + (_party_visits - 1) % 5):
                 v.press("partner", "DOWN", frames=4, then=20)
-        v.press("partner", "A", frames=6, then=40)
-        v.press("partner", "A", frames=6, then=60)
+        v.press("partner", "A", frames=6, then=50)       # the Pokemon: its menu (SHIFT first)
+        v.press("partner", "A", frames=6, then=60)       # SHIFT
+        # (a press too early can land on SUMMARY instead: back out of it, and the next visit
+        # chooses again; 15 November, the battle video)
+        for _ in range(6):
+            cb2 = struct.unpack("<I", v.read("partner", GMAIN + 4, 4))[0] & ~1
+            if cb2 in (CB2_PARTY_MENU, _BATTLE_CB2.get("cb2")) or not _BATTLE_CB2:
+                break
+            v.press("partner", "B", frames=6, then=60)
     else:
+        _BATTLE_CB2.setdefault("cb2", struct.unpack("<I", v.read("partner", GMAIN + 4, 4))[0] & ~1)
         _move_with_pp(v)
         v.press("partner", "A", frames=6, then=40)
 

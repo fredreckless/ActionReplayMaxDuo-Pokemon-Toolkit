@@ -120,7 +120,7 @@ The tool reads the game's language and version from its first broadcast and choo
 - Two GBAs: the DUO's, and one for the game.
 - A cross-wired Game Boy / Game Boy Color link cable. A Nintendo MGB-010 has been used. GBA link cables aren't cross-wired, so they won't work here.
 - Your own `.wc3` file for your game and language, e.g. from [Project Pokémon's EventsGallery](https://github.com/projectpokemon/EventsGallery). None is included. Project Pokémon's file names start with the game ("E - " Emerald, "FL - " FireRed/LeafGreen); the tool warns if that doesn't match the game it finds.
-- **Mystery Gift unlocked in the game.** In FireRed, LeafGreen and Emerald, enter **LINK TOGETHER WITH ALL** at the questionnaire in a Poké Mart, then save and restart: MYSTERY GIFT appears on the title menu.
+- **Mystery Gift unlocked in the game.** In FireRed, LeafGreen and Emerald, enter **LINK TOGETHER WITH ALL** at the questionnaire in a Poké Mart, then save and restart: MYSTERY GIFT appears on the title menu. Other languages have their own phrase (Spanish leaves a box empty): [every language's phrase](docs/UNLOCKING.md), each one checked in the game.
 
 **Receiving a card:**
 1. **Back up your save first** with `maxduo_saves.py`. The game keeps one Wonder Card and one script: a new card replaces both, so collect the item from the old one first.
@@ -174,7 +174,7 @@ python duo_events.py event                      (a dry run: link players only)
   - for **Japanese FireRed/LeafGreen**, its **Trainer Tower e-Cards**, up to four floors at once, the same way.
 
   Japanese, English and German games ([docs/EREADER.md](docs/EREADER.md)).
-- **Mystery Event unlocked.** Tell the man by the PC in **Petalburg City's Pokémon Center** "**MYSTERY EVENT IS EXCITING**" (after beating Norman), then save and restart: MYSTERY EVENT appears on the title menu (ふしぎな できごと in Japanese).
+- **Mystery Event unlocked.** Tell the man by the PC in **Petalburg City's Pokémon Center** "**MYSTERY EVENT IS EXCITING**" (after beating Norman), then save and restart: MYSTERY EVENT appears on the title menu (ふしぎな できごと in Japanese). Other languages have their own words: [every language's phrase](docs/UNLOCKING.md).
 
 **Which end of the cable.** The game must be the link's **master**: Ruby's MYSTERY EVENT menu only carries on as master. Which end makes a GBA master depends on the cable (on Nintendo's own, the small purple plug). You don't need to know in advance: if the DUO comes up as player 0, the tool says so, and you switch both GBAs off and swap the ends.
 
@@ -369,6 +369,7 @@ The firmware build is reproducible: the same input always gives the same v4.1, u
 - [USB protocol](docs/PROTOCOL.md): Datel's commands, our additions, and a comparison with other Action Replay tools
 - [Findings](docs/FINDINGS.md): what the lab measured
 - [History](docs/HISTORY.md): how it got here, including what went wrong
+- [Unlocking Mystery Gift and Mystery Event](docs/UNLOCKING.md): the secret phrase in every language, read from each game and checked in it
 - [Wireless](docs/WIRELESS.md): the Wireless Adapter protocol, as recreated here
 - [Distributor](docs/DISTRIBUTOR.md): the Wonder Card distributor, stage by stage
 - [Lab sessions 16–20](lab/README.md): from the first wireless answers to the Old Sea Map arriving

@@ -14,6 +14,9 @@ pass after `git pull` runs only what's new or failed: games savegen has learnt s
 rehearsals, and failures again with any fixes. A ROM
 savegen doesn't know is noted "not supported yet" and tried again next time.
 
+Each ROM also gets the unlock: its own language's secret phrase for Mystery Gift or Mystery Event,
+typed into the game (savegen/phrases.py).
+
 After the ROMs, every Wonder Card and Mystery Event in the gallery goes through the real tool and DUO
 program in the simulator, against each game and language it's for (tests/gallery_events.py): the
 Virtual DUO can't rehearse Mystery Gift yet, so this is its check across every language.
@@ -65,7 +68,11 @@ def tests_for(game, lang, S, P, kit, gallery):
     """(name, script, args) for each rehearsal this game has. S: savegen's states, P: its pk3s."""
     mix = ["--", "--base", f"{kit}/willow.sb3", "--old-man", f"{kit}/bard.om3", "--trend", f"{kit}/trend.dt3"]
     team = ["--pk3", f"{P}/team1.pk3", f"{P}/team2.pk3"]
-    out = []
+    # the secret phrase that unlocks Mystery Gift or Mystery Event, typed into the game in its own
+    # language (savegen/phrases.py; docs/UNLOCKING.md)
+    out = [("unlock", "@phrase", [])]
+    if game == "emerald" and lang == "Japanese":
+        out.append(("unlock_event", "@phrase", ["--kind", "event"]))
     if game in ("ruby", "sapphire"):
         out += [("trade", "trade", ["--state", f"{S}/at_trade_question.state", "--pk3", f"{P}/offer.pk3", "--slot", "5"]),
                 ("single", "colosseum", ["--state", f"{S}/at_colosseum_question.state", *team]),
@@ -167,6 +174,9 @@ def main():
                 args = args + ["--out", os.path.join(D, name)]
             cmd = [sys.executable, os.path.join(REH, script + ".py"), "--rom", rom, "--sav", sav[0],
                    "--duo-flash", a.flash, *args]
+            if script == "@phrase":
+                cmd = [sys.executable, os.path.join(HERE, "savegen", "phrases.py"), "play", rom, sav[0],
+                       *[x for x in args if x != "--out" and x != os.path.join(D, name)]]
             t0 = time.time()
             try:
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=a.timeout)

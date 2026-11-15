@@ -6,7 +6,7 @@ cable (gba|gb), and cues: (text in a tool line, the bar's words) in order. Optio
 ((from text, to text, speed), ...) to fast-forward a long stretch; finish, the last words; intro,
 the words over the first stretch of the game; unlock, a recorded unlock (see unlock_story).
 """
-import re
+import os, re
 
 import setups
 from compose import Video, Recording
@@ -20,18 +20,34 @@ def tidy(line):
     return line
 
 
+GBA_FPS = 16777216 / 280896                    # 59.7275 frames a second
+REC_STEP = 2                                   # recorded every second frame (make_videos.py's VDUO_RECORD_STEP)
+
+
 def lines_of(rec):
+    """The tool's lines as the laptop shows them. The tool times its progress lines ("[  2.5 s]")
+    by the PC's clock, which in a rehearsal runs at the emulator's speed, not the game's: they're
+    timed again here from the frame each line came at (the first keeps its own time)."""
+    stamp = re.compile(r"^(\s*)\[\s*([\d.]+) s\]")
+    first = None
     for e in rec.events:
-        if "line" in e:
-            e["line"] = tidy(e["line"])
+        if "line" not in e:
+            continue
+        e["line"] = tidy(e["line"])
+        m = stamp.match(e["line"])
+        if m:
+            if first is None:
+                first = (e["n"], float(m.group(2)))
+            t = first[1] + (e["n"] - first[0]) * REC_STEP / GBA_FPS
+            e["line"] = f"{m.group(1)}[{t:6.1f} s]" + e["line"][m.end():]
     rec.events = [e for e in rec.events if not any(d in e.get("line", "") for d in DROP)]
 
 
 STORIES = {
     "trade": dict(
-        title="Trading a Pokémon to Ruby", sub="duo_events.py trade: any .pk3 goes over by a real trade",
-        game="ruby", game_name="Pokémon Ruby (English)", master="either", cable="gba",
-        intro="Upstairs in a Pokémon Center: TRADE CENTER with the Cable Club attendant, and let the game save",
+        title="Trading a Pokémon to FireRed", sub="duo_events.py trade: any .pk3 goes over by a real trade",
+        game="firered", game_name="Pokémon FireRed (English)", master="either", cable="gba",
+        intro="Upstairs in a Pokémon Center: the Cable Club attendant, TRADE CENTER, and let the game save",
         cues=[("in the Trade Center", "In the room, sit at the table: the DUO walks to the other seat"),
               ("chosen: waiting", "Choose a Pokémon you can spare, then YES"),
               ("the trade scene", "The game checks the Pokémon, trades and saves by itself"),
@@ -39,8 +55,8 @@ STORIES = {
               ("back to the Trade Center", "Choose CANCEL: the DUO walks to the door, and the game follows it out")],
         finish="Done: the game has the Pokémon and has saved. The DUO wrote nothing to either cartridge"),
     "blender": dict(
-        title="The Berry Blender with Ruby", sub="duo_events.py blender: a second player for the link Berry Blender",
-        game="ruby", game_name="Pokémon Ruby (English)", master="either", cable="gba",
+        title="The Berry Blender with Sapphire", sub="duo_events.py blender: a second player for the link Berry Blender",
+        game="sapphire", game_name="Pokémon Sapphire (English)", master="either", cable="gba",
         intro="In a Contest Lobby, talk to a link Berry Blender and let the game save",
         cues=[("the link-up", "Linked: the DUO joins the blender as the second player"),
               ("the countdown", "Choose a berry: the DUO brings an Oran"),
@@ -49,18 +65,18 @@ STORIES = {
               ("done", "The link is closed, and the tool reports both players' hits")],
         finish="Done: a Pokéblock in the game's case, and the hits for both players on the PC"),
     "battle": dict(
-        title="A link battle with Ruby", sub="duo_events.py colosseum: the DUO's team in the Colosseum",
-        game="ruby", game_name="Pokémon Ruby (English)", master="either", cable="gba",
-        intro="Upstairs in a Pokémon Center: COLOSSEUM with the attendant, then SINGLE BATTLE, and let the game save",
+        title="A link battle with LeafGreen", sub="duo_events.py colosseum: the DUO's team in the Colosseum",
+        game="leafgreen", game_name="Pokémon LeafGreen (English)", master="either", cable="gba",
+        intro="Upstairs in a Pokémon Center: the Cable Club attendant, COLOSSEUM, SINGLE BATTLE, and let the game save",
         cues=[("in the Cable Club", "In the Colosseum, stand on your spot: the DUO walks to the other"),
               ("swapping teams", "The game and the DUO swap teams over the link"),
-              ("battling", "The battle: you choose your moves, and the DUO plays its team"),
+              ("battling", "The battle: you play your moves, and the PC plays the DUO's Metagross and Altaria"),
               ("the battle is over", "The battle's over: both players walk back out of the room")],
         speed=[("battling", "the battle is over", 3)],
         finish="Done: a whole link battle, with the PC following every turn"),
     "double_battle": dict(
-        title="A double battle with Ruby", sub="duo_events.py colosseum: two at a time in the Colosseum",
-        game="ruby", game_name="Pokémon Ruby (English)", master="either", cable="gba",
+        title="A double battle with Sapphire", sub="duo_events.py colosseum: two at a time in the Colosseum",
+        game="sapphire", game_name="Pokémon Sapphire (English)", master="either", cable="gba",
         intro="Upstairs in a Pokémon Center: COLOSSEUM with the attendant, then DOUBLE BATTLE, and let the game save",
         cues=[("in the Cable Club", "In the Colosseum, stand on your spot: the DUO walks to the other"),
               ("swapping teams", "The game and the DUO swap teams over the link"),
@@ -163,8 +179,14 @@ def link_story(out, rec_dir, s, crf=20):
     game = s["game"]
     v = Video(out, s["title"], s["game_name"], crf=crf)
     v.title_card(s["title"], s["sub"])
-    v.scene(setups.games())
-    v.scene(setups.backup(game, duo_screen=rec.image(40, "duo")))
+    v.scene(setups.games("gba", focus=game))
+    if s.get("workshop"):
+        import json
+        from PIL import Image
+        steps = json.load(open(os.path.join(s["workshop"], "steps.json")))
+        for st in steps:
+            v.still(Image.open(os.path.join(s["workshop"], st["png"])), st["words"], "Workshop", secs=2.6)
+        v.crossfade()
     if s.get("unlock"):
         u = UNLOCKS[s["unlock"]]
         play_marked(v, Recording(s["unlock_rec"]), u["cues"], u["speed"], "Unlock")
@@ -201,15 +223,21 @@ def link_story(out, rec_dir, s, crf=20):
     return v.close()
 
 
-def gift_story(out, unlock_rec, crf=20):
+CLAIM = [("title", "Proof: the card, kept as the game keeps one it has received (put in the save here: the "
+                    "emulator can't rehearse the adapter yet)"),
+         ("continue", "CONTINUE, and upstairs in a Pokémon Center"),
+         ("talk", "Talk to the Mystery Gift man, in green, on the left"),
+         ("got", "He hands over what the card promised: it's in the bag")]
+
+
+def gift_story(out, unlock_rec, crf=20, claim_rec=None):
     """Mystery Gift: the questionnaire unlock (recorded), then the cable and the steps to receive a card.
     (No rehearsal of receiving yet, so no game footage of it, and no tool output is shown.)"""
     rec = Recording(unlock_rec)
     title = "Mystery Gift with Emerald"
     v = Video(out, title, "Pokémon Emerald (English)", crf=crf)
     v.title_card(title, "duo_events.py gift: the DUO's GBA plays a Wireless Adapter\nover a cross-wired Game Boy cable")
-    v.scene(setups.games())
-    v.scene(setups.backup("emerald"))
+    v.scene(setups.games("gb", focus="emerald"))
     u = UNLOCKS["mystery_gift"]
     play_marked(v, rec, u["cues"], u["speed"], "Unlock")
     menu = v.game
@@ -225,14 +253,21 @@ def gift_story(out, unlock_rec, crf=20):
     v.say("Then collect the gift as the card says: in Emerald, upstairs in any Pokémon Center", "Done")
     v.hold(4)
     v.crossfade()
+    if claim_rec:
+        c = Recording(claim_rec)
+        v.term, v.duo = [], None
+        play_marked(v, c, CLAIM, [], "In the game")
+        v.crossfade()
     v.title_card(title, "Received on hardware: Japanese Emerald, English LeafGreen\n(English Emerald in the simulator)", 5)
     return v.close()
 
 
-def make(name, out, rec_dir, crf=20, unlock_rec=None):
+def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=None):
     if name == "mystery_gift":
-        return gift_story(out, unlock_rec, crf)
+        return gift_story(out, unlock_rec, crf, claim_rec)
     s = dict(STORIES[name])
+    if workshop:
+        s["workshop"] = workshop
     if s.get("unlock"):
         s["unlock_rec"] = unlock_rec
     return link_story(out, rec_dir, s, crf)

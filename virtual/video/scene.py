@@ -227,8 +227,6 @@ class Scene:
         art = self.background()
         d = ImageDraw.Draw(art)
         live = [c for c in self.cables if t >= c.t0]
-        for c in live:
-            self._draw_cable(art, d, c, t)
         for a in sorted((a for a in self.actors if a.visible(t)), key=lambda a: a.z):
             x, y = a.pos(t)
             img = a.s.img
@@ -247,6 +245,9 @@ class Scene:
                 if sc is not None:
                     sx, sy, sw, sh = a.s.anchors["screen"]
                     art.paste(sc.convert("RGBA").resize((sw, sh), Image.BOX), (int(x + sx), int(y + sy)))
+        # the leads over everything (they lie on top of the GBAs, as on a desk), then their plugs
+        for c in live:
+            self._draw_cable(art, d, c, t)
         for c in live:
             self._draw_cable(art, d, c, t, plugs_only=True)
         big = art.resize((SIZE, SIZE), Image.NEAREST).convert("RGB")

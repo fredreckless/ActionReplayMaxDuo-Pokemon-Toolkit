@@ -221,6 +221,21 @@ class Video:
             f = min(1.0, i / 12, (n - i) / 12)
             self.emit(full=Image.blend(Image.new("RGB", img.size, BG), img, f) if f < 1 else img)
 
+    def still(self, img, caption, step=None, secs=3.0, box=None):
+        """A screenshot (the Secret Base Workshop, say) full screen above the instruction band, fitted
+        and centred; box crops it first."""
+        from scene import draw_band
+        img = img.convert("RGB")
+        if box:
+            img = img.crop(box)
+        H = S - 140
+        k = min((S - 40) / img.width, (H - 30) / img.height)
+        img = img.resize((int(img.width * k), int(img.height * k)), Image.LANCZOS)
+        frame = Image.new("RGB", (S, S), BG)
+        frame.paste(img, ((S - img.width) // 2, (H - img.height) // 2 + 10))
+        draw_band(frame, caption, step, S - 132)
+        self.emit(self.seconds(secs), full=frame)
+
     def scene(self, sc, speed=1.0):
         """An animated setup scene, full screen, from start to end; blends in and out."""
         self.crossfade()

@@ -135,6 +135,78 @@ def mystery_gift(rom, sav):
         g.close()
 
 
+# Emerald's save: gSaveBlock1's MysteryGiftSave (0x322C): the news's CRC and news (0x1BC), then the
+# card's CRC and card, the metadata's CRC and metadata - the same order as a .wc3 file from its
+# start - and the RAM script (0x3728), as the .wc3's last 1004 bytes.
+SB1_CARD_CRC, SB1_RAM_SCRIPT = 0x322C + 4 + 0x1BC, 0x3728
+ITEM_KEYITEMS = 0x5D8                    # gSaveBlock1's key items (Emerald), quantities unencrypted
+
+
+def mystery_gift_claim(rom, sav, wc3):
+    """Proof in the game that a Wonder Card does what it says (English Emerald): the card from the
+    .wc3 is put in the save where the game keeps one it has received (the Virtual DUO can't rehearse
+    receiving it over the adapter yet: see make_videos.py), saved by the game itself; then, recorded:
+    upstairs in Oldale Town's Pokemon Center the Mystery Gift man hands over what it promises.
+    Passes when the bag holds a new key item."""
+    p = profiles.for_rom(rom)
+    if p.TITLE != "English Emerald":
+        raise SystemExit("mystery_gift_claim knows English Emerald's screens only")
+    raw = open(wc3, "rb").read()
+    import duo_events as E
+    problems = E.check_wc3(raw)
+    if problems:
+        raise SystemExit("; ".join(problems))
+    size = E.WC3_LAYOUTS[len(raw)][1]
+    head, script = raw[:4 + size + 0x28], raw[4 + size + 0x50:4 + size + 0x50 + 1004]
+    g = savegen.Game(rom, p, save=sav)
+    try:
+        for _ in range(3000):                             # the title menu, then in through CONTINUE
+            if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
+                break
+            g.tap("A", gap=10)
+        g.run(60)
+        sb1 = g.sb1()
+        g.write(sb1 + SB1_CARD_CRC, head)
+        g.write(sb1 + SB1_RAM_SCRIPT, script)
+        g.flag(MYSTERY_GIFT)
+        savegen.point_continue(g, (2, 3, 1, 3))           # Oldale's Pokemon Center upstairs, below the man
+        g.tap("A", gap=10)
+        g.wait(g.in_overworld, 1200, what="the overworld")
+        g.run(60)
+        savegen.save_game(g)                              # the game writes the card to the save itself
+        restart_to_title(g)
+        g.run(60)
+        got = g.read(g.sb1() + SB1_CARD_CRC, len(head))
+        print("  card in the save after the restart:", "yes" if got == head else
+              f"no (first difference at {next(i for i in range(len(head)) if got[i] != head[i]):#x})")
+        mark(g, "title")
+        # (English Emerald's MYSTERY GIFT menu goes back to the title when it finds no adapter, so
+        # the card itself isn't shown here: the Mystery Gift man is the proof)
+        g.run(120)
+        mark(g, "continue")
+        g.tap("A", gap=10)
+        g.wait(g.in_overworld, 1200, what="the overworld")
+        g.run(60)
+        mark(g, "talk")
+        g.tap("UP", hold=2, gap=12)
+        before = g.read(sb1 + ITEM_KEYITEMS, 120)
+        for _ in range(40):
+            g.tap("A", gap=40)
+            if g.read(sb1 + ITEM_KEYITEMS, 120) != before:
+                break
+        else:
+            raise RuntimeError("the Mystery Gift man gave nothing")
+        mark(g, "got")
+        presses(g, "w60 A w60 A w60 A w60 B w60", gap=20)
+        got = [struct.unpack_from("<H", g.read(sb1 + ITEM_KEYITEMS, 120), 4 * i)[0] for i in range(30)]
+        new = [x for x in got if x and x not in
+               [struct.unpack_from("<H", before, 4 * i)[0] for i in range(30)]]
+        mark(g, "end")
+        print(f"PASS: the Mystery Gift man gave item {new[0] if new else '?'} for the card")
+    finally:
+        g.close()
+
+
 def mystery_event(rom, sav):
     p = profiles.for_rom(rom)
     if p.TITLE != "English Ruby 1.1":
@@ -190,7 +262,8 @@ def mystery_event(rom, sav):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("which", choices=("mystery_event", "mystery_gift"))
+    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim"))
+    ap.add_argument("--wc3", help="mystery_gift_claim: the Wonder Card (English Emerald's)")
     ap.add_argument("--rom", required=True)
     ap.add_argument("--sav", required=True)
     a = ap.parse_args()
@@ -198,6 +271,8 @@ def main():
     copy = os.path.join(tempfile.mkdtemp(prefix="unlock_"), os.path.basename(a.sav))
     shutil.copy(a.sav, copy)
     a.sav = copy
+    if a.which == "mystery_gift_claim":
+        return mystery_gift_claim(a.rom, a.sav, a.wc3)
     {"mystery_event": mystery_event, "mystery_gift": mystery_gift}[a.which](a.rom, a.sav)
 
 

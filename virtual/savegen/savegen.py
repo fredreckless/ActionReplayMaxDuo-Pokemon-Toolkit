@@ -185,11 +185,29 @@ def make_mon(species, level, otid, ot_name, pid, nickname=None, game=2, lang=2):
     return E.pk3_party_form(make_pk3(species, level, otid, ot_name, pid, nickname, game, lang))
 
 
+def elite_moves(species, level):
+    """Four strong attacks of different types, as a seasoned player would teach it (15 November, for
+    the videos: "cool Pokemon and elite strategies"): from everything it can know at this level by
+    levelling up, TM, HM or tutor (duo_battle.likely_attacks: power x accuracy, its own types, its
+    attacking stats), the strongest of each type first; the game's own default if it has none."""
+    import duo_battle as B
+    out, types = [], set()
+    pool = B.likely_attacks(species, level)
+    for m in pool:
+        if B.MOVES[m][2] not in types:
+            out.append(m)
+            types.add(B.MOVES[m][2])
+        if len(out) == 4:
+            return out
+    out += [m for m in pool if m not in out][:4 - len(out)]
+    return out or B.default_moves(species, level)
+
+
 def make_pk3(species, level, otid, ot_name, pid, nickname=None, game=2, lang=2):
     """The same Pokemon as a .pk3 (PKHeX's decrypted 80-byte form)."""
     import duo_battle as B
     import duo_events as E
-    moves = B.default_moves(species, level)
+    moves = elite_moves(species, level)
     growth = E.PK3_BASE_STATS[(species - 1) * 7 + 6]
     exp = E.pk3_exp_for_level(growth, level)
     pp = [B.MOVES[m][4] for m in moves] + [0] * (4 - len(moves))

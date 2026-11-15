@@ -118,8 +118,8 @@ def link(game="ruby", cable="agb005", master="either", lines=(), cmd="python duo
     # the game's GBA (glacier), bottom right, its game standing in the slot
     R = sc.add(Actor(parts.gba("glacier"), 214, 216, z=5, t_in=t))
     R.move(t, t + 0.6, (380, 216), (214, 216))
-    pak = parts.game_pak(game)
-    px, py = 214 + R.s.anchors["slot"][0] - pak.size[0] / 2, 216 + 6 - pak.size[1] + 8
+    pak = parts.game_pak_back(game)           # seen from the front, the cartridge shows its back
+    px, py = 214 + R.s.anchors["slot"][0] - pak.size[0] / 2, 216 + parts.GBA_TOP - parts.PAK_SHOWS
     P = sc.add(Actor(pak, px, py, z=4, t_in=t + 0.8))
     P.move(t + 0.8, t + 1.4, (px, py - 90), (px, py))
     sc.labels.append(Label(f"your game: {GAME_NAMES[game]}", (P, "top"), (250, 150), t + 1.2, t + 4.2))
@@ -162,8 +162,8 @@ def link(game="ruby", cable="agb005", master="either", lines=(), cmd="python duo
     lap = sc.add(Actor(parts.laptop(left_usb=True), 198, 6, z=1, t_in=tl))
     lap.move(tl, tl + 0.6, (380, 6), (198, 6))
     lx, ly = 198 + lap.s.anchors["usb"][0], 6 + lap.s.anchors["usb"][1]
-    a = parts.usb_a()
-    ax = lx - a.anchors["tip"][0]
+    a = parts.usb_a(inserted=True)            # its metal is in the laptop's side
+    ax = lx - a.anchors["tip"][0] - 1
     sc.add(Actor(a, ax, ly - a.anchors["tip"][1], z=3, t_in=tl + 0.8))
     cu = Cable((ax, ly), (U, "usb"), [(172, 104), (150, 56), (110, 40), (78, 50)], tl + 0.8, tl + 2.0,
                USB_LEAD, width=2, plug_b=parts.usb_mini_b(), rise=8)
@@ -196,35 +196,46 @@ def link(game="ruby", cable="agb005", master="either", lines=(), cmd="python duo
     return sc
 
 
-def games(focus=None):
-    """All five Generation III games and what each needs: Ruby and Sapphire take Mystery Events over a
-    GBA cable with the game on the master end; Emerald, FireRed and LeafGreen take Mystery Gifts over a
-    cross-wired MGB-010; everything else goes over a GBA cable either way round."""
-    sc = Scene(9.0)
+def games(cable="gba", focus=None):
+    """The kit: all five Generation III games, the DUO, its USB lead, and the one link cable this
+    video uses (cable "gba": the GBA Game Link Cable AGB-005; "gb": the cross-wired MGB-010, for
+    Mystery Gift). focus: the game this video is about (raised)."""
+    sc = Scene(8.0)
     order = ["ruby", "sapphire", "emerald", "firered", "leafgreen"]
-    xs = [22, 76, 168, 222, 276]
-    for i, (g, x) in enumerate(zip(order, xs)):
-        a = sc.add(Actor(parts.game_pak(g), x, 62, z=2, t_in=0.25 * i))
-        a.move(0.25 * i, 0.25 * i + 0.5, (x, -40), (x, 62))
-    purple, grey = parts.link_plug("gba_purple"), parts.link_plug("gba_grey")
-    sc.cables.append(Cable((34, 196), (112, 196), [(52, 150), (78, 172), (98, 150)], 2.0, 2.8, GREY_LEAD,
-                           width=2, plug_a=purple, plug_b=grey,
-                           beads=[(0.25, parts.agb005_hub()), (0.8, parts.ferrite(GREY_LEAD))]))
-    sc.labels.append(Label("Mystery Event:\nGBA cable AGB-005,\nthe game on the\nsmall purple plug", (73, 172),
-                           (73, 262), 2.4))
-    small, dmg = parts.link_plug("gbc_black"), parts.link_plug("dmg_black")
-    sc.cables.append(Cable((196, 196), (292, 196), [(212, 150), (244, 176), (276, 150)], 4.0, 4.8, BLACK_LEAD,
-                           width=3, plug_a=small, plug_b=small,
-                           beads=[(0.18, parts.ferrite(BLACK_LEAD)), (0.78, parts.mgb010_junction())],
-                           branch=(0.78, [(300, 158), (318, 170), (326, 190)], dmg)))
-    sc.labels.append(Label("Mystery Gift:\ncross-wired Game Boy\ncable MGB-010", (244, 176), (244, 262), 4.4))
-    sc.labels.append(Label("Ruby, Sapphire", (72, 92), (72, 116), 2.0))
-    sc.labels.append(Label("Emerald, FireRed, LeafGreen", (245, 92), (245, 116), 4.0))
-    sc.caption(0.0, "Every Generation III Pokémon game works with the DUO", "Games")
-    sc.caption(2.0, "Ruby and Sapphire take Mystery Events from the e-Reader: the DUO plays it", "Games")
-    sc.caption(4.0, "Emerald, FireRed and LeafGreen take Mystery Gifts: the DUO plays a Wireless Adapter", "Games")
-    sc.caption(6.2, "Trades, battles, mixing, the Blender, contests and the Tower: a GBA cable, either way round",
-               "Games")
+    for i, g in enumerate(order):
+        x = 22 + i * 64
+        y = 40 if g == focus else 52
+        a = sc.add(Actor(parts.game_pak(g), x, y, z=2, t_in=0.2 * i))
+        a.move(0.2 * i, 0.2 * i + 0.5, (x, -40), (x, y))
+    sc.caption(0.0, "Every Generation III Pokémon game works with the DUO", "Kit")
+    # the DUO and its USB lead
+    d = parts.duo()
+    D = sc.add(Actor(d, 60, 150, z=3, t_in=1.4))
+    D.move(1.4, 1.9, (60, 400), (60, 150))
+    sc.labels.append(Label("Action Replay MAX DUO", (D, "base"), (84, 250), 1.8))
+    a = parts.usb_a()
+    sc.add(Actor(a, 150, 120, z=3, t_in=2.2))
+    sc.cables.append(Cable((150, 124), (D, "usb"), [(128, 112), (96, 126)], 2.2, 2.9, USB_LEAD, width=2,
+                           plug_b=parts.usb_mini_b(), rise=8))
+    sc.labels.append(Label("its USB lead (mini-B to A)", (140, 118), (150, 96), 2.6))
+    sc.caption(1.4, "The DUO, in one GBA's cartridge slot, and its USB lead to the PC", "Kit")
+    if cable == "gb":
+        small, dmg = parts.link_plug("gbc_black"), parts.link_plug("dmg_black")
+        c = Cable((210, 214), (318, 214), [(224, 166), (262, 190), (300, 166)], 3.6, 4.4, BLACK_LEAD,
+                  width=3, plug_a=small, plug_b=small,
+                  beads=[(0.18, parts.ferrite(BLACK_LEAD)), (0.78, parts.mgb010_junction())],
+                  branch=(0.78, [(320, 170), (334, 184), (338, 204)], dmg))
+        sc.cables.append(c)
+        sc.labels.append(Label("Universal Game Link Cable\nMGB-010 (cross-wired)", (c, 0.5), (262, 280), 4.0))
+        sc.caption(3.6, "Mystery Gift needs a cross-wired Game Boy cable: Nintendo's MGB-010", "Kit")
+    else:
+        purple, grey = parts.link_plug("gba_purple"), parts.link_plug("gba_grey")
+        c = Cable((214, 214), (314, 214), [(232, 160), (264, 190), (296, 160)], 3.6, 4.4, GREY_LEAD,
+                  width=2, plug_a=purple, plug_b=grey,
+                  beads=[(0.25, parts.agb005_hub()), (0.8, parts.ferrite(GREY_LEAD))])
+        sc.cables.append(c)
+        sc.labels.append(Label("GBA Game Link Cable AGB-005", (c, 0.5), (262, 280), 4.0))
+        sc.caption(3.6, "And a GBA link cable, Nintendo's AGB-005", "Kit")
     return sc
 
 
@@ -234,7 +245,7 @@ if __name__ == "__main__":
     os.makedirs(out, exist_ok=True)
     demo = ["Before you start: both GBAs should be switched off.", "Connected to Action Replay MAX DUO",
             "  Setting up the DUO's GBA     [########] 100%", "  Ready. Now switch on the game's GBA"]
-    for name, sc in (("games", games()), ("backup", backup()),
+    for name, sc in (("games", games(focus="ruby")), ("games_gift", games("gb", "emerald")),
                      ("link_either", link(lines=demo, cmd="python duo_events.py trade --pk3 offer.pk3")),
                      ("link_event", link("ruby", "agb005", "game", demo)),
                      ("link_gift", link("emerald", "mgb010", lines=demo))):
