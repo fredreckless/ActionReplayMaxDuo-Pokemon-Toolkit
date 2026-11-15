@@ -221,6 +221,61 @@ class Video:
             f = min(1.0, i / 12, (n - i) / 12)
             self.emit(full=Image.blend(Image.new("RGB", img.size, BG), img, f) if f < 1 else img)
 
+    OVERVIEW = [
+        "Datel's Action Replay MAX DUO: a USB save device for GBA and DS games",
+        "New, open firmware for it (Reckless), which you build and install yourself",
+        "Back up any GBA game's save to the PC",
+        "Its GBA plays the other end of a link cable: trades, battles, Record Mixing, the Berry Blender, "
+        "contests and the Battle Tower",
+        "It plays the e-Reader for Mystery Events, and the Wireless Adapter for Mystery Gift",
+        "Every Generation III Pokémon game: Ruby, Sapphire, Emerald, FireRed and LeafGreen",
+        "Built against simulations of the DUO's chips and of the games, then tried on the real thing",
+    ]
+
+    def overview(self, secs=11.0):
+        """The MAX DUO itself, big, and what this toolkit does with it: the opening of every video."""
+        import parts
+        from scene import Scene
+        duo = parts.duo().img
+        big = duo.resize((duo.width * 6, duo.height * 6), Image.NEAREST)
+        bg = Scene(1).background().resize((S, S), Image.NEAREST).convert("RGB")
+        ft, fb = font("Jersey10.ttf", 64), font("Jersey10.ttf", 31)
+        n = self.seconds(secs)
+        lines = []
+        for item in self.OVERVIEW:                     # wrapped to the column right of the DUO
+            words, cur = item.split(), ""
+            d0 = ImageDraw.Draw(bg)
+            rows = []
+            for w in words:
+                if d0.textlength((cur + " " + w).strip(), font=fb) > S - 440:
+                    rows.append(cur)
+                    cur = w
+                else:
+                    cur = (cur + " " + w).strip()
+            rows.append(cur)
+            lines.append(rows)
+        for i in range(n):
+            t = i / FPS
+            frame = bg.copy()
+            d = ImageDraw.Draw(frame)
+            k = min(1.0, t / 0.6)
+            x = int(-big.width + (40 + big.width) * (1 - (1 - k) ** 3))
+            frame.paste(big, (x, 230), big)
+            d.text((S // 2, 90), "Action Replay MAX DUO", font=ft, fill=GOLD, anchor="mm")
+            d.text((S // 2, 150), "with the Reckless firmware and this toolkit", font=fb, fill=DIM, anchor="mm")
+            y = 220
+            for j, rows in enumerate(lines):
+                if t < 0.8 + 1.1 * j:
+                    break
+                d.rectangle([392, y + 12, 402, y + 22], fill=GOLD)
+                for r in rows:
+                    d.text((416, y), r, font=fb, fill=INK)
+                    y += 34
+                y += 14
+            draw_band(frame, "What it is, and what it does now", "MAX DUO", S - 132)
+            f = min(1.0, i / 12, (n - i) / 12)
+            self.emit(full=Image.blend(Image.new("RGB", frame.size, BG), frame, f) if f < 1 else frame)
+
     def still(self, img, caption, step=None, secs=3.0, box=None):
         """A screenshot (the Secret Base Workshop, say) full screen above the instruction band, fitted
         and centred; box crops it first."""

@@ -58,22 +58,22 @@ def duo_gba(sc, x, y, cart, colour, t0, label_at, cart_label):
     db, df = parts.duo_back(), parts.duo()
     pak = parts.game_pak(cart)
     sx, sy = back.anchors["slot"]
-    dbx, dby = x + sx - db.size[0] / 2, y + sy - db.size[1] + 3
+    dbx, dby = x + sx - db.size[0] / 2, y + sy - db.anchors["plug"][1]     # (its slot part inside the GBA)
     px, py = x + sx - pak.size[0] / 2, dby + db.anchors["slot"][1] - 2
     tb = t0 + 2.2                                        # when the turn-over starts
     A = sc.add(Actor(back, x, y, z=5, t_in=t0, t_out=tb))
     A.move(t0, t0 + 0.6, (x, y + 160), (x, y))
-    D = sc.add(Actor(db, dbx, dby, z=6, t_in=t0, t_out=tb))
+    D = sc.add(Actor(db, dbx, dby, z=4, t_in=t0, t_out=tb))
     D.move(t0, t0 + 0.6, (dbx, dby + 160), (dbx, dby))
     P = sc.add(Actor(pak, px, py, z=7, t_in=t0 + 0.9, t_out=tb))
     P.move(t0 + 0.9, t0 + 1.6, (px, py + 60), (px, py))
     sc.labels.append(Label(cart_label, (P, "edge"), label_at, t0 + 1.2, tb))
     # turned over: the back squashes away, the front opens out
-    bsp, (bx, by) = composite([(back, x, y), (db, dbx, dby), (pak, px, py)])
+    bsp, (bx, by) = composite([(db, dbx, dby), (back, x, y), (pak, px, py)])
     B = sc.add(Actor(bsp, bx, by, z=5, t_in=tb, t_out=tb + 0.3))
     B.squash = (tb, tb + 0.3, 1.0, 0.02)
     fx, fy = front.anchors["slot"]
-    dfx, dfy = x + fx - df.size[0] / 2, y + fy - df.size[1] + 3
+    dfx, dfy = x + fx - df.size[0] / 2, y + fy - df.anchors["plug"][1]
     fsp, (cx, cy) = composite([(df, dfx, dfy), (front, x, y)])
     F = sc.add(Actor(fsp, cx, cy, z=5, t_in=tb + 0.3, t_out=tb + 0.6))
     F.squash = (tb + 0.3, tb + 0.6, 0.02, 1.0)

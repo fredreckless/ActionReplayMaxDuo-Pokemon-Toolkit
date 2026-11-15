@@ -72,6 +72,8 @@ def main():
     ap.add_argument("--ruby", help="English Ruby (1.1), if not in --roms")
     ap.add_argument("--emerald", help="Emerald, if not in --roms")
     ap.add_argument("--kit", default=os.path.expanduser("~/kit"))
+    ap.add_argument("--events", help="a folder of event .pk3 files: the DUO trades and battles with three of "
+                                     "them, picked at random and raised to level 50")
     ap.add_argument("--flash", default=os.path.join(TOOLKIT, "firmware", "build", "duo_flash.bin"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--work", help="where saves and recordings go (default OUT/work)")
@@ -121,6 +123,15 @@ def main():
                     results.append((name, f"savegen failed: {last}"))
                     continue
             saves[game] = next(os.path.join(S, f) for f in os.listdir(S) if f.endswith(".sav"))
+            # the DUO's Pokemon: real event Pokemon, picked at random from --events and raised to
+            # level 50 (savegen's own made-up ones if there's no folder)
+            if a.events:
+                ok, last = run([sys.executable, os.path.join(VIRTUAL, "savegen", "events.py"), a.events,
+                                os.path.join(S, "pk3")] + (["--kanto-offer"] if game in ("firered", "leafgreen") else []),
+                               os.path.join(work, f"events_{game}.log"))
+                print(f"  event Pokemon for {game}: " + ("; ".join(
+                    l.strip() for l in open(os.path.join(work, f"events_{game}.log")) if ".pk3: " in l)
+                    if ok else f"none ({last})"), flush=True)
         # the unlock, recorded (the game alone)
         urec = None
         if name in UNLOCK:
@@ -178,10 +189,26 @@ def main():
             if not ok:
                 results.append((name, f"rehearsal failed: {last} (see {work}/run_{name}.log)"))
                 continue
+        # Record Mixing's ending: to the base's spot on its route, and in (from the save the game wrote)
+        vrec = None
+        if name == "record_mixing":
+            vrec = os.path.join(work, "rec_visit")
+            after = os.path.join(work, f"run_{name}", "after.sav")
+            if not (a.reuse and os.path.exists(os.path.join(vrec, "terminal.jsonl"))) and os.path.exists(after):
+                shutil.rmtree(vrec, ignore_errors=True)
+                print("recording: visiting the base ...", flush=True)
+                env = dict(os.environ, VDUO_RECORD=vrec, VDUO_RECORD_STEP="2")
+                ok, last = run([sys.executable, os.path.join(HERE, "unlock.py"), "visit_base", "--rom", rom, "--sav", after,
+                                "--sb3", os.path.join(W, "willow.sb3")], os.path.join(work, "visit.log"), env)
+                if not ok:
+                    print(f"  (the visit didn't play: {last})")
+            if not os.path.exists(os.path.join(vrec, "terminal.jsonl")):
+                vrec = None
         # the video
         print(f"composing: {name} ...", flush=True)
         mp4 = os.path.join(out, f"{name}.mp4")
-        secs = stories.make(story, mp4, rec, crf=a.crf, unlock_rec=urec, workshop=shop, claim_rec=crec)
+        secs = stories.make(story, mp4, rec, crf=a.crf, unlock_rec=urec, workshop=shop, claim_rec=crec,
+                            visit_rec=vrec)
         results.append((name, f"{mp4} ({secs / 60:.1f} min)"))
         made[name] = mp4
     print()

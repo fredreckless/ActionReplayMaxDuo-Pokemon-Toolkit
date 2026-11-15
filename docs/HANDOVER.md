@@ -100,6 +100,14 @@ drawn from references, no logos or label art, clear instructions; keep to that.
   arrived. English Emerald's MYSTERY GIFT menu goes back to the title without an adapter, so the card
   itself can't be shown.
 
+Later on 15 November (Fred's second notes): every video opens with the MAX DUO itself, big, and
+what the toolkit does with it (`Video.overview`); the DUO's sprite has its slot part now (65 x 32 mm
+block, 52 x 34 mm part, measured from Fred's ruler photos), hidden inside the GBA; labels are
+centred; the workshop's own Generate designs the base; the DUO trades and battles with real event
+Pokémon from the EventsGallery (`savegen/events.py`: three at random, only those met at or below
+level 50, raised to 50, still legal); and the Record Mixing video ends by going to the base's spot
+on its route and walking in (`unlock.py visit_base`).
+
 Also: `ruby.Tool.linked()` ignores the tool's "no change for 30 s" notice. On a slow run (the laptop,
 or recording) it came before the link and stopped the tapping: that was the matrix's 8 Emerald
 Tower failures on 14 November (rerun `run_matrix.sh` to confirm).

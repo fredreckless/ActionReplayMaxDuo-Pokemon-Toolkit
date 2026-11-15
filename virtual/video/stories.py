@@ -49,7 +49,7 @@ STORIES = {
         game="firered", game_name="Pokémon FireRed (English)", master="either", cable="gba",
         intro="Upstairs in a Pokémon Center: the Cable Club attendant, TRADE CENTER, and let the game save",
         cues=[("in the Trade Center", "In the room, sit at the table: the DUO walks to the other seat"),
-              ("chosen: waiting", "Choose a Pokémon you can spare, then YES"),
+              ("chosen: waiting", "Choose a Pokémon you can spare, then YES: the DUO offers a real event Pokémon"),
               ("the trade scene", "The game checks the Pokémon, trades and saves by itself"),
               ("leaving the trade screen", "Whatever you gave is kept on the PC, in the received folder"),
               ("back to the Trade Center", "Choose CANCEL: the DUO walks to the door, and the game follows it out")],
@@ -70,7 +70,7 @@ STORIES = {
         intro="Upstairs in a Pokémon Center: the Cable Club attendant, COLOSSEUM, SINGLE BATTLE, and let the game save",
         cues=[("in the Cable Club", "In the Colosseum, stand on your spot: the DUO walks to the other"),
               ("swapping teams", "The game and the DUO swap teams over the link"),
-              ("battling", "The battle: you play your moves, and the PC plays the DUO's Metagross and Altaria"),
+              ("battling", "The battle: you play your moves, and the PC plays the DUO's event Pokémon"),
               ("the battle is over", "The battle's over: both players walk back out of the room")],
         speed=[("battling", "the battle is over", 3)],
         finish="Done: a whole link battle, with the PC following every turn"),
@@ -178,6 +178,7 @@ def link_story(out, rec_dir, s, crf=20):
     lines_of(rec)
     game = s["game"]
     v = Video(out, s["title"], s["game_name"], crf=crf)
+    v.overview()
     v.title_card(s["title"], s["sub"])
     v.scene(setups.games("gba", focus=game))
     if s.get("workshop"):
@@ -219,6 +220,11 @@ def link_story(out, rec_dir, s, crf=20):
     v.say(s["finish"], "Done")
     v.hold(5)
     v.crossfade()
+    if s.get("visit_rec"):
+        c = Recording(s["visit_rec"])
+        v.term, v.duo = [], None
+        play_marked(v, c, VISIT, [], "In the game")
+        v.crossfade()
     v.title_card(s["title"], END, 4)
     return v.close()
 
@@ -236,6 +242,7 @@ def gift_story(out, unlock_rec, crf=20, claim_rec=None):
     rec = Recording(unlock_rec)
     title = "Mystery Gift with Emerald"
     v = Video(out, title, "Pokémon Emerald (English)", crf=crf)
+    v.overview()
     v.title_card(title, "duo_events.py gift: the DUO's GBA plays a Wireless Adapter\nover a cross-wired Game Boy cable")
     v.scene(setups.games("gb", focus="emerald"))
     u = UNLOCKS["mystery_gift"]
@@ -262,12 +269,19 @@ def gift_story(out, unlock_rec, crf=20, claim_rec=None):
     return v.close()
 
 
-def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=None):
+VISIT = [("arrive", "Then go and see it: here, straight to its spot on the route (the emulator's shortcut)"),
+         ("walk", "Its entrance is open on the map: walk in"),
+         ("inside", "The base, as it was made in the workshop, with its owner waiting to battle")]
+
+
+def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=None, visit_rec=None):
     if name == "mystery_gift":
         return gift_story(out, unlock_rec, crf, claim_rec)
     s = dict(STORIES[name])
     if workshop:
         s["workshop"] = workshop
+    if visit_rec:
+        s["visit_rec"] = visit_rec
     if s.get("unlock"):
         s["unlock_rec"] = unlock_rec
     return link_story(out, rec_dir, s, crf)

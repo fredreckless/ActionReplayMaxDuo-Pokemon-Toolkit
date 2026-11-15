@@ -207,6 +207,45 @@ def mystery_gift_claim(rom, sav, wc3):
         g.close()
 
 
+def visit_base(rom, sav, sb3):
+    """The end of the Record Mixing video: in the save the game wrote after mixing, straight to the
+    base's spot on its route (the game's own CONTINUE, pointed there: a teleport), and in through
+    its entrance by walking. Passes when the player is inside (the map is no longer the route)."""
+    import secret_bases as SB
+    p = profiles.for_rom(rom)
+    f = SB.parse_sb3(open(sb3, "rb").read())
+    loc = SB.tables().locations[f["location"]]
+    route = (0, 16 + loc["route"] - 101)                  # (Routes 101 to 134 follow the towns in group 0)
+    g = savegen.Game(rom, p, save=sav)
+    try:
+        for _ in range(3000):
+            if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
+                break
+            g.tap("A", gap=10)
+        g.run(40)
+        savegen.point_continue(g, (route[0], route[1], loc["x"], loc["y"] + 1))
+        g.tap("A", gap=10)
+        g.wait(g.in_overworld, 1200, what="the overworld")
+        g.run(60)
+        mark(g, "arrive")
+        g.run(90)
+        mark(g, "walk")
+        for _ in range(12):                               # up into the entrance (A too, if it asks)
+            g.tap("UP", hold=10, gap=20)
+            if g.read(g.sb1() + 4, 1)[0] != route[0]:
+                break
+        else:
+            raise RuntimeError("the base's entrance didn't take the player in")
+        g.run(120)
+        mark(g, "inside")
+        presses(g, "UP*4 w30 RIGHT*2 w30 UP*2 w60", gap=14)
+        mark(g, "end")
+        g.screenshot("/tmp/visit_base.png")
+        print(f"PASS: inside the base on Route {loc['route']}")
+    finally:
+        g.close()
+
+
 def mystery_event(rom, sav):
     p = profiles.for_rom(rom)
     if p.TITLE != "English Ruby 1.1":
@@ -262,7 +301,8 @@ def mystery_event(rom, sav):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim"))
+    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim", "visit_base"))
+    ap.add_argument("--sb3", help="visit_base: the base that was mixed in")
     ap.add_argument("--wc3", help="mystery_gift_claim: the Wonder Card (English Emerald's)")
     ap.add_argument("--rom", required=True)
     ap.add_argument("--sav", required=True)
@@ -273,6 +313,8 @@ def main():
     a.sav = copy
     if a.which == "mystery_gift_claim":
         return mystery_gift_claim(a.rom, a.sav, a.wc3)
+    if a.which == "visit_base":
+        return visit_base(a.rom, a.sav, a.sb3)
     {"mystery_event": mystery_event, "mystery_gift": mystery_gift}[a.which](a.rom, a.sav)
 
 

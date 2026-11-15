@@ -20,7 +20,9 @@ setup and product photos) at about 0.83 art pixels per millimetre:
 
 No logos or label art.
 """
-from pixel import Sprite, rgb, shade
+from pixel import Sprite, rgb, shade, TINY
+
+TINY_W = {k: v[0] for k, v in TINY.items()}
 
 COLOURWAYS = {
     "indigo": dict(face=rgb("#4f47b0"), bump=rgb("#c9cbd3"), btn=rgb("#dfe1e8"), dpad=rgb("#dfe1e8")),
@@ -142,45 +144,88 @@ def gba_back(colourway="indigo"):
     return s
 
 
-def _moulded(s, x, y, text):
-    s.text(x - 1, y, text, shade(SILVER, 1.5), None)
-    s.text(x + 1, y + 2, text, shade(SILVER, 0.55), None)
-    s.text(x, y + 1, text, shade(SILVER, 0.9), None)
+def _moulded(s, x, y, text, upside_down=False):
+    """Lettering moulded into the silver: light above, shadow below. Upside down: as the DUO's "DS"
+    reads from the front of a GBA it's in (refs/max duo in gba.jpg)."""
+    w = len(text) * 4 + 2
+    t = Sprite(w, 8)
+    t.text(0, 0, text, shade(SILVER, 1.5), None)
+    t.text(2, 2, text, shade(SILVER, 0.55), None)
+    t.text(1, 1, text, shade(SILVER, 0.9), None)
+    img = t.img.rotate(180) if upside_down else t.img
+    s.img.alpha_composite(img, (x, y))
+
+
+# The MAX DUO, measured with a ruler (Fred's photos, 15 November): a block 65 x 32 mm (switch, mini-USB
+# socket and button along one edge) and the cartridge-shaped part that goes into the GBA's slot, 52 x
+# 34 mm: 54 x 27 and 43 x 28 art pixels. In a GBA the block stands above the slot, its "DS" face to
+# the front (upside down from there), and the rest is inside.
+DUO_W, DUO_BLOCK, DUO_TONGUE_W, DUO_TONGUE = 54, 27, 43, 28
+
+
+def _duo_shape(s, top):
+    W = DUO_W
+    tx = (W - DUO_TONGUE_W) // 2
+    # the part that goes into the GBA: plainer, with a raised panel and the contacts' edge at its end
+    s.rrect(tx, top + DUO_BLOCK - 3, tx + DUO_TONGUE_W - 1, top + DUO_BLOCK + DUO_TONGUE - 1, 2, shade(SILVER, 0.9))
+    s.rrect(tx + 1, top + DUO_BLOCK - 2, tx + DUO_TONGUE_W - 2, top + DUO_BLOCK + DUO_TONGUE - 2, 2, SILVER)
+    s.region_light((tx, top + DUO_BLOCK - 3, tx + DUO_TONGUE_W - 1, top + DUO_BLOCK + DUO_TONGUE - 1),
+                   shade(SILVER, 1.25), shade(SILVER, 0.7))
+    s.hline(tx + 3, tx + DUO_TONGUE_W - 4, top + DUO_BLOCK + DUO_TONGUE - 3, shade(SILVER, 0.6))
+    # the block
+    s.rrect(0, top, W - 1, top + DUO_BLOCK - 1, 3, shade(SILVER, 0.95))
+    s.region_light((0, top, W - 1, top + DUO_BLOCK - 1), shade(SILVER, 1.3), shade(SILVER, 0.68))
+    s.hline(2, W - 3, top + DUO_BLOCK - 1, shade(SILVER, 0.6))
+    return tx
 
 
 def duo():
-    W, H = 48, 32
-    s = Sprite(W, H)
-    s.rect(7, 1, 12, 4, rgb("#33333b"))                # AR switch, left
-    s.rect(8, 0, 10, 1, rgb("#55555f"))
-    s.rect(20, 2, 27, 4, rgb("#1c1c20"))               # mini-USB socket
-    s.rect(21, 3, 26, 3, rgb("#b8b0a0"))
-    s.rect(36, 1, 40, 4, rgb("#33333b"))               # AR button, right
-    s.rrect(4, 4, W - 5, 20, 3, SILVER)                # the narrower upper block
-    s.rrect(0, 16, W - 1, H - 1, 3, shade(SILVER, 0.95))   # the wide base
-    s.region_light((0, 4, W - 1, H - 1), shade(SILVER, 1.3), shade(SILVER, 0.7))
-    s.hline(5, W - 6, 16, shade(SILVER, 0.75))
-    for x in (4, W - 5):                                # screws
-        s.px(x, 24, rgb("#6a6e76"))
-        s.px(x, 23, rgb("#e8ecf0"))
-    _moulded(s, W // 2 - 4, 8, "DS")
-    s.anchors["usb"] = (23, 2)
-    s.anchors["base"] = (W // 2, H - 1)
+    """Its "DS" face, in a GBA's orientation (the block on top, the part for the slot below): the
+    switch, the mini-USB socket and the button on the top edge, two screws, the recessed panel with
+    "DS" (upside down from here), the cartridge slot's notch; below, the slot part with its screws
+    and panel. Anchors: usb, base (where it meets the GBA's top edge), led."""
+    W, top = DUO_W, 3
+    s = Sprite(W, top + DUO_BLOCK + DUO_TONGUE)
+    s.rect(10, 0, 16, top, rgb("#33333b"))                # the switch, left (19-31% along)
+    s.rect(11, 0, 13, 1, rgb("#55555f"))
+    s.rect(23, 1, 29, top, rgb("#1c1c20"))                # the mini-USB socket (42-55%)
+    s.rect(24, 2, 28, 2, rgb("#b8b0a0"))
+    s.ellipse(37, 0, 41, top + 1, rgb("#2a2a30"))         # the round button (68-76%)
+    tx = _duo_shape(s, top)
+    for x in (4, W - 5):                                  # screws at the block's top corners
+        s.px(x, top + 4, rgb("#6a6e76"))
+        s.px(x, top + 3, rgb("#e8ecf0"))
+    s.rrect(10, top + 7, W - 11, top + DUO_BLOCK - 4, 2, shade(SILVER, 0.86))     # the recessed panel
+    s.hline(11, W - 12, top + DUO_BLOCK - 4, shade(SILVER, 1.25))
+    _moulded(s, W // 2 - 5, top + 11, "DS", upside_down=True)
+    s.d.chord([W // 2 - 4, top + 4, W // 2 + 3, top + 10], 0, 180, fill=rgb("#3a3a42") + (255,))  # the slot's notch
+    yb = top + DUO_BLOCK
+    s.rect(tx + 8, yb + 6, tx + DUO_TONGUE_W - 9, yb + 15, shade(SILVER, 0.88))  # the slot part's panel
+    s.vline(tx + 5, yb + 2, yb + DUO_TONGUE - 6, shade(SILVER, 0.78))
+    s.vline(tx + DUO_TONGUE_W - 6, yb + 2, yb + DUO_TONGUE - 6, shade(SILVER, 0.78))
+    for x in (tx + 3, tx + DUO_TONGUE_W - 4):
+        s.px(x, yb + DUO_TONGUE - 5, rgb("#6a6e76"))
+    s.anchors["usb"] = (26, 1)
+    s.anchors["base"] = (W // 2, yb)
+    s.anchors["plug"] = (W // 2, yb)
     s.outline()
     return s
 
 
 def duo_back():
-    W, H = 48, 32
-    s = Sprite(W, H)
-    s.rrect(4, 4, W - 5, 20, 3, SILVER)
-    s.rrect(0, 16, W - 1, H - 1, 3, shade(SILVER, 0.95))
-    s.region_light((0, 4, W - 1, H - 1), shade(SILVER, 1.3), shade(SILVER, 0.7))
-    _moulded(s, W // 2 - 6, 7, "GBA")
-    s.rect(5, H - 6, W - 6, H - 3, rgb("#18181c"))
+    """Its other face, "GBA" moulded in (upside down too), with the slot along the block's top edge
+    that the cartridge (any, for it to start) goes into; the slot part's recessed label area below."""
+    W, top = DUO_W, 3
+    s = Sprite(W, top + DUO_BLOCK + DUO_TONGUE)
+    tx = _duo_shape(s, top)
+    s.rect(5, top, W - 6, top + 3, rgb("#18181c"))        # the cartridge slot
     for x in range(7, W - 7, 2):
-        s.px(x, H - 4, rgb("#8a7a40"))
-    s.anchors["slot"] = (W // 2, H - 3)
+        s.px(x, top + 2, rgb("#8a7a40"))
+    _moulded(s, W // 2 - 7, top + 11, "GBA", upside_down=True)
+    yb = top + DUO_BLOCK
+    s.rrect(tx + 4, yb + 3, tx + DUO_TONGUE_W - 5, yb + DUO_TONGUE - 6, 2, shade(SILVER, 0.86))
+    s.anchors["slot"] = (W // 2, top + 1)
+    s.anchors["plug"] = (W // 2, yb)
     s.outline()
     return s
 
@@ -200,16 +245,16 @@ def _pak_shape(s, col):
 
 
 def game_pak(game):
-    """The front, label side: the label (left plain but for the name) 7 to 54 mm across, 10 to 33 mm down."""
+    """The front, label side: the label (left plain but for the name), centred, 10 to 33 mm down."""
     W, H = 48, 29
     col, name = GAMES[game]
     s = Sprite(W, H)
     _pak_shape(s, col)
-    s.rect(6, 9, 44, 26, rgb("#e9e6dc"))
-    s.rect(7, 10, 43, 12, shade(col, 1.15))
-    s.rect(7, 23, 43, 25, shade(col, 1.15))
-    tw = len(name) * 4 - 1
-    s.text(6 + (39 - tw) // 2, 15, name, shade(col, 0.55), None)
+    s.rect(5, 9, 42, 26, rgb("#e9e6dc"))                  # (centred: Fred's choice over the real offset)
+    s.rect(6, 10, 41, 12, shade(col, 1.15))
+    s.rect(6, 23, 41, 25, shade(col, 1.15))
+    tw = sum(len(TINY_W.get(c.upper(), "x" * 3)) + 1 for c in name) - 1
+    s.text(5 + (38 - tw) // 2, 15, name, shade(col, 0.55), None)
     s.anchors["top"] = (W // 2, 0)
     s.anchors["edge"] = (W // 2, H - 1)
     s.outline()
