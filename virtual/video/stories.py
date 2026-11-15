@@ -272,7 +272,9 @@ def gift_story(out, unlock_rec, crf=20, claim_rec=None, theme=None):
 
 VISIT = [("arrive", "Then go and see it: here, straight to its spot on the route (the emulator's shortcut)"),
          ("walk", "Its entrance is open on the map: walk in"),
-         ("inside", "The base, as it was made in the workshop, with its owner waiting to battle")]
+         ("inside", "The base, as it was made in the workshop, with its owner waiting to battle"),
+         ("talk", "Talk to the owner (after the Champion, they'll battle)"),
+         ("battle", "The owner battles with the team made in the workshop")]
 
 
 def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=None, visit_rec=None, theme=None):

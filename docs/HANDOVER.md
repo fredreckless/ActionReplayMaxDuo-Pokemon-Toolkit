@@ -117,6 +117,12 @@ defaults to silence, so vduo sets it). The music is the Record Corner's own them
 Record Mixing recording and looped under everything; wherever the game plays at its own speed its
 real sound takes over.
 
+Fourth round: the music is Ever Grande City's theme (the same tune, longer), 150 s recorded from the
+game standing outside its Pokémon Center (`unlock.py theme`); the game's sound is joined up run by
+run and stretched once (frame by frame it warbled); the tall team panel scrolls; and the Record
+Mixing video ends in a battle with the base's owner, once both first Pokémon are out (owners only
+battle after the Champion, so FLAG_SYS_GAME_CLEAR is set for it).
+
 Also: `ruby.Tool.linked()` ignores the tool's "no change for 30 s" notice. On a slow run (the laptop,
 or recording) it came before the link and stopped the tapping: that was the matrix's 8 Emerald
 Tower failures on 14 November (rerun `run_matrix.sh` to confirm).

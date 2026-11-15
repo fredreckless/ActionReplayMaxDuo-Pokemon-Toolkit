@@ -207,10 +207,78 @@ def mystery_gift_claim(rom, sav, wc3):
         g.close()
 
 
+def _texting(g):
+    """A battle message waiting for A: the text printer's flag in the battle window... approximated by
+    the screen's bottom box being the plain message box (no menu on its right)."""
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "_battle_now.png")
+    g.screenshot(path)
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    return im.getpixel((200, 136)) == im.getpixel((120, 136))     # the menu's box would differ there
+
+
+def owner_xy(g):
+    """The base's owner: the object event with local id 1 (savegen's objects(): map coordinates + 7)."""
+    hit = [(xy[0] - 7, xy[1] - 7) for _, lid, xy in g.objects() if lid == 1]
+    if not hit:
+        raise RuntimeError("no owner in the base")
+    return hit[0]
+
+
+def walk_next_to(g, target, limit=80):
+    """Walk until beside target (a tile away, up, down, left or right), then face it: one step at a
+    time, toward it, the other way round when something is in the way."""
+    tx, ty = target
+    for _ in range(limit):
+        x, y = g.player_xy()
+        dx, dy = tx - x, ty - y
+        if abs(dx) + abs(dy) == 1:
+            g.tap("RIGHT" if dx > 0 else "LEFT" if dx < 0 else "DOWN" if dy > 0 else "UP", hold=2, gap=16)
+            return
+        tries = []
+        if dy:
+            tries.append("DOWN" if dy > 0 else "UP")
+        if dx:
+            tries.append("RIGHT" if dx > 0 else "LEFT")
+        tries += [k for k in ("LEFT", "RIGHT", "UP", "DOWN") if k not in tries]
+        for k in tries:
+            g.tap(k, hold=14, gap=6)
+            g.run(8)
+            if g.player_xy() != (x, y):
+                break
+    raise RuntimeError(f"couldn't get beside {target}")
+
+
+def evergrande_theme(rom, sav, out, secs=150):
+    """OUT: Ever Grande City's music (the Record Corner's theme, at full length), 16-bit stereo at
+    32768 Hz: the game standing outside its Pokemon Center with nothing pressed, sound only."""
+    p = profiles.for_rom(rom)
+    g = savegen.Game(rom, p, save=sav)
+    try:
+        for _ in range(3000):
+            if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
+                break
+            g.tap("A", gap=10)
+        g.run(40)
+        savegen.point_continue(g, (0, 8, 27, 49))          # Ever Grande City, below the Pokemon Center
+        g.tap("A", gap=10)
+        g.wait(g.in_overworld, 1200, what="the overworld")
+        g.run(180)                                        # (the fade, and the music under way)
+        if os.path.exists(out):
+            os.remove(out)
+        g.v.cmd(f"audio partner {g.v._path(os.path.abspath(out))}")
+        g.run(int(secs * 59.7275))
+        g.v.cmd("audio partner -")
+        print(f"PASS: {os.path.getsize(out) / 4 / 32768:.0f} s of Ever Grande City's music in {out}")
+    finally:
+        g.close()
+
+
 def visit_base(rom, sav, sb3):
     """The end of the Record Mixing video: in the save the game wrote after mixing, straight to the
-    base's spot on its route (the game's own CONTINUE, pointed there: a teleport), and in through
-    its entrance by walking. Passes when the player is inside (the map is no longer the route)."""
+    base's spot on its route (the game's own CONTINUE, pointed there: a teleport), in through its
+    entrance by walking, over to its owner, and a battle with them, up to both first Pokemon out."""
     import secret_bases as SB
     p = profiles.for_rom(rom)
     f = SB.parse_sb3(open(sb3, "rb").read())
@@ -223,6 +291,8 @@ def visit_base(rom, sav, sb3):
                 break
             g.tap("A", gap=10)
         g.run(40)
+        # owners battle only after the Champion (FLAG_SYS_GAME_CLEAR: pret's secret_base.inc)
+        g.flag(0x864 if "Emerald" in p.TITLE else 0x804)
         savegen.point_continue(g, (route[0], route[1], loc["x"], loc["y"] + 1))
         g.tap("A", gap=10)
         g.wait(g.in_overworld, 1200, what="the overworld")
@@ -238,10 +308,37 @@ def visit_base(rom, sav, sb3):
             raise RuntimeError("the base's entrance didn't take the player in")
         g.run(120)
         mark(g, "inside")
-        presses(g, "UP*4 w30 RIGHT*2 w30 UP*2 w60", gap=14)
+        # over to the owner (gObjectEvents: local id 1 in a base) and battle them
+        walk_next_to(g, owner_xy(g))
+        mark(g, "talk")
+        mons = p.gBattleMons
+        for _ in range(60):                               # their words, YES to a battle, more words
+            if struct.unpack("<H", g.read(mons + 0x58, 2))[0]:
+                break
+            g.tap("A", gap=40)
+        else:
+            raise RuntimeError("the owner didn't battle")
+        mark(g, "battle")
+        g.wait(lambda: all(struct.unpack("<H", g.read(mons + 0x58 * b + 0x28, 2))[0] for b in (0, 1)),
+               1800, step=10, what="both first Pokemon out")
+        # "... would like to battle!" waits for A; then each side sends out its first Pokemon and the
+        # menu comes up (gBattlerControllerFuncs[0] settles on it): no more presses after that
+        funcs = p.gBattlerControllerFuncs
+        settled, last = 0, None
+        for _ in range(400):
+            f0 = struct.unpack("<I", g.read(funcs, 4))[0]
+            settled = settled + 1 if f0 == last else 0
+            last = f0
+            if settled == 4 and not _texting(g):
+                break
+            if settled == 4:
+                g.tap("A", gap=10)
+                settled = 0
+            g.run(30)
+        g.run(240)
         mark(g, "end")
         g.screenshot("/tmp/visit_base.png")
-        print(f"PASS: inside the base on Route {loc['route']}")
+        print(f"PASS: inside the base on Route {loc['route']}, battling its owner")
     finally:
         g.close()
 
@@ -301,7 +398,8 @@ def mystery_event(rom, sav):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim", "visit_base"))
+    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim", "visit_base", "theme"))
+    ap.add_argument("--out", help="theme: where the music goes")
     ap.add_argument("--sb3", help="visit_base: the base that was mixed in")
     ap.add_argument("--wc3", help="mystery_gift_claim: the Wonder Card (English Emerald's)")
     ap.add_argument("--rom", required=True)
@@ -315,6 +413,8 @@ def main():
         return mystery_gift_claim(a.rom, a.sav, a.wc3)
     if a.which == "visit_base":
         return visit_base(a.rom, a.sav, a.sb3)
+    if a.which == "theme":
+        return evergrande_theme(a.rom, a.sav, a.out)
     {"mystery_event": mystery_event, "mystery_gift": mystery_gift}[a.which](a.rom, a.sav)
 
 

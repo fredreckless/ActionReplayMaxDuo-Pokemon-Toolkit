@@ -290,30 +290,49 @@ class Video:
             self.emit(full=Image.blend(Image.new("RGB", frame.size, BG), frame, f) if f < 1 else frame)
 
     def still(self, img, caption, step=None, secs=3.0, box=None):
-        """A screenshot (the Secret Base Workshop, say) full screen above the instruction band, fitted
-        and centred; box crops it first."""
+        """A screenshot (the Secret Base Workshop, say) as a slide above the instruction band: fitted
+        and centred; a tall one fills the width and scrolls slowly from top to bottom so its details
+        can be read. Each slide fades up from the background and back down to it, never blended into
+        whatever came before (15 November: the kit scene showed through the first slide)."""
         from scene import draw_band
         img = img.convert("RGB")
         if box:
             img = img.crop(box)
-        if img.height > img.width * 1.1:                 # a tall panel: its top part, to stay readable
-            img = img.crop((0, 0, img.width, int(img.width * 0.8)))
         H = S - 140
-        k = min((S - 40) / img.width, (H - 30) / img.height)
-        img = img.resize((int(img.width * k), int(img.height * k)), Image.LANCZOS)
-        frame = Image.new("RGB", (S, S), BG)
-        frame.paste(img, ((S - img.width) // 2, (H - img.height) // 2 + 10))
-        draw_band(frame, caption, step, S - 132)
-        # a slideshow: each slide fades up from the background and back down to it, never blended
-        # into whatever came before (15 November: the kit scene showed through the first slide)
-        self._fade, self._from = 0, None
-        blank = Image.new("RGB", (S, S), BG)
         n, k = self.seconds(secs), 8
-        for i in range(k):
-            self.emit(full=Image.blend(blank, frame, (i + 1) / k))
-        self.emit(max(1, n - 2 * k), full=frame)
-        for i in range(k):
-            self.emit(full=Image.blend(frame, blank, (i + 1) / k))
+        tall = img.height / img.width > (H - 30) / (S - 40) * 1.15
+        if tall:
+            w = S - 40
+            img = img.resize((w, int(img.height * w / img.width)), Image.LANCZOS)
+            n = max(n, self.seconds(min(14.0, 2.0 + img.height / 260)))   # time to read as it goes by
+        else:
+            kk = min((S - 40) / img.width, (H - 30) / img.height)
+            img = img.resize((int(img.width * kk), int(img.height * kk)), Image.LANCZOS)
+        blank = Image.new("RGB", (S, S), BG)
+
+        def frame_at(i):
+            fr = Image.new("RGB", (S, S), BG)
+            if tall:
+                travel = img.height - (H - 20)
+                hold = FPS                                      # a second still at each end
+                t = min(1.0, max(0.0, (i - hold) / max(1, n - 2 * hold)))
+                t = t * t * (3 - 2 * t)
+                y = int(travel * t)
+                fr.paste(img.crop((0, y, img.width, y + H - 20)), (20, 10))
+            else:
+                fr.paste(img, ((S - img.width) // 2, (H - img.height) // 2 + 10))
+            draw_band(fr, caption, step, S - 132)
+            return fr
+
+        self._fade, self._from = 0, None
+        still = None if tall else frame_at(0)
+        for i in range(n):
+            fr = frame_at(i) if tall else still
+            if i < k:
+                fr = Image.blend(blank, fr, (i + 1) / k)
+            elif i >= n - k:
+                fr = Image.blend(fr, blank, (i - (n - k) + 1) / k)
+            self.emit(full=fr)
 
     def scene(self, sc, speed=1.0):
         """An animated setup scene, full screen, from start to end; blends in and out."""
@@ -407,15 +426,41 @@ class Video:
         mask = np.zeros(total, np.float32)
         maps = {}
         per = rate / FPS
-        for f, pcm, start, n in self.sounds:
+        # runs of frames shown one after another from one recording: each run's sound joined up as it
+        # was recorded and stretched once, smoothly, to the run's length (frame by frame, 1097 samples
+        # squeezed into 1092 each time, it warbled: 15 November). A frame whose sound is much longer -
+        # frames run unrecorded in between - keeps only its last frame's worth.
+        runs, cur = [], []
+        for snd in self.sounds:
+            if cur and (snd[0] != cur[-1][0] + 1 or snd[1] != cur[-1][1] or snd[2] < cur[-1][2]):
+                runs.append(cur)
+                cur = []
+            cur.append(snd)
+        if cur:
+            runs.append(cur)
+        frame_len = 2 * 548.57
+        for run in runs:
+            pcm = run[0][1]
             if pcm not in maps:
                 maps[pcm] = np.memmap(pcm, dtype="<i2", mode="r").reshape(-1, 2)
-            src = maps[pcm][start:start + n].astype(np.float32)
-            a, b = int(f * per), int((f + 1) * per)
-            if len(src) < 2 or b > total:
+            m = maps[pcm]
+            parts = []
+            for _, _, start, n in run:
+                if n > 1.6 * frame_len:
+                    start, n = start + n - int(frame_len), int(frame_len)
+                parts.append(m[start:start + n])
+            src = np.concatenate(parts).astype(np.float32) if parts else np.zeros((0, 2), np.float32)
+            a, b = int(run[0][0] * per), int((run[-1][0] + 1) * per)
+            b = min(b, total)
+            if len(src) < 2 or b - a < 2:
                 continue
-            idx = np.linspace(0, len(src) - 1, b - a)
-            game[a:b] = src[idx.astype(int)]
+            x = np.linspace(0, len(src) - 1, b - a)
+            seg = np.stack([np.interp(x, np.arange(len(src)), src[:, c]) for c in (0, 1)], axis=1)
+            e = min(160, (b - a) // 2)                       # 5 ms fades at a run's ends: no clicks
+            ramp = np.linspace(0, 1, e)[:, None]
+            seg[:e] *= ramp
+            seg[-e:] *= ramp[::-1]
+            game[a:b] = seg
             mask[a:b] = 1
         k = int(0.15 * rate)                                 # smooth the switch over 0.15 s
         if k > 1:

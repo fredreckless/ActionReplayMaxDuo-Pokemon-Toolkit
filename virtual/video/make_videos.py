@@ -228,10 +228,21 @@ def main():
             if not os.path.exists(os.path.join(vrec, "terminal.jsonl")):
                 vrec = None
         jobs.append((name, story, rec, dict(unlock_rec=urec, workshop=shop, claim_rec=crec, visit_rec=vrec)))
-    # the music: the Record Corner's own theme, from the Record Mixing recording's sound
-    theme = record_corner_theme(work)
-    print("music: " + (f"the Record Corner's theme ({os.path.getsize(theme) / 4 / 32768:.0f} s, looped)" if theme
-                       else "none (no Record Mixing recording with sound): the game's own sound only"), flush=True)
+    # the music: Ever Grande City's theme (the Record Corner's music, at full length), recorded from
+    # the game; the Record Corner's own stretch if that can't be made
+    theme = os.path.join(work, "evergrande.pcm")
+    if not os.path.exists(theme):
+        game = next((g for g in ("ruby", "sapphire", "emerald") if g in saves), None)
+        if game:
+            print("recording: Ever Grande City's music ...", flush=True)
+            run([sys.executable, os.path.join(HERE, "unlock.py"), "theme", "--rom", roms[game], "--sav", saves[game],
+                 "--out", theme], os.path.join(work, "theme.log"))
+    if os.path.exists(theme):
+        print(f"music: Ever Grande City's theme ({os.path.getsize(theme) / 4 / 32768:.0f} s, looped)", flush=True)
+    else:
+        theme = record_corner_theme(work)
+        print("music: " + (f"the Record Corner's stretch ({os.path.getsize(theme) / 4 / 32768:.0f} s, looped)" if theme
+                           else "none: the game's own sound only"), flush=True)
     for name, story, rec, extra in jobs:
         print(f"composing: {name} ...", flush=True)
         mp4 = os.path.join(out, f"{name}.mp4")
