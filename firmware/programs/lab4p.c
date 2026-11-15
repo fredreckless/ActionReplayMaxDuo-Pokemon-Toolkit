@@ -356,7 +356,14 @@ static void on_words(void)                /* after each transfer: the link layer
         seen_all = n == (PLAYERS >= 3 ? 4u : 2u) ? seen_all + 1 : 0;
         return;
     }
-    if (confirm == 1) {                                      /* the first transfer after our 0x8FFF: did the game take it? */
+    if (confirm == 1) {
+        /* the first transfer after the handshake: the game's word is still its handshake even when it
+         * took ours - link.c's DoHandshake loads SIOMLT_SEND with 0xB9A0 *before* it decides, so the
+         * transfer after it says yes carries it once more (15 November: taking that for a miss sent
+         * the DUO back about a thousand times, until timing let one through). So this transfer is
+         * the checksum slot as usual, and the next one says. */
+        confirm = 3;
+    } else if (confirm == 3) {                               /* the second: did the game take it? */
         if ((words[1] & ~3) == SLAVE_HS) {                   /* no: still its handshake. Back to the handshake */
             confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;
             log_event(E_HANDSHAKE, 0x100 | (hs_tries & 0xFF));

@@ -198,7 +198,9 @@ class GpLinkGame:
                 self.linked, self.player_count = True, n
                 self.result["handshake_players"] = n
                 self.send_idx, self.recv_idx, self.checksum_ready = 0, 0, False
-                self.game_word = 0
+                # DoHandshake loaded SIOMLT_SEND with the handshake before it decided: the next
+                # transfer still carries it (pret link.c; 15 November, the hardware's ~1000 retries)
+                self.game_word = SLAVE_HS
                 return
             self.prev_count = n
             self.game_word = SLAVE_HS | 1
