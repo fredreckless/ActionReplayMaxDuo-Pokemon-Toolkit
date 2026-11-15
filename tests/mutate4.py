@@ -376,8 +376,11 @@ LAB4P_MUTANTS = {
     "lab4p: the game never given its turn (SO)": ("    set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */", "    set_pins(rc);", "lab4p (8 November)"),
     "lab4p: SD still driven after our word": ("    set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */", "", "lab4p (8 November)"),
     "lab4p: checksums over two slots with three players": ("        u16 ck = PLAYERS >= 3 ? sum_four : sum_two;", "        u16 ck = sum_two;", "lab4p (8 November)"),
-    "lab4p: the game's leftover handshake right after the link taken for a miss": ("        confirm = 3;\n", "        confirm = 3;\n        if ((words[1] & ~3) == SLAVE_HS) { confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0; return; }\n", "lab4p: the control"),
-    "lab4p: no going back when the game missed the master handshake": ("            confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;", "            confirm = 0;", "lab4p (14 November, hardware: the game went on"),
+    "lab4p: the game's leftover handshake right after the link taken for a miss": ("        confirm = 3; hs_like_count = 0;\n", "        confirm = 3; hs_like_count = 0;\n        if ((words[1] & ~3) == SLAVE_HS) { confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0; return; }\n", "lab4p: the control"),
+    "lab4p: the DUO's sending timing never changed": ("                    sweep_apply();\n", "", "lab4p (15 November"),
+    "lab4p: a misread handshake taken for the game's yes": ("        hs_like_count += hs_like(words[1]);", "        hs_like_count += (words[1] & ~3) == SLAVE_HS || !hs_like(0xB9A0);", "lab4p (15 November"),
+    "lab4p: the handshakes counted into the not-master bit": ("(hs_seen & 0x7F) << 24", "hs_seen << 24", "with the DUO misreading a third"),
+    "lab4p: no going back when the game missed the master handshake": ("                confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;", "                confirm = 0;", "lab4p (14 November, hardware: the game went on"),
     "lab4p: running DMAs not paused for a transfer": ("            DMACNT_H(k) = dma[k] & ~0x8000;", "            ;", "lab4p (14 November, hardware: the game"),          # an HBlank DMA's stall lands on one bit
     "lab4p: the first transfer after the handshake taken as data": ("            send_idx = CMD_LEN; recv_idx = 0; cycles = 0;", "            send_idx = 0; recv_idx = 0; cycles = 0;", "lab4p (8 November)"),
 }

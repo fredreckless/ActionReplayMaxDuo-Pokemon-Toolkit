@@ -135,10 +135,36 @@ static u32 dma_seen, late_max, late_bit, late_bad, done_why;
  * the first checksum slot the DUO looks at the game's word: still the handshake, and it goes back (one
  * plain handshake transfer for the count, then 0x8FFF again), counting the tries. */
 static u32 confirm, hs_tries, hs_taken_after;
+/* 15 November (hardware, 12a with the confirm fix): the game never took the DUO's 0x8FFF in 374 tries -
+ * it misreads the DUO's words. So the DUO now tries its sending timing in turn, three tries each: the
+ * lead from SC going low to its start bit, and its bit time (sending only: the DUO's reading of the
+ * game's words keeps its own). The setting that worked is kept and reported. And "taken" is now
+ * decided over three transfers, the game's handshake allowing two bits misread, as a misread 0xB9A0
+ * passed for "taken" before (on 15 November, try 494 with a missing stop bit in two words of three). */
+static const short SWEEP[][2] = {        /* the lead (cycles), the bit time's change (1/256 cycle a bit) */
+    { 64, 0 }, { 16, 0 }, { 146, 0 }, { 64, 128 }, { 64, -128 }, { 64, 256 }, { 64, -256 },
+    { 64, 512 }, { 64, -512 }, { 0, 0 }, { 220, 0 }, { 16, 256 }, { 16, -256 },
+};
+#define N_SWEEP (sizeof SWEEP / sizeof SWEEP[0])
+static u32 sweep_at, sweep_tries, taken_setting = 0xFF, hs_like_count, tx_fp, lead = 64;
+static void sweep_apply(void)
+{
+    lead = SWEEP[sweep_at][0];
+    tx_fp = (145 << 8) + 163 + (signed char)BIT_ADJ + SWEEP[sweep_at][1];
+}
+static inline u32 hs_like(u16 w)          /* the game's handshake, two bits misread at most */
+{
+    u32 d = (w & ~3u) ^ 0xB9A0;
+    d &= 0xFFFF;
+    u32 n = 0;
+    while (d) { d &= d - 1; n++; }
+    return n <= 2;
+}
 
 static inline u16 tnow(void) { return TM0CNT_L; }
 static inline void until(u16 t) { while ((s16)(tnow() - t) < 0) ; }
 static inline u16 at_bit(u16 t0, u32 k256) { return t0 + (u16)((bit_fp * k256) >> 16); }   /* k256: bits x 256 */
+static inline u16 at_tx(u16 t0, u32 k256) { return t0 + (u16)((tx_fp * k256) >> 16); }     /* (our sending)  */
 static inline void set_pins(u16 v) { rc = v; RCNT = v; }
 
 static void put_word(u16 t0, u32 w)       /* our word on SD: start, 16 bits from the lowest, stop; SD released */
@@ -146,12 +172,12 @@ static void put_word(u16 t0, u32 w)       /* our word on SD: start, 16 bits from
     until(t0);
     set_pins((rc | OUT(P_SD)) & ~P_SD);                      /* the start bit: low */
     for (u32 i = 0; i < 16; i++) {
-        until(at_bit(t0, (i + 1) << 8));
+        until(at_tx(t0, (i + 1) << 8));
         set_pins(w >> i & 1 ? rc | P_SD : rc & ~P_SD);
     }
-    until(at_bit(t0, 17 << 8));
+    until(at_tx(t0, 17 << 8));
     set_pins(rc | P_SD);                                     /* the stop bit: high */
-    until(at_bit(t0, 18 << 8));
+    until(at_tx(t0, 18 << 8));
     set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */
 }
 
@@ -210,7 +236,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
         }
     }
     set_pins(GP | OUT(P_SC | P_SO) | P_SO);                  /* SC low: busy; SO high */
-    u16 t = tnow() + 64;
+    u16 t = tnow() + lead;
     put_word(t, mine[0]);
     words[0] = mine[0];
     set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */
@@ -222,7 +248,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
         u16 t2 = at_bit(end, gap << 6);
         put_word(t2, mine[2]);
         words[2] = mine[2];
-        put_word(at_bit(t2, (18 << 8) + (gap << 6)), mine[3]);
+        put_word(at_tx(t2, (18 << 8) + (gap << 6)), mine[3]);
         words[3] = mine[3];
     } else {
         until(at_bit(end, 3 << 8));                          /* (the timeout after the last unit) */
@@ -362,15 +388,25 @@ static void on_words(void)                /* after each transfer: the link layer
          * transfer after it says yes carries it once more (15 November: taking that for a miss sent
          * the DUO back about a thousand times, until timing let one through). So this transfer is
          * the checksum slot as usual, and the next one says. */
-        confirm = 3;
-    } else if (confirm == 3) {                               /* the second: did the game take it? */
-        if ((words[1] & ~3) == SLAVE_HS) {                   /* no: still its handshake. Back to the handshake */
-            confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;
-            log_event(E_HANDSHAKE, 0x100 | (hs_tries & 0xFF));
-            return;
+        confirm = 3; hs_like_count = 0;
+    } else if (confirm >= 3) {                               /* the next three: did the game take it? */
+        hs_like_count += hs_like(words[1]);
+        if (hs_tries <= 12) log_event(E_WORD, words[1]);
+        if (++confirm == 6) {
+            if (hs_like_count >= 2) {                        /* no: still its handshake. Back to the handshake */
+                confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;
+                log_event(E_HANDSHAKE, 0x100 | (hs_tries & 0xFF));
+                if (taken_setting == 0xFF && ++sweep_tries >= 3) {   /* the next sending timing */
+                    sweep_tries = 0;
+                    if (++sweep_at == N_SWEEP) sweep_at = 0;
+                    sweep_apply();
+                    log_event(E_TIMING, sweep_at);
+                }
+                return;
+            }
+            confirm = 0;
+            if (!hs_taken_after) { hs_taken_after = hs_tries; taken_setting = sweep_at; }
         }
-        confirm = 0;
-        if (!hs_taken_after) hs_taken_after = hs_tries;
     }
     if (send_idx == 0) {                                     /* the checksum slot just went */
         if (cycles > 1) {
@@ -438,7 +474,7 @@ static int pc_service(api_t *api)
     switch (arg & 0xFF) {
     case 0: v = state | (sessions & 3) << 6 | (transfers & 0xFFFFFF) << 8; break;
     case 1: v = words_ok | timeouts << 16; break;
-    case 2: v = stop_errors | players_seen << 16 | hs_seen << 24 | not_master << 31; break;
+    case 2: v = stop_errors | players_seen << 16 | (hs_seen & 0x7F) << 24 | not_master << 31; break;
     case 3: v = edge_min | edge_max << 16; break;
     case 4: v = 4 * idx + 3 < log_len ? ((u32 *)LOG)[idx] : 0; break;
     case 5: v = log_len | log_full << 31; break;
@@ -457,10 +493,12 @@ static int pc_service(api_t *api)
     case 18: v = late_bad; break;                            /* samples a third of a bit late or more */
     case 19: v = done_why; break;                            /* 1 not master, 2 the game closed, 3 asked to stop */
     case 22: v = hs_tries | hs_taken_after << 16; break;     /* 0x8FFF sent so many times; taken on try N (0: never) */
+    case 23: v = taken_setting | sweep_at << 8 | N_SWEEP << 16; break;   /* the sending timing that worked (0xFF: none) */
+    case 24: v = (u16)SWEEP[idx][0] | (u32)(u16)SWEEP[idx][1] << 16; break;
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && (PLAYERS == 1 || PLAYERS == 3);
-             if (blob_ready) { log_len = log_full = log_seq = 0; bit_fp = (145 << 8) + 163 + (signed char)BIT_ADJ; }
+             if (blob_ready) { log_len = log_full = log_seq = 0; bit_fp = (145 << 8) + 163 + (signed char)BIT_ADJ; sweep_apply(); }
              break;
     default: v = 0xFFFFFFFF; break;
     }
@@ -475,6 +513,7 @@ u32 start(api_t *api)
     u16 saved_ie = REG_IE, saved_rcnt = RCNT, saved_siocnt = SIOCNT, saved_tm = TM0CNT_H;
     TM0CNT_H = 0; TM0CNT_L = 0; TM0CNT_H = 0x80;              /* timer 0: the CPU clock, free-running */
     bit_fp = (145 << 8) + 163;
+    sweep_apply();
     last_vcount = VCOUNT & 0xFF;
     u32 next = now(), in_cycle = 0, idle_set = 0;
     while (!stop_requested) {
@@ -483,8 +522,11 @@ u32 start(api_t *api)
         if (!idle_set) {                                     /* SC and SO high, SD an input: idle, as a master */
             idle_set = 1;
             set_pins(GP | OUT(P_SC | P_SO) | P_SC | P_SO);
-            for (u32 i = 0; i < 1000; i++) not_master |= RCNT & P_SI;   /* (the master's SI is held low) */
-            not_master = !!not_master;                       /* (it was 4, and 4 << 31 is lost: the PC never knew) */
+            /* (the master's SI is held low; 15 November: one high reading in a thousand stopped a run at
+             * once, and the next run was fine - so most readings, not any) */
+            u32 high = 0;
+            for (u32 i = 0; i < 1000; i++) high += !!(RCNT & P_SI);
+            not_master = high > 500;
             if (not_master) { api->log("4P lab: the DUO isn't master"); state = ST_DONE; done_why = 1; }
         }
         if (shown != state && (state < ST_HANDSHAKE || state == ST_DONE)) {   /* (a line costs a frame: never while linked) */

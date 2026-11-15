@@ -31,7 +31,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0):
+                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -63,6 +63,9 @@ class GpLinkGame:
         # miss_master (14 November, hardware: the game never left its handshake): the game misreads the
         # DUO's first so many master handshakes (0x8FFF), as if the bits came out wrong
         self.miss_master = miss_master
+        # lead_window (15 November, hardware: the game never took the DUO's 0x8FFF in 374 tries): the game reads
+        # the DUO's word right only if its start bit comes within (lo, hi) cycles of SC going low
+        self.lead_window, self.lead0, self.leads = lead_window, None, set()
         hw.mu.hook_add(UC_HOOK_BLOCK, self.on_block)
         hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
@@ -168,6 +171,9 @@ class GpLinkGame:
                     start = probe
                     break
                 probe += BIT / 16
+            if slot == 0 and start is not None:
+                self.lead0 = start - self.t_start
+                self.leads.add(round(self.lead0))
             if start is None:
                 words += [0xFFFF] * (4 - slot)
                 break
@@ -188,6 +194,8 @@ class GpLinkGame:
             if w[0] == MASTER_HS and self.miss_master > 0:
                 self.miss_master -= 1
                 w = [0x8FFE] + list(w[1:])                  # misread: not a handshake word, so no players
+            elif w[0] == MASTER_HS and self.lead_window and not self.lead_window[0] <= self.lead0 <= self.lead_window[1]:
+                w = [0x8FFE] + list(w[1:])
             n = 0
             for x in w:
                 if (x & ~3) == SLAVE_HS or x == MASTER_HS:
