@@ -74,6 +74,11 @@ class GpLinkGame:
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=TM0, end=TM0 + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=VCOUNT, end=VCOUNT + 1)
+        # the hybrid (16 November): the DUO's own link hardware sends slot 0 - a start on SIOCNT in the
+        # serial mode puts the hardware master's word on SD (`hw_lead` cycles in), SO low after it
+        self.hw_lead, self.hw_end, self.hw_busy_until, self.hw_sends = 20, None, 0, 0
+        hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_siocnt, begin=0x04000128, end=0x04000129)
+        hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_siocnt_read, begin=0x04000128, end=0x04000129)
 
     # ------------------------------------------------------------ the lines
     def t(self):
@@ -87,6 +92,24 @@ class GpLinkGame:
                    for k in range(4)):
                 self.blocks += max(1, self.stall // self.cpb)        # the bus taken: time passes, the CPU stands still
                 self.stalls += 1
+
+    def on_siocnt(self, mu, access, addr, size, value, _):
+        if size < 2 or self.rcnt & 0x8000 or value & 0x3083 != 0x2083 or self.in_transfer:
+            return
+        t = self.t()
+        w = struct.unpack("<H", bytes(mu.mem_read(0x0400012A, 2)))[0]
+        s0 = t + self.hw_lead
+        self.in_transfer, self.t_start = True, t
+        self.sd_edges = [(t, None), (s0, 0)] + [(s0 + (i + 1) * BIT, w >> i & 1) for i in range(16)] + \
+            [(s0 + 17 * BIT, 1), (s0 + 18 * BIT, None)]
+        self.hw_end = s0 + 18 * BIT
+        self.t_so_low = self.hw_end
+        self.game_t0 = self.hw_end + self.delay * BIT
+        self.hw_busy_until = self.hw_end + 24 * BIT
+        self.hw_sends += 1
+
+    def on_siocnt_read(self, mu, access, addr, size, value, _):
+        mu.mem_write(0x04000128, struct.pack("<H", 0x2003 | (0x80 if self.t() < self.hw_busy_until else 0) | 8))
 
     def game_level(self, t):
         """SD as the game drives it at time t: its word's bits, or None (not driving)."""
@@ -103,6 +126,8 @@ class GpLinkGame:
 
     def sd(self, t):
         g = self.game_level(t)
+        if not self.rcnt & 0x8000 and self.in_transfer and self.hw_end is not None and t < self.hw_end:
+            return self.level_at(t)                          # (the hardware's word)
         if self.duo_driving:
             if g is not None:
                 self.errors.append(f"both GBAs drive SD at {t}")
@@ -123,6 +148,8 @@ class GpLinkGame:
                 if self.garbled_t0[self.game_t0] and int((t - self.game_t0) / BIT) == 6:
                     level ^= 1
             v = self.rcnt & ~(P_SD | P_SI) | (P_SD if level else 0)    # (the master's SI: low)
+            if not self.rcnt & 0x8000 and self.in_transfer and self.hw_end is not None:
+                v = v & ~(P_SO | P_SC) | (P_SO if t < self.hw_end else 0)    # (the hardware's SC and SO)
             if getattr(self, "si_high", False):                          # (the DUO on the cable's other end)
                 v |= P_SI
             mu.mem_write(RCNT, struct.pack("<H", v))

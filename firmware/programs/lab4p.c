@@ -177,6 +177,8 @@ static inline u32 hs_like(u16 w)          /* the game's handshake, two bits misr
 }
 
 static inline u16 tnow(void) { return TM0CNT_L; }
+#define SIOMULTI(i) REG16(0x04000120 + 2 * (i))
+#define SIOMLT_SEND REG16(0x0400012A)
 static inline void until(u16 t) { while ((s16)(tnow() - t) < 0) ; }
 static inline u16 at_bit(u16 t0, u32 k256) { return t0 + (u16)((bit_fp * k256) >> 16); }   /* k256: bits x 256 */
 static inline u16 at_tx(u16 t0, u32 k256) { return t0 + (u16)((tx_fp * k256) >> 16); }     /* (our sending)  */
@@ -250,17 +252,34 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
             DMACNT_H(k) = dma[k] & ~0x8000;
         }
     }
-    if (lead)
-        set_pins(GP | OUT(P_SC | P_SO) | P_SO);              /* SC low: busy; SO high */
-    else
-        set_pins(GP | OUT(P_SC | P_SO | P_SD) | P_SO);       /* SC low and the start bit at once */
-    u16 t = tnow() + lead;
-    put_word(t, mine[0]);
+    if (SCOPE == 2) {
+        /* the hybrid (16 November): the scope showed the DUO's own link hardware sending slot 0 just as
+         * lab4p does by hand - yet the game takes the hardware's 0x8FFF at once and never lab4p's. So
+         * here the hardware sends slot 0, the DUO reads the game's word off RCNT (which shows the pins in
+         * this mode too), then takes the pins in general-purpose mode, SC still low, for slots 2 and 3 */
+        for (u32 i = 0; i < 20000 && (SIOCNT & 0x80); i++) ;           /* (the last one's timeout over) */
+        RCNT = 0; rc = 0;
+        SIOCNT = 0x2003;
+        SIOMLT_SEND = mine[0];
+        u16 t0 = tnow();
+        SIOCNT = 0x2083;                                     /* the hardware's transfer: SC low, slot 0 */
+        while (!(RCNT & P_SO) && (u16)(tnow() - t0) < 400) ;
+        while ((RCNT & P_SO) && (u16)(tnow() - t0) < 4000) ;              /* SO low: its word is done */
+    } else {
+        if (lead)
+            set_pins(GP | OUT(P_SC | P_SO) | P_SO);          /* SC low: busy; SO high */
+        else
+            set_pins(GP | OUT(P_SC | P_SO | P_SD) | P_SO);   /* SC low and the start bit at once */
+        u16 t = tnow() + lead;
+        put_word(t, mine[0]);
+        set_pins(rc & ~P_SO);                                /* SO low: the game's turn */
+    }
     words[0] = mine[0];
-    set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */
     u16 end = tnow();
     words[1] = get_word(end, &end);
     words[2] = words[3] = 0xFFFF;
+    if (SCOPE == 2)
+        set_pins(GP | OUT(P_SC | P_SO));                     /* the pins ours now: SC low, SO low, SD free */
     if (PLAYERS >= 3 && words[1] != 0xFFFF) {
         u32 gap = GAP_Q ? GAP_Q : 4;
         u16 t2 = at_bit(end, gap << 6);
@@ -534,8 +553,6 @@ static int pc_service(api_t *api)
  * timer 0. That is how a GBA master's word looks on SD, start bit to stop bit, and when the game's
  * answer follows it: the pattern to copy. The words the hardware read are kept too, and whether the
  * game took the hardware's 0x8FFF: the control for the cable and the game. */
-#define SIOMULTI(i) REG16(0x04000120 + 2 * (i))
-#define SIOMLT_SEND REG16(0x0400012A)
 static void scope_transfer(void)
 {
     u16 saved_ime = REG_IME;
@@ -600,7 +617,7 @@ u32 start(api_t *api)
         }
         if (state == ST_DONE) continue;
         u32 t = now();
-        if (SCOPE) {                                         /* (one transfer a frame, as link.c's master) */
+        if (SCOPE == 1) {                                    /* (one transfer a frame, as link.c's master) */
             if ((int)(t - next) < 0) continue;
             next = t + LINES_PER_FRAME;
             scope_transfer();

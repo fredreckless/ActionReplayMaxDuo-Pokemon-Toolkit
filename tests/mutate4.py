@@ -373,7 +373,7 @@ LAB4P_MUTANTS = {
     "lab4p: the game's handshake needed 20 in a row again": ("        sent = ready ? sent + 1 : sent > 2 && sent < 20 ? sent - 2 : sent >= 20 ? sent : 0;", "        sent = ready ? sent + 1 : 0;", "with a third of the game's words misread"),          # firmware/programs/lab4p.c: the four-player cable experiment (8 November)
     "lab4p: bits sent from the highest": ("        set_pins(w >> i & 1 ? rc | P_SD : rc & ~P_SD);", "        set_pins(w >> (15 - i) & 1 ? rc | P_SD : rc & ~P_SD);", "lab4p (8 November)"),
     "lab4p: no stop bit": ("    set_pins(rc | P_SD);                                     /* the stop bit: high */", "    set_pins(rc & ~P_SD);", "lab4p (8 November)"),
-    "lab4p: the game never given its turn (SO)": ("    set_pins(rc & ~P_SO);                                    /* SO low: the game's turn */", "    set_pins(rc);", "lab4p (8 November)"),
+    "lab4p: the game never given its turn (SO)": ("        set_pins(rc & ~P_SO);                                /* SO low: the game's turn */", "        set_pins(rc);", "lab4p (8 November)"),
     "lab4p: SD still driven after our word": ("    set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */", "", "lab4p (8 November)"),
     "lab4p: checksums over two slots with three players": ("        u16 ck = PLAYERS >= 3 ? sum_four : sum_two;", "        u16 ck = sum_two;", "lab4p (8 November)"),
     "lab4p: the game's leftover handshake right after the link taken for a miss": ("        confirm = 3; hs_like_count = 0;\n", "        confirm = 3; hs_like_count = 0;\n        if ((words[1] & ~3) == SLAVE_HS) { confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0; return; }\n", "lab4p: the control"),
@@ -383,6 +383,8 @@ LAB4P_MUTANTS = {
     "lab4p: a misread handshake taken for the game's yes": ("        hs_like_count += hs_like(words[1]);", "        hs_like_count += (words[1] & ~3) == SLAVE_HS || !hs_like(0xB9A0);", "lab4p (15 November"),
     "lab4p: the handshakes counted into the not-master bit": ("(hs_seen & 0x7F) << 24", "hs_seen << 24", "with the DUO misreading a third"),
     "lab4p: the scope's SD lost": ("(sc >> 2 & 3) | (sc >> 5 & 4)", "(sc >> 2 & 1) | (sc >> 5 & 4)", "lab4p --scope"),
+    "lab4p: the hybrid never takes the pins": ("        set_pins(GP | OUT(P_SC | P_SO));                     /* the pins ours now", "        set_pins(0);  /* the pins ours now", "lab4p --hybrid (16"),
+    "lab4p: the hybrid reads the game's word before the hardware's is done": ("        while ((RCNT & P_SO) && (u16)(tnow() - t0) < 4000) ;", "        ;", "lab4p --hybrid"),
     "lab4p: no going back when the game missed the master handshake": ("                confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;", "                confirm = 0;", "lab4p (14 November, hardware: the game went on"),
     "lab4p: running DMAs not paused for a transfer": ("            DMACNT_H(k) = dma[k] & ~0x8000;", "            ;", "lab4p (14 November, hardware: the game"),          # an HBlank DMA's stall lands on one bit
     "lab4p: the first transfer after the handshake taken as data": ("            send_idx = CMD_LEN; recv_idx = 0; cycles = 0;", "            send_idx = 0; recv_idx = 0; cycles = 0;", "lab4p (8 November)"),

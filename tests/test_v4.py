@@ -4063,7 +4063,7 @@ def _():
 import gp_link_model as GPL
 
 
-def lab4p_run(players=3, link="trade", seconds=60, hblank_dma=False, **game_kw):
+def lab4p_run(players=3, link="trade", seconds=60, hblank_dma=False, hybrid=False, **game_kw):
     """The lab4p program driving the link port bit by bit against a line-level model of a game's
     serial hardware (child 1) and its link layer. hblank_dma: an HBlank DMA left running on the
     DUO's GBA (enabled, repeating), as the hardware run of 14 November suggested."""
@@ -4072,7 +4072,8 @@ def lab4p_run(players=3, link="trade", seconds=60, hblank_dma=False, **game_kw):
         hw.mu.mem_write(0x040000BA, struct.pack("<H", 0xA200))      # DMA0: enable, HBlank, repeat
     game = GPL.GpLinkGame(hw, **game_kw)
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
-    r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=players, link=link, seconds=seconds, gap=4, bit_adjust=0),
+    r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=players, link=link, seconds=seconds, gap=4, bit_adjust=0,
+                                                                    hybrid=hybrid),
               poll_s=0.2, stop_when=lambda: game.result["closed"])
     hw.text = r[1]
     assert duo.hello() == 0x104
@@ -4185,6 +4186,25 @@ def _():
     rec = open(r["file"] + ".txt").read()
     assert "The scope" in rec and "transfer 0: the game's word 0xb9a0" in rec, rec[-1500:]
     assert duo.hello() == 0x104
+
+
+@test("lab4p --hybrid (16 November: the game takes the DUO's link hardware's 0x8FFF at once, never the hand-made one): the hardware sends slot 0, the DUO reads the game's word off RCNT and takes the pins for slots 2 and 3 - the game counts four players and its checksums take in all four")
+def _():
+    hw, game, report = lab4p_run(players=3, link="trade", max_players=2, hybrid=True)
+    assert not game.errors, game.errors[:5]
+    r = game.result
+    assert game.hw_sends > 10, game.hw_sends
+    assert r["handshake_players"] == 4 and r["checksum_errors"] == 0, (r, hw.text[-1200:])
+    assert sorted(r["link_players"]) == [0, 2, 3] and r["refused"] is True, r
+    assert report["hs_taken_after"] == 1 and "The hybrid" in hw.text, (report, hw.text[-1200:])
+
+
+@test("lab4p --hybrid, the control: the hardware sends slot 0, nothing by hand - the game hears two players and the Trade Center link-up carries on")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=25, max_players=2, hybrid=True)
+    assert not game.errors, game.errors[:5]
+    r = game.result
+    assert game.hw_sends > 10 and r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, r
 
 
 @test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")
