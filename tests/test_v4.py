@@ -4167,6 +4167,26 @@ def _():
     assert not report["not_master"], report
 
 
+@test("lab4p --scope (16 November: every hand-made timing missed on hardware, so ask the real thing): the DUO's own multi-player hardware is the master and the DUO watches SD - the master's start bit, the game's word after it and the end of busy come out in the record and on the screen, with the transfer the game took the hardware's 0x8FFF")
+def _():
+    hw, duo = run42()
+    clock = GPL.GpLinkGame(hw)                      # (its timer and VCOUNT; the lines are the hardware's here)
+    sio = GPL.SioHardwareMaster(hw, clock, lead=20, child_delay=90, takes_at=5)
+    W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
+    r, text = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=1, link="trade", seconds=6, gap=4,
+                                                                 bit_adjust=0, scope=True), poll_s=0.2)
+    assert r["transfers"] >= 20 and r["answered"] == r["transfers"] and r["taken"] == 6, r
+    n, w, edges = r["scope"][0]
+    falls = [t for (t, _, d, *_), (_, _, d0, *_) in zip(edges[1:], edges) if d0 and not d]
+    game_at = next(t for t in falls if t >= falls[0] + 17.5 * 145.64)
+    assert abs(falls[0] - 20) <= 80 and abs(game_at - falls[0] - (18 * 145.64 + 90)) <= 60, (falls, edges)
+    assert any(e for *_, e, _ in edges) is False, edges                 # (no error flag in the model)
+    assert "took the hardware's 0x8FFF on transfer 6" in text and "the master's start bit" in text, text[-1500:]
+    rec = open(r["file"] + ".txt").read()
+    assert "The scope" in rec and "transfer 0: the game's word 0xb9a0" in rec, rec[-1500:]
+    assert duo.hello() == 0x104
+
+
 @test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")
 def _():
     hw, duo = run42()

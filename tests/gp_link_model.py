@@ -269,3 +269,48 @@ class GpLinkGame:
                                 self.send(0x5FFF)               # (WRONG_NUM_PLAYERS: SetCloseLinkCallback)
             elif c == 0x5FFF and i != 1:
                 self.result["closed"] = True
+
+
+SIOCNT, SIOMULTI1 = 0x04000128, 0x04000122
+
+
+class SioHardwareMaster:
+    """The scope (16 November), for the simulator: the DUO's own multi-player hardware as master, as
+    far as the program sees it - SIOCNT busy from the start until the game's word is in and the
+    master's timeout after it, SD showing the master's word (a start bit `lead` cycles after the start,
+    16 bits from the lowest, a stop bit) and then the game's, `child_delay` cycles after the master's
+    stop bit. The game answers its handshake and, from transfer `takes_at` on, link data (0)."""
+    def __init__(self, hw, clock, lead=20, child_delay=90, takes_at=5, timeout=3 * BIT):
+        self.hw, self.clock, self.lead, self.child_delay = hw, clock, lead, child_delay
+        self.takes_at, self.timeout, self.n, self.t0, self.busy = takes_at, timeout, 0, None, False
+        hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=SIOCNT, end=SIOCNT + 1)
+        hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=SIOCNT, end=SIOCNT + 1)
+
+    def word(self):
+        return SLAVE_HS if self.n <= self.takes_at else 0
+
+    def on_write(self, mu, access, addr, size, value, _):
+        if value & 0x80 and value & 0x3000 == 0x2000 and not self.busy:
+            self.busy, self.t0, self.n = True, self.clock.t(), self.n + 1
+            mu.mem_write(SIOMULTI1, struct.pack("<H", self.word()))
+
+    def level(self, t, start, w):
+        k = int((t - start) / BIT)
+        return None if t < start or k > 17 else 0 if k == 0 else 1 if k == 17 else w >> (k - 1) & 1
+
+    def on_read(self, mu, access, addr, size, value, _):
+        v = 0x2003
+        if self.busy:
+            t = self.clock.t() - self.t0
+            child = self.lead + 18 * BIT + self.child_delay
+            if t >= child + 18 * BIT + self.timeout:
+                self.busy = False
+            else:
+                v |= 0x80
+            sd = self.level(t, self.lead, MASTER_HS)
+            if sd is None:
+                sd = self.level(t, child, self.word())
+            v |= 8 if sd is None or sd else 0
+        else:
+            v |= 8
+        mu.mem_write(SIOCNT, struct.pack("<H", v))

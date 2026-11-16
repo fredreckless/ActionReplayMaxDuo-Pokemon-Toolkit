@@ -382,6 +382,7 @@ LAB4P_MUTANTS = {
     "lab4p: SC and the start bit never together": ("    if (lead)\n", "    if (1)\n", "lab4p (15 November, late"),
     "lab4p: a misread handshake taken for the game's yes": ("        hs_like_count += hs_like(words[1]);", "        hs_like_count += (words[1] & ~3) == SLAVE_HS || !hs_like(0xB9A0);", "lab4p (15 November"),
     "lab4p: the handshakes counted into the not-master bit": ("(hs_seen & 0x7F) << 24", "hs_seen << 24", "with the DUO misreading a third"),
+    "lab4p: the scope's SD lost": ("(sc >> 2 & 3) | (sc >> 5 & 4)", "(sc >> 2 & 1) | (sc >> 5 & 4)", "lab4p --scope"),
     "lab4p: no going back when the game missed the master handshake": ("                confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;", "                confirm = 0;", "lab4p (14 November, hardware: the game went on"),
     "lab4p: running DMAs not paused for a transfer": ("            DMACNT_H(k) = dma[k] & ~0x8000;", "            ;", "lab4p (14 November, hardware: the game"),          # an HBlank DMA's stall lands on one bit
     "lab4p: the first transfer after the handshake taken as data": ("            send_idx = CMD_LEN; recv_idx = 0; cycles = 0;", "            send_idx = 0; recv_idx = 0; cycles = 0;", "lab4p (8 November)"),

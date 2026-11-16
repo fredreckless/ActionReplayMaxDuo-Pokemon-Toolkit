@@ -84,6 +84,7 @@ static u32 put_at, blob_ready;
 #define PLAYERS     BLOB[0]             /* the DUO's players: 1 (slot 0) or 3 (slots 0, 2, 3) */
 #define GAP_Q       BLOB[1]             /* the gap before slots 2 and 3, in quarter bits (default 4: one bit) */
 #define BIT_ADJ     BLOB[2]             /* the bit time's correction, signed, in 1/256 cycle per bit */
+#define SCOPE       BLOB[3]             /* 1: the scope - the DUO's own multi-player hardware as master, the lines watched */
 #define LINK_TYPE   ((u16)(BLOB[4] | BLOB[5] << 8))   /* 0: the handshake only */
 #define OUR_TID     (BLOB + 8)          /* 4 bytes */
 #define OUR_NAME    (BLOB + 12)         /* 8 bytes: "DUO", then 2 and 3 added */
@@ -92,7 +93,7 @@ static u32 put_at, blob_ready;
 #define LOG         ((u8 *)(BLOB_AT + 0x400))
 #define LOG_MAX     0x1F800
 static u32 log_len, log_full, log_seq;
-enum { K_GAME, K_OURS, K_EVENT };
+enum { K_GAME, K_OURS, K_EVENT, K_SCOPE };
 enum { E_WORD = 1, E_TIMING, E_HANDSHAKE, E_CHECKSUM, E_COMMAND, E_BLOCK, E_CLOSE, E_STOPBIT, E_SESSION };
 
 static void log_bytes(const u8 *src, u32 len, u32 kind)
@@ -151,6 +152,7 @@ static const short SWEEP[][2] = {        /* the lead (cycles; 0: with SC), the b
 };
 #define N_SWEEP (sizeof SWEEP / sizeof SWEEP[0])
 static u32 silent_run;
+static u32 scope_n, scope_taken, scope_words, scope_hs;   /* (the scope, below) */
 static u32 sweep_at, sweep_tries, taken_setting = 0xFF, hs_like_count, tx_fp, lead = 64;
 static void sweep_apply(void);
 static void sweep_next(u32 why)
@@ -509,6 +511,8 @@ static int pc_service(api_t *api)
     case 18: v = late_bad; break;                            /* samples a third of a bit late or more */
     case 19: v = done_why; break;                            /* 1 not master, 2 the game closed, 3 asked to stop */
     case 22: v = hs_tries | hs_taken_after << 16; break;     /* 0x8FFF sent so many times; taken on try N (0: never) */
+    case 25: v = scope_n | scope_words << 16; break;
+    case 26: v = scope_hs | scope_taken << 16; break;
     case 23: v = taken_setting | sweep_at << 8 | N_SWEEP << 16; break;   /* the sending timing that worked (0xFF: none) */
     case 24: v = (u16)SWEEP[idx][0] | (u32)(u16)SWEEP[idx][1] << 16; break;
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
@@ -520,6 +524,50 @@ static int pc_service(api_t *api)
     }
     api->reply(0x2A, v);
     return 0;
+}
+
+/* ------------------------------------------------------------------ the scope (16 November)
+ * Every sending timing the DUO tried by hand, the game missed. So this one asks the real thing: the
+ * DUO's own multi-player hardware is the master (as the trade program, which works on hardware), and
+ * while it runs a transfer the DUO watches the lines as fast as it can - SIOCNT's SI and SD bits and
+ * its busy bit, and RCNT's four (if they show the pins in this mode) - noting each change against
+ * timer 0. That is how a GBA master's word looks on SD, start bit to stop bit, and when the game's
+ * answer follows it: the pattern to copy. The words the hardware read are kept too, and whether the
+ * game took the hardware's 0x8FFF: the control for the cable and the game. */
+#define SIOMULTI(i) REG16(0x04000120 + 2 * (i))
+#define SIOMLT_SEND REG16(0x0400012A)
+static void scope_transfer(void)
+{
+    u16 saved_ime = REG_IME;
+    REG_IME = 0;
+    RCNT = 0;                                                /* the link port to the serial hardware */
+    SIOCNT = 0x2003;                                         /* multi-player, 115,200 baud, no interrupt */
+    SIOMLT_SEND = MASTER_HS;
+    u8 buf[4 + 64 * 3];
+    u32 n = 0, last = 0x100, done_at = 0;
+    u16 t0 = tnow();
+    SIOCNT = 0x2083;                                         /* start */
+    for (;;) {
+        u16 sc = SIOCNT, r = RCNT, t = tnow() - t0;
+        u32 v = (sc >> 2 & 3) | (sc >> 5 & 4) | (sc >> 3 & 8) | (r & 0xF) << 4;   /* SI SD busy error | RCNT */
+        if (v != last && n < 64) { buf[4 + 3 * n] = t; buf[5 + 3 * n] = t >> 8; buf[6 + 3 * n] = v; n++; }
+        last = v;
+        if (!(sc & 0x80)) { if (!done_at) done_at = t ? t : 1; else if ((u16)(t - done_at) > 600) break; }
+        if (t > 30000) break;
+    }
+    u16 w1 = SIOMULTI(1);
+    if (w1 != 0xFFFF) scope_words++;
+    if ((w1 & ~3) == SLAVE_HS) scope_hs++;
+    else if (w1 != 0xFFFF && scope_hs && !scope_taken) scope_taken = scope_n + 1;
+    if (scope_n < 40 || (w1 & ~3) != SLAVE_HS) {             /* the first forty, and any that isn't a handshake */
+        if (log_len < LOG_MAX - 0x400) {
+            buf[0] = scope_n; buf[1] = scope_n >> 8; buf[2] = w1; buf[3] = w1 >> 8;
+            log_bytes(buf, 4 + 3 * n, K_SCOPE);
+        }
+    }
+    scope_n++;
+    REG_IF = 0x80;
+    REG_IME = saved_ime;
 }
 
 /* ------------------------------------------------------------------ entry */
@@ -552,6 +600,13 @@ u32 start(api_t *api)
         }
         if (state == ST_DONE) continue;
         u32 t = now();
+        if (SCOPE) {                                         /* (one transfer a frame, as link.c's master) */
+            if ((int)(t - next) < 0) continue;
+            next = t + LINES_PER_FRAME;
+            scope_transfer();
+            if (state == ST_WAITING) state = ST_HANDSHAKE;
+            continue;
+        }
         /* the pace of link.c's master: one transfer a frame until linked, then a command of nine
          * transfers a frame, eight lines apart */
         if ((int)(t - next) < 0) continue;
