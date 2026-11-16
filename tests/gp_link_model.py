@@ -31,7 +31,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None, silent_lead=None):
+                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None, silent_lead=None, hardware=True):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -77,8 +77,9 @@ class GpLinkGame:
         # the hybrid (16 November): the DUO's own link hardware sends slot 0 - a start on SIOCNT in the
         # serial mode puts the hardware master's word on SD (`hw_lead` cycles in), SO low after it
         self.hw_lead, self.hw_end, self.hw_busy_until, self.hw_sends = 20, None, 0, 0
-        hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_siocnt, begin=0x04000128, end=0x04000129)
-        hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_siocnt_read, begin=0x04000128, end=0x04000129)
+        if hardware:                                         # (not with the scope's own model of it)
+            hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_siocnt, begin=0x04000128, end=0x04000129)
+            hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_siocnt_read, begin=0x04000128, end=0x04000129)
 
     # ------------------------------------------------------------ the lines
     def t(self):
@@ -107,9 +108,15 @@ class GpLinkGame:
         self.game_t0 = self.hw_end + self.delay * BIT
         self.hw_busy_until = self.hw_end + 24 * BIT
         self.hw_sends += 1
+        mu.mem_write(0x04000120, b"\xff" * 8)                 # (SIOMULTI0-3: 0xFFFF from the start)
 
     def on_siocnt_read(self, mu, access, addr, size, value, _):
-        mu.mem_write(0x04000128, struct.pack("<H", 0x2003 | (0x80 if self.t() < self.hw_busy_until else 0) | 8))
+        t = self.t()
+        if t >= self.hw_busy_until and self.in_transfer and not self.rcnt & 0x8000 and self.hw_end is not None:
+            self.in_transfer = False                         # the hardware's own end: its timeout over
+            self.end_transfer(self.hw_busy_until)
+            mu.mem_write(0x04000120, struct.pack("<4H", *self.transfers[-1]))
+        mu.mem_write(0x04000128, struct.pack("<H", 0x2003 | (0x80 if t < self.hw_busy_until else 0) | 8))
 
     def game_level(self, t):
         """SD as the game drives it at time t: its word's bits, or None (not driving)."""

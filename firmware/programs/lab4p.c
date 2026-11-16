@@ -155,6 +155,7 @@ static u32 silent_run;
 static u32 scope_n, scope_taken, scope_words, scope_hs;   /* (the scope, below) */
 static u32 sweep_at, sweep_tries, taken_setting = 0xFF, hs_like_count, tx_fp, lead = 64;
 static void sweep_apply(void);
+static void tx_offsets(void);
 static void sweep_next(u32 why)
 {
     sweep_tries = 0; silent_run = 0;
@@ -166,6 +167,7 @@ static void sweep_apply(void)
 {
     lead = SWEEP[sweep_at][0];
     tx_fp = (145 << 8) + 163 + (signed char)BIT_ADJ + SWEEP[sweep_at][1];
+    tx_offsets();
 }
 static inline u32 hs_like(u16 w)          /* the game's handshake, two bits misread at most */
 {
@@ -184,18 +186,49 @@ static inline u16 at_bit(u16 t0, u32 k256) { return t0 + (u16)((bit_fp * k256) >
 static inline u16 at_tx(u16 t0, u32 k256) { return t0 + (u16)((tx_fp * k256) >> 16); }     /* (our sending)  */
 static inline void set_pins(u16 v) { rc = v; RCNT = v; }
 
-static void put_word(u16 t0, u32 w)       /* our word on SD: start, 16 bits from the lowest, stop; SD released */
+/* 16 November (hardware, the hybrid): the game counted four players, then its checksums parted from
+ * the DUO's by a bit or two - so it misreads some of the hand-sent bits. The edges' times and pin
+ * values are worked out before the word now, and the loop between them is only the wait and the
+ * write; and the DUO notes how late each write came after its time (the most, and at which bit). */
+static u32 tx_late_max, tx_late_bit, tx_late_bad, hw_used, hw_differ;
+static u16 tx_edge[19], tx_val[3][19];      /* the edges' offsets (bit time), each slot's pin values: made ahead */
+static void tx_offsets(void)
 {
-    until(t0);
-    set_pins((rc | OUT(P_SD)) & ~P_SD);                      /* the start bit: low */
-    for (u32 i = 0; i < 16; i++) {
-        until(at_tx(t0, (i + 1) << 8));
-        set_pins(w >> i & 1 ? rc | P_SD : rc & ~P_SD);
+    for (u32 i = 0; i < 19; i++) tx_edge[i] = at_tx(0, i << 8);
+}
+static void prepare_word(u32 k, u32 w, u16 base)   /* slot k's word: the pin values for its 19 edges */
+{
+    u16 hi = base | OUT(P_SD) | P_SD, lo = (base | OUT(P_SD)) & ~P_SD;
+    tx_val[k][0] = lo;                                       /* the start bit: low */
+    for (u32 i = 0; i < 16; i++) tx_val[k][i + 1] = w >> i & 1 ? hi : lo;
+    tx_val[k][17] = hi;                                      /* the stop bit: high */
+    tx_val[k][18] = base & ~OUT(P_SD);                       /* SD back to an input (the game's turn) */
+}
+static u16 tx_late[3][19];
+static u32 tx_sent;                       /* the slots sent this transfer (their lateness tallied after) */
+static void tx_tally(void)
+{
+    for (u32 k = 0; k < 3; k++) {
+        if (!(tx_sent >> k & 1)) continue;
+        for (u32 i = 0; i < 19; i++) {
+            if (tx_late[k][i] > tx_late_max) { tx_late_max = tx_late[k][i]; tx_late_bit = i; }
+            if (tx_late[k][i] > 48) tx_late_bad++;
+        }
     }
-    until(at_tx(t0, 17 << 8));
-    set_pins(rc | P_SD);                                     /* the stop bit: high */
-    until(at_tx(t0, 18 << 8));
-    set_pins(rc & ~OUT(P_SD));                               /* SD back to an input (the game's turn) */
+    tx_sent = 0;
+}
+static void put_word(u16 t0, u32 k)       /* slot k's word on SD, made ahead: start, 16 bits, stop; SD released */
+{
+    u16 *late = tx_late[k];
+    const u16 *val = tx_val[k];
+    for (u32 i = 0; i < 19; i++) {
+        u16 t = t0 + tx_edge[i];
+        while ((s16)(TM0CNT_L - t) < 0) ;
+        RCNT = val[i];
+        late[i] = TM0CNT_L - t;
+    }
+    rc = val[18];
+    tx_sent |= 1u << k;
 }
 
 static u32 word_read;
@@ -252,6 +285,9 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
             DMACNT_H(k) = dma[k] & ~0x8000;
         }
     }
+    prepare_word(0, mine[0], GP | OUT(P_SC | P_SO) | P_SO);   /* (SC low, SO high, as they'll be) */
+    prepare_word(1, mine[2], GP | OUT(P_SC | P_SO));         /* (SC low, SO low) */
+    prepare_word(2, mine[3], GP | OUT(P_SC | P_SO));
     if (SCOPE == 2) {
         /* the hybrid (16 November): the scope showed the DUO's own link hardware sending slot 0 just as
          * lab4p does by hand - yet the game takes the hardware's 0x8FFF at once and never lab4p's. So
@@ -271,21 +307,36 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
         else
             set_pins(GP | OUT(P_SC | P_SO | P_SD) | P_SO);   /* SC low and the start bit at once */
         u16 t = tnow() + lead;
-        put_word(t, mine[0]);
+        put_word(t, 0);
         set_pins(rc & ~P_SO);                                /* SO low: the game's turn */
     }
     words[0] = mine[0];
     u16 end = tnow();
     words[1] = get_word(end, &end);
+    if (SCOPE == 2 && PLAYERS >= 3 && words[1] != 0xFFFF) {
+        /* the hardware's own reading of the game's word, if it has it already (it sets SIOMULTI0-3 to
+         * 0xFFFF at the start): better than the DUO's by hand, whose stop bits went missing a third of
+         * the time on hardware */
+        u16 hw1 = SIOMULTI(1);
+        if (hw1 != 0xFFFF) { hw_used++; if (hw1 != words[1]) { hw_differ++; if (hw_differ <= 16) log_event(E_STOPBIT, words[1] ^ hw1); } words[1] = hw1; }
+    }
     words[2] = words[3] = 0xFFFF;
-    if (SCOPE == 2)
+    if (SCOPE == 2 && PLAYERS >= 3)
         set_pins(GP | OUT(P_SC | P_SO));                     /* the pins ours now: SC low, SO low, SD free */
+    else if (SCOPE == 2) {                                   /* the control: the hardware ends its own transfer */
+        for (u32 i = 0; i < 20000 && (SIOCNT & 0x80); i++) ;
+        u16 hw1 = SIOMULTI(1);
+        if (hw1 != words[1]) { hw_differ++; if (hw_differ <= 16) log_event(E_STOPBIT, words[1] ^ hw1); }
+        hw_used++;
+        words[1] = hw1;
+    }
     if (PLAYERS >= 3 && words[1] != 0xFFFF) {
         u32 gap = GAP_Q ? GAP_Q : 4;
         u16 t2 = at_bit(end, gap << 6);
-        put_word(t2, mine[2]);
+        if ((s16)(tnow() + 24 - t2) > 0) t2 = tnow() + 24;     /* (never a start in the past: its bits would bunch) */
+        put_word(t2, 1);
         words[2] = mine[2];
-        put_word(at_tx(t2, (18 << 8) + (gap << 6)), mine[3]);
+        put_word(at_tx(t2, (18 << 8) + (gap << 6)), 2);
         words[3] = mine[3];
     } else {
         until(at_bit(end, 3 << 8));                          /* (the timeout after the last unit) */
@@ -293,6 +344,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
     set_pins(GP | OUT(P_SC | P_SO) | P_SC | P_SO);          /* SC high, SO high: done */
     if (game_on) { sd_checks++; if (!(RCNT & P_SD)) sd_low_after++; }   /* SD idle: pulled up by the game, high */
     if (word_read) { word_read = 0; lateness(); }
+    tx_tally();
     for (u32 k = 0; k < 4; k++)                              /* the paused DMAs back as they were */
         if (dma[k] & 0x8000 && dma[k] >> 12 & 3)             /* (never restart an immediate one: it would run again) */
             DMACNT_H(k) = dma[k];
@@ -530,6 +582,8 @@ static int pc_service(api_t *api)
     case 18: v = late_bad; break;                            /* samples a third of a bit late or more */
     case 19: v = done_why; break;                            /* 1 not master, 2 the game closed, 3 asked to stop */
     case 22: v = hs_tries | hs_taken_after << 16; break;     /* 0x8FFF sent so many times; taken on try N (0: never) */
+    case 27: v = hw_used | hw_differ << 16; break;
+    case 28: v = tx_late_max | tx_late_bit << 16 | (tx_late_bad > 255 ? 255 : tx_late_bad) << 24; break;
     case 25: v = scope_n | scope_words << 16; break;
     case 26: v = scope_hs | scope_taken << 16; break;
     case 23: v = taken_setting | sweep_at << 8 | N_SWEEP << 16; break;   /* the sending timing that worked (0xFF: none) */

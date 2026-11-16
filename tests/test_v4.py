@@ -4171,7 +4171,7 @@ def _():
 @test("lab4p --scope (16 November: every hand-made timing missed on hardware, so ask the real thing): the DUO's own multi-player hardware is the master and the DUO watches SD - the master's start bit, the game's word after it and the end of busy come out in the record and on the screen, with the transfer the game took the hardware's 0x8FFF")
 def _():
     hw, duo = run42()
-    clock = GPL.GpLinkGame(hw)                      # (its timer and VCOUNT; the lines are the hardware's here)
+    clock = GPL.GpLinkGame(hw, hardware=False)      # (its timer and VCOUNT; the lines are the hardware's here)
     sio = GPL.SioHardwareMaster(hw, clock, lead=20, child_delay=90, takes_at=5)
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
     r, text = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=1, link="trade", seconds=6, gap=4,
@@ -4197,6 +4197,7 @@ def _():
     assert r["handshake_players"] == 4 and r["checksum_errors"] == 0, (r, hw.text[-1200:])
     assert sorted(r["link_players"]) == [0, 2, 3] and r["refused"] is True, r
     assert report["hs_taken_after"] == 1 and "The hybrid" in hw.text, (report, hw.text[-1200:])
+    assert 0 < report["tx_late_max"] < 146 and "The DUO's own bits: its latest edge came" in hw.text, (report, hw.text[-600:])
 
 
 @test("lab4p --hybrid, the control: the hardware sends slot 0, nothing by hand - the game hears two players and the Trade Center link-up carries on")
@@ -4205,6 +4206,15 @@ def _():
     assert not game.errors, game.errors[:5]
     r = game.result
     assert game.hw_sends > 10 and r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, r
+
+
+@test("lab4p --hybrid, the control (16 November, hardware: the game counted, then the checksums parted): with the DUO's own reading of the game's word spoiled a third of the time (a bit flipped, as its missing stop bits on hardware), the link hardware's reading is used - the link carries on, and the tool counts the differences and the DUO's sending lateness")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=25, max_players=2, hybrid=True, garble=0.33)
+    r = game.result
+    assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, (r, hw.text[-1200:])
+    assert report["hw_used"] > 100 and report["hw_differ"] > 10, report
+    assert "the link hardware's reading used" in hw.text and "The DUO's own bits" not in hw.text, hw.text[-800:]
 
 
 @test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")
