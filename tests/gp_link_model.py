@@ -78,6 +78,7 @@ class GpLinkGame:
         # the hybrid (16 November): the DUO's own link hardware sends slot 0 - a start on SIOCNT in the
         # serial mode puts the hardware master's word on SD (`hw_lead` cycles in), SO low after it
         self.hw_lead, self.hw_end, self.hw_busy_until, self.hw_sends, self.hw_word1 = 20, None, 0, 0, None
+        self.hw_stuck = None                                 # (what SIOMULTI1 sticks at once the pins are taken)
         if hardware:                                         # (not with the scope's own model of it)
             hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_siocnt, begin=0x04000128, end=0x04000129)
             hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_siocnt_read, begin=0x04000128, end=0x04000129)
@@ -122,8 +123,13 @@ class GpLinkGame:
             w0 = struct.unpack("<H", bytes(mu.mem_read(0x0400012A, 2)))[0]
             w1 = self.game_word if self.game_t0 is not None and t >= self.game_t0 + 17.5 * BIT else 0xFFFF
             mu.mem_write(0x04000120, struct.pack("<2H", w0 if t >= self.hw_end else 0xFFFF, w1))
+            if w1 != 0xFFFF and self.hw_stuck is None:
+                self.hw_stuck = w1
         elif self.hw_end is not None and self.rcnt & 0x8000 and self.hw_word1 is not None:
-            mu.mem_write(0x04000122, struct.pack("<H", self.hw_word1))
+            # (16 November, evening, hardware: read after the DUO took the pins, SIOMULTI1 gave the game's
+            # handshake every time, 3476 in a row, long after the game had linked - stale. Read just after
+            # the game's stop bit, before the pins are taken, it was right: 3693 of 3693)
+            mu.mem_write(0x04000122, struct.pack("<H", self.hw_stuck if self.hw_stuck is not None else 0xFFFF))
 
     def on_siocnt_read(self, mu, access, addr, size, value, _):
         t = self.t()

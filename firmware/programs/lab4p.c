@@ -364,11 +364,18 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
             if (d > edge_max) edge_max = d;
             if (game_on) { if (d < edge_min2) edge_min2 = d; if (d > edge_max2) edge_max2 = d; }
             u32 gap = GAP_Q ? GAP_Q : 4;
+            /* the game's word, as the link hardware read it: just after its stop bit, before the pins are
+             * taken (16 November, evening: read after, it was stale - the handshake every time, so the DUO
+             * thought the game never linked and went back, over and over: "Please wait") */
+            until(at_bit(te, (18 << 8) + 32));
+            u16 hw1 = SIOMULTI(1);
+            u16 give_up = at_bit(te, (18 << 8) + 192);
+            while (hw1 == 0xFFFF && (s16)(tnow() - give_up) < 0) hw1 = SIOMULTI(1);
             put_stream(at_bit(te, (18 << 8) + (gap << 6)));  /* slots 2 and 3; the first edge takes the pins */
             words[2] = mine[2];
             words[3] = mine[3];
-            u16 hw1 = SIOMULTI(1);                           /* the game's word, as the link hardware read it */
             hw_used++;
+            if (hw1 == 0xFFFF) hw_differ++;                  /* (not there in time: counted, shown as no answer) */
             words[1] = hw1;
             if (hw1 != 0xFFFF) { words_ok++; words2 += game_on; }
         } else {
