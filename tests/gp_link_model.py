@@ -63,6 +63,7 @@ class GpLinkGame:
         # miss_master (14 November, hardware: the game never left its handshake): the game misreads the
         # DUO's first so many master handshakes (0x8FFF), as if the bits came out wrong
         self.miss_master = miss_master
+        self.after_players, self.patience, self.cards_asked, self.cards_from, self.in_room = 0, 300, False, set(), False
         # lead_window (15 November, hardware: the game never took the DUO's 0x8FFF in 374 tries): the game reads
         # the DUO's word right only if its start bit comes within (lo, hi) cycles of SC going low
         self.lead_window, self.lead0, self.leads = lead_window, None, set()
@@ -76,10 +77,11 @@ class GpLinkGame:
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=VCOUNT, end=VCOUNT + 1)
         # the hybrid (16 November): the DUO's own link hardware sends slot 0 - a start on SIOCNT in the
         # serial mode puts the hardware master's word on SD (`hw_lead` cycles in), SO low after it
-        self.hw_lead, self.hw_end, self.hw_busy_until, self.hw_sends = 20, None, 0, 0
+        self.hw_lead, self.hw_end, self.hw_busy_until, self.hw_sends, self.hw_word1 = 20, None, 0, 0, None
         if hardware:                                         # (not with the scope's own model of it)
             hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_siocnt, begin=0x04000128, end=0x04000129)
             hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_siocnt_read, begin=0x04000128, end=0x04000129)
+            hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_siomulti_read, begin=0x04000120, end=0x04000127)
 
     # ------------------------------------------------------------ the lines
     def t(self):
@@ -108,7 +110,20 @@ class GpLinkGame:
         self.game_t0 = self.hw_end + self.delay * BIT
         self.hw_busy_until = self.hw_end + 24 * BIT
         self.hw_sends += 1
+        self.hw_word1 = None
         mu.mem_write(0x04000120, b"\xff" * 8)                 # (SIOMULTI0-3: 0xFFFF from the start)
+
+    def on_siomulti_read(self, mu, access, addr, size, value, _):
+        # (16 November, hardware: the game's word was in SIOMULTI1 as soon as the DUO looked, just after
+        # the game's stop bit, though the transfer was still running - so the hardware latches each word
+        # as it ends)
+        if not self.rcnt & 0x8000 and self.hw_end is not None and self.in_transfer:
+            t = self.t()
+            w0 = struct.unpack("<H", bytes(mu.mem_read(0x0400012A, 2)))[0]
+            w1 = self.game_word if self.game_t0 is not None and t >= self.game_t0 + 17.5 * BIT else 0xFFFF
+            mu.mem_write(0x04000120, struct.pack("<2H", w0 if t >= self.hw_end else 0xFFFF, w1))
+        elif self.hw_end is not None and self.rcnt & 0x8000 and self.hw_word1 is not None:
+            mu.mem_write(0x04000122, struct.pack("<H", self.hw_word1))
 
     def on_siocnt_read(self, mu, access, addr, size, value, _):
         t = self.t()
@@ -165,6 +180,9 @@ class GpLinkGame:
         if addr != RCNT or size < 2:
             return
         t, old, v = self.t(), self.rcnt, value & 0xFFFF
+        if v & 0x8000 and not old & 0x8000 and self.in_transfer and self.hw_end is not None:
+            done = self.game_t0 is not None and t >= self.game_t0 + 17.5 * BIT   # (the pins taken: what's latched stays)
+            self.hw_word1 = self.game_word if done else 0xFFFF
         self.rcnt = v
         if not v & 0x8000:
             return
@@ -270,7 +288,8 @@ class GpLinkGame:
             self.game_word, self.send_idx = self.checksum, 0
         else:
             if self.send_idx == 0:
-                self.current = self.queue.pop(0) if self.queue else [0] * 8
+                idle = [0xCAFE, 17] + [0] * 6 if self.in_room else [0] * 8   # (in the room: its keys every frame)
+                self.current = self.queue.pop(0) if self.queue else idle
             self.game_word = self.current[self.send_idx]
             self.send_idx += 1
 
@@ -278,10 +297,30 @@ class GpLinkGame:
         self.queue.append(list(words) + [0] * (8 - len(words)))
 
     def command(self):
+        # the Trade Center after the link players (16 November, hardware: the control's link error): the
+        # leader asks for the trainer cards (0xCCCC 2) and every player sends one (100 bytes); with all of
+        # them in, both go into the room and send keys every frame (0xCAFE). A leader that never asks:
+        # the game gives up (a link error) - as the real one did
+        if self.result["refused"] is False and not self.in_room and "link_error" not in self.result:
+            self.after_players += 1
+            if self.after_players > self.patience and not self.cards_asked:
+                self.result["link_error"] = "the leader never asked for the trainer cards"
         for i in range(self.player_count):
             c = self.frame[0][i]
+            if c == 0xCCCC and i == 0:
+                self.cards_asked = True
+                size = {2: 100, 3: 220, 4: 40}.get(self.frame[1][i], 200)
+                self.send(0xBBBB, size, 1 + 128)
+                for at in range(0, size, 14):
+                    self.send(0x8888)
+            elif c == 0xCAFE and i != 1:
+                self.result["room_keys"] = self.result.get("room_keys", 0) + 1
             if c == 0x2222:
                 block = bytearray(self.lp)
+                if not any(block):                      # (as the real one, 16 November: the markers, link type 0x1133)
+                    block[0:14] = block[44:58] = b"GameFreak inc."
+                    block[16 + 0x14:16 + 0x16] = (0x1133).to_bytes(2, "little")
+                    block[16 + 0x1A] = 2
                 block[16] = self.version
                 self.send(0xBBBB, 60, 1 + 128)
                 for at in range(0, 60, 14):
@@ -295,6 +334,11 @@ class GpLinkGame:
                     data += self.frame[j][i].to_bytes(2, "little")
                 if len(data) >= size:
                     del self.rx[i]
+                    if size == 100 and i != 1 and self.cards_asked:
+                        self.cards_from.add(i)
+                        if len(self.cards_from) == self.player_count - 1:
+                            self.in_room = True
+                            self.result["room"] = True
                     if size == 60 and i != 1:
                         self.result["link_players"][i] = bytes(data[:60])
                         if len(self.result["link_players"]) == self.player_count - 1 and self.result["refused"] is None:

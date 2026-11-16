@@ -217,6 +217,38 @@ static void tx_tally(void)
     }
     tx_sent = 0;
 }
+/* 16 November, evening: why slots 2 and 3 failed on hardware. Slot 3's start was worked out only
+ * after slot 2's sending returned, with one bit to spare - and on the real GBA the DUO's code is
+ * slower than the simulator had it (its samples 62 cycles late against 39), so slot 3's start bit was
+ * already overdue: written at once and the next edge straight after, a start bit of a few cycles, and
+ * the game read the word wrong. (The simulator at the real speed shows it: the game never links.)
+ * Now slots 2 and 3 go as one schedule of edges made before the transfer, from one start - and a start
+ * that is overdue moves the whole schedule later, so no edge is ever squeezed. */
+static u16 st_at[2 * 19], st_val[2 * 19];
+static void prepare_stream(void)          /* slots 2 and 3 back to back, their gap between */
+{
+    u32 gap = GAP_Q ? GAP_Q : 4;
+    u16 second = at_tx(0, (18 << 8) + (gap << 6));
+    for (u32 i = 0; i < 19; i++) {
+        st_at[i] = tx_edge[i];           st_val[i] = tx_val[1][i];
+        st_at[19 + i] = second + tx_edge[i]; st_val[19 + i] = tx_val[2][i];
+    }
+}
+static void put_stream(u16 t0)
+{
+    u16 now = TM0CNT_L;
+    if ((s16)(now + 16 - t0) > 0) t0 = now + 16;             /* overdue: the whole schedule later, never squeezed */
+    u16 *late = tx_late[1];                                  /* (tx_late[1] and [2] in a row: 38 entries) */
+    for (u32 i = 0; i < 2 * 19; i++) {
+        u16 t = t0 + st_at[i];
+        while ((s16)(TM0CNT_L - t) < 0) ;
+        RCNT = st_val[i];
+        late[i] = TM0CNT_L - t;
+    }
+    rc = st_val[2 * 19 - 1];
+    tx_sent |= 6;
+}
+
 static void put_word(u16 t0, u32 k)       /* slot k's word on SD, made ahead: start, 16 bits, stop; SD released */
 {
     u16 *late = tx_late[k];
@@ -288,6 +320,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
     prepare_word(0, mine[0], GP | OUT(P_SC | P_SO) | P_SO);   /* (SC low, SO high, as they'll be) */
     prepare_word(1, mine[2], GP | OUT(P_SC | P_SO));         /* (SC low, SO low) */
     prepare_word(2, mine[3], GP | OUT(P_SC | P_SO));
+    if (PLAYERS >= 3) prepare_stream();
     if (SCOPE == 2) {
         /* the hybrid (16 November): the scope showed the DUO's own link hardware sending slot 0 just as
          * lab4p does by hand - yet the game takes the hardware's 0x8FFF at once and never lab4p's. So
@@ -312,17 +345,41 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
     }
     words[0] = mine[0];
     u16 end = tnow();
-    words[1] = get_word(end, &end);
-    if (SCOPE == 2 && PLAYERS >= 3 && words[1] != 0xFFFF) {
-        /* the hardware's own reading of the game's word, if it has it already (it sets SIOMULTI0-3 to
-         * 0xFFFF at the start): better than the DUO's by hand, whose stop bits went missing a third of
-         * the time on hardware */
-        u16 hw1 = SIOMULTI(1);
-        if (hw1 != 0xFFFF) { hw_used++; if (hw1 != words[1]) { hw_differ++; if (hw_differ <= 16) log_event(E_STOPBIT, words[1] ^ hw1); } words[1] = hw1; }
-    }
-    words[2] = words[3] = 0xFFFF;
-    if (SCOPE == 2 && PLAYERS >= 3)
-        set_pins(GP | OUT(P_SC | P_SO));                     /* the pins ours now: SC low, SO low, SD free */
+    if (SCOPE == 2 && PLAYERS >= 3) {
+        /* 16 November, evening: slots 2 and 3 came too long after the game's word (over 500 cycles at
+         * the GBA's real speed, the DUO reading the game's bits and then getting ready), past the time a
+         * GBA's link hardware waits for the next unit (the scope: about 570 cycles) - so the game took
+         * them for missing and counted two players. The link hardware reads the game's word itself; the
+         * DUO needs only its start bit: slot 2 is due 18 bits and the gap after it, and there's the whole
+         * of the game's word to get ready in. The schedule's first edge takes the pins. */
+        u16 limit = at_bit(end, 12 << 8);
+        u32 seen = 1;
+        while (RCNT & P_SD)
+            if ((s16)(tnow() - limit) >= 0) { seen = 0; break; }
+        u16 te = tnow();
+        words[2] = words[3] = 0xFFFF;
+        if (seen) {
+            u16 d = te - end;
+            if (d < edge_min) edge_min = d;
+            if (d > edge_max) edge_max = d;
+            if (game_on) { if (d < edge_min2) edge_min2 = d; if (d > edge_max2) edge_max2 = d; }
+            u32 gap = GAP_Q ? GAP_Q : 4;
+            put_stream(at_bit(te, (18 << 8) + (gap << 6)));  /* slots 2 and 3; the first edge takes the pins */
+            words[2] = mine[2];
+            words[3] = mine[3];
+            u16 hw1 = SIOMULTI(1);                           /* the game's word, as the link hardware read it */
+            hw_used++;
+            words[1] = hw1;
+            if (hw1 != 0xFFFF) { words_ok++; words2 += game_on; }
+        } else {
+            timeouts++; timeouts2 += game_on;
+            words[1] = 0xFFFF;
+            set_pins(GP | OUT(P_SC | P_SO));
+        }
+    } else
+        words[1] = get_word(end, &end);
+    if (!(SCOPE == 2 && PLAYERS >= 3)) words[2] = words[3] = 0xFFFF;
+    if (SCOPE == 2 && PLAYERS >= 3) { }
     else if (SCOPE == 2) {                                   /* the control: the hardware ends its own transfer */
         for (u32 i = 0; i < 20000 && (SIOCNT & 0x80); i++) ;
         u16 hw1 = SIOMULTI(1);
@@ -330,13 +387,12 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
         hw_used++;
         words[1] = hw1;
     }
-    if (PLAYERS >= 3 && words[1] != 0xFFFF) {
+    if (SCOPE == 2 && PLAYERS >= 3) { }                     /* (slots 2 and 3 went above) */
+    else if (PLAYERS >= 3 && words[1] != 0xFFFF) {
         u32 gap = GAP_Q ? GAP_Q : 4;
         u16 t2 = at_bit(end, gap << 6);
-        if ((s16)(tnow() + 24 - t2) > 0) t2 = tnow() + 24;     /* (never a start in the past: its bits would bunch) */
-        put_word(t2, 1);
+        put_stream(t2);                                      /* slots 2 and 3: one schedule, never squeezed */
         words[2] = mine[2];
-        put_word(at_tx(t2, (18 << 8) + (gap << 6)), 2);
         words[3] = mine[3];
     } else {
         until(at_bit(end, 3 << 8));                          /* (the timeout after the last unit) */
@@ -361,6 +417,24 @@ static u16 frame[CMD_LEN][4];
 static u16 cur[4][CMD_LEN];               /* each of our slots' command this cycle */
 static u8 lp[3][60];                      /* our link players */
 static u32 tx_off[4], tx_on[4], tx_hdr[4];
+/* 16 November, evening (hardware: the control's link was clean - 1916 checksums of 1916 - yet the game
+ * gave a link error after the link players, and never sent a room key). In the Trade Center the
+ * leader then asks for the trainer cards (0xCCCC 2), every player answering it, the leader too, and
+ * only then do both go into the room, where each sends its keys every frame (0xCAFE). The trade
+ * program does all this as leader; lab4p never asked, so the game waited, then gave up. Now lab4p does
+ * the same, its blocks blank: enough to stand in the room. */
+static u32 tx_len[4], tx_blank[4];        /* a slot's block: its length; 1: blank (zeros), else its link player */
+static u32 game_version, lp_type, req_timer, req_sent, room_keys, ready_pending, blocks_got;
+static void queue_block(u32 slot, u32 len, u32 blank)
+{
+    tx_len[slot] = len; tx_blank[slot] = blank; tx_on[slot] = 1; tx_off[slot] = 0; tx_hdr[slot] = 0;
+}
+static void answer_request(u32 n)         /* 0xCCCC n: each of our slots sends a blank block of that size */
+{
+    u32 len = n == 2 ? 100 : n == 3 ? 220 : n == 4 ? 40 : 200;
+    queue_block(0, len, 1);
+    if (PLAYERS >= 3) { queue_block(2, len, 1); queue_block(3, len, 1); }
+}
 static u8 game_block[64];
 static u32 rx_size, rx_have, rx_on, game_closing, players_pending, not_master;
 
@@ -394,14 +468,16 @@ static void slot_command(u32 slot, u32 k)  /* slot's next command: its link play
     for (u32 i = 0; i < CMD_LEN; i++) c[i] = 0;
     if (game_closing) { c[0] = 0x5FFF; return; }
     if (!tx_on[slot]) return;
-    if (!tx_hdr[slot]) { c[0] = 0xBBBB; c[1] = 60; c[2] = slot + 128; tx_hdr[slot] = 1; return; }
+    u32 len = tx_len[slot] ? tx_len[slot] : 60;
+    if (!tx_hdr[slot]) { c[0] = 0xBBBB; c[1] = len; c[2] = slot + 128; tx_hdr[slot] = 1; return; }
     c[0] = 0x8888;
     for (u32 j = 0; j < 7; j++) {
         u32 at = tx_off[slot] + 2 * j;
-        c[1 + j] = (at < 60 ? lp[k][at] : 0) | (at + 1 < 60 ? lp[k][at + 1] : 0) << 8;
+        if (!tx_blank[slot])
+            c[1 + j] = (at < len ? lp[k][at] : 0) | (at + 1 < len ? lp[k][at + 1] : 0) << 8;
     }
     tx_off[slot] += 14;
-    if (tx_off[slot] >= 60) tx_on[slot] = 0;
+    if (tx_off[slot] >= len) tx_on[slot] = 0;
 }
 
 static void next_cycle(void)
@@ -413,17 +489,30 @@ static void next_cycle(void)
         cur[0][0] = 0x2222; cur[0][1] = LINK_TYPE;
         link_sent = 1;
         log_event(E_SESSION, LINK_TYPE);
+        return;
+    }
+    if (game_closing || tx_on[0]) return;
+    if (ready_pending) { cur[0][0] = 0x2FFE; ready_pending = 0; return; }   /* "ready": we are */
+    if (room_keys) { cur[0][0] = 0xCAFE; cur[0][1] = 17; return; }        /* in the room: standing still */
+    if (lp_type == 0x1133 && !players_pending && !req_sent && ++req_timer > 40) {
+        cur[0][0] = 0xCCCC; cur[0][1] = 2;                   /* the trainer cards, please (as the leader asks) */
+        req_sent = 1;
+        answer_request(2);                                   /* (our own request: we answer it too) */
+        log_event(E_SESSION, 0xCC02);
     }
 }
 
 static void game_command(void)
 {
     u16 c = frame[0][1];
-    if (c && c != 0x8888) log_event(E_COMMAND, c);
+    if (c && c != 0x8888 && c != 0xCAFE) log_event(E_COMMAND, c);   /* (room keys: every frame, not logged) */
     if (c == 0x2222 || frame[0][0] == 0x2222) {               /* everyone sends a link player: ours once the game's is here */
         players_pending = 1;
         if (state < ST_PLAYERS) state = ST_PLAYERS;
     }
+    if (c == 0xCCCC) answer_request(frame[1][1]);
+    if (c == 0xCAFE && !room_keys) { room_keys = 1; log_event(E_SESSION, 0xCAFE); }
+    if (c == 0x2FFE) ready_pending = 1;
     if (c == 0xBBBB) { rx_size = frame[1][1]; rx_have = 0; rx_on = 1; }
     else if (c == 0x8888 && rx_on) {
         for (u32 j = 1; j < CMD_LEN && rx_have < rx_size; j++, rx_have += 2) {
@@ -434,9 +523,12 @@ static void game_command(void)
             rx_on = 0;
             log_bytes(game_block, rx_size < 64 ? rx_size : 64, K_GAME);
             log_event(E_BLOCK, rx_size);
+            blocks_got++;
             if (players_pending && rx_size == 60) {               /* the game's version and language in ours */
+                lp_type = game_block[16 + 0x14] | game_block[16 + 0x15] << 8;
+                game_version = game_block[16];
                 build_players();
-                for (u32 k = 0; k < 4; k++) { tx_on[k] = k != 1; tx_off[k] = 0; tx_hdr[k] = 0; }
+                for (u32 k = 0; k < 4; k++) { tx_on[k] = k != 1; tx_off[k] = 0; tx_hdr[k] = 0; tx_len[k] = 60; tx_blank[k] = 0; }
                 players_pending = 0;
             }
         }
@@ -570,7 +662,7 @@ static int pc_service(api_t *api)
     case 6: v = game_first[0] | game_first[1] << 16; break;
     case 7: v = (ck_game_two & 0xFFFF) | ck_game_four << 16; break;
     case 8: v = ck_neither | cycles << 16; break;
-    case 9: v = game_block[16] | game_block[16 + 0x14] << 8 | game_block[16 + 0x15] << 16; break;
+    case 9: v = game_version | lp_type << 8; break;          /* (kept: the trainer card's block comes after) */
     case 10: v = (words2 & 0xFFFF) | stop2 << 16; break;                 /* from the game's first real word */
     case 11: v = (timeouts2 & 0xFFFF) | (hs_reads & 0xFFFF) << 16; break;
     case 12: v = (edge_min2 & 0xFFFF) | edge_max2 << 16; break;
@@ -583,6 +675,7 @@ static int pc_service(api_t *api)
     case 19: v = done_why; break;                            /* 1 not master, 2 the game closed, 3 asked to stop */
     case 22: v = hs_tries | hs_taken_after << 16; break;     /* 0x8FFF sent so many times; taken on try N (0: never) */
     case 27: v = hw_used | hw_differ << 16; break;
+    case 29: v = room_keys | req_sent << 1 | (blocks_got & 0xFF) << 8 | (lp_type & 0xFFFF) << 16; break;
     case 28: v = tx_late_max | tx_late_bit << 16 | (tx_late_bad > 255 ? 255 : tx_late_bad) << 24; break;
     case 25: v = scope_n | scope_words << 16; break;
     case 26: v = scope_hs | scope_taken << 16; break;

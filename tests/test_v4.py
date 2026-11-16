@@ -4217,6 +4217,27 @@ def _():
     assert "the link hardware's reading used" in hw.text and "The DUO's own bits" not in hw.text, hw.text[-800:]
 
 
+@test("lab4p --hybrid --players 3 at the GBA's real speed (16 November, evening: the simulator ran the DUO's code too fast, so slots 2 and 3 seemed on time; on hardware they came over 500 cycles after the game's word, past the ~570 a GBA's link hardware waits, and the game counted two players). With the DUO as slow as on hardware and the game answering 2.5 bits after its turn (the scope), the game counts four players, its checksums all match and the Trade Center refuses")
+def _():
+    hw, game, report = lab4p_run(players=3, link="trade", max_players=2, hybrid=True, cycles_per_block=35, delay_bits=2.5)
+    assert not game.errors, game.errors[:5]
+    r = game.result
+    assert r["handshake_players"] == 4 and r["checksum_errors"] == 0, (r, hw.text[-1200:])
+    assert sorted(r["link_players"]) == [0, 2, 3] and r["refused"] is True, r
+    assert report["tx_late_max"] < 100, report
+
+
+@test("lab4p --hybrid, the control, at the GBA's real speed (16 November, evening, hardware: a clean link - 1916 checksums of 1916 - then a link error after the link players, no room key ever). As the trade program, the DUO asks for the trainer cards as leader, answers its own request, and in the room sends a key every frame: the game goes into the room and stays")
+def _():
+    hw, game, report = lab4p_run(players=1, link="trade", seconds=25, max_players=2, hybrid=True, cycles_per_block=35, delay_bits=2.5)
+    r = game.result
+    assert r["handshake_players"] == 2 and r["checksum_errors"] == 0 and r["refused"] is False, (r, hw.text[-1200:])
+    assert r.get("room") and r.get("room_keys", 0) > 100 and "link_error" not in r, r
+    assert report["in_room"] and "went into the Trade Center room" in hw.text, (report, hw.text[-800:])
+    rec = open(report["file"] + ".txt").read()
+    assert "the trainer cards asked for" in rec and "both are in the Trade Center room" in rec, rec[-1500:]
+
+
 @test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")
 def _():
     hw, duo = run42()
