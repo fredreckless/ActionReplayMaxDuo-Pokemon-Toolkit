@@ -35,6 +35,7 @@ TOWER = ["Battle Tower", "v4.2 programs"]
 BLENDER = ["Berry Blender", "v4.2 programs"]
 CONTEST = ["Contest", "v4.2 programs"]
 LAB4P = ["lab4p", "v4.2 programs"]
+CABLE = TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P     # every routine on pret_link's Console
 EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P + ["two tools", "v4.2 run", "connect"]
 
 # Which tests a changed file needs, first match wins. ALL for anything shared; [] for documentation.
@@ -69,9 +70,13 @@ AREAS = [
     ("tests/blender_game_model.py", BLENDER),
     ("tests/contest_game_model.py", CONTEST),
     ("tests/gp_link_model.py", LAB4P),
+    ("tests/pret_link.py", CABLE + EREADER), ("tests/pret_cable_club.py", CABLE),    # (17 November)
+    ("tests/source_anchors.py", []), ("tools/pret.py", []),                         # (the anchors run on every tier)
     ("tests/mix_game_model.py", MIX),
     ("tests/ecard_fixtures.py", EREADER),
     ("tests/check.py", []), ("tests/run_each.py", []), ("tests/history/*", []),
+    ("tests/mutate4.py", "BY_BUG"),   # the planted bugs whose lines changed (or one of each kind, for its machinery)
+    ("tests/test_v4.py", "BY_TEST"),  # the tests whose own lines changed (all, if a shared helper did)
     ("*", ALL),                      # maxduo_saves.py, the firmware builds, hwsim, test_v4.py, fixtures...
 ]
 
@@ -102,8 +107,10 @@ BUG_KINDS = [
     ("tests/blender_game_model.py", ["blender"]),
     ("tests/contest_game_model.py", ["contest"]),
     ("tests/gp_link_model.py", ["lab4p"]),
-    ("tests/test_v4.py", ALL), ("tests/hwsim.py", ALL), ("tests/fixtures.py", ALL),
-    ("tests/mutate4.py", ALL),       # a changed or new planted bug should be run
+    ("tests/pret_link.py", ["ereader", "trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p"]),
+    ("tests/pret_cable_club.py", ["trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p"]),
+    ("tests/hwsim.py", ALL), ("tests/fixtures.py", ALL),
+    ("tests/mutate4.py", []),        # (see AREAS: the planted bugs whose lines changed)
 ]
 
 # The quick tier: a fast spread across every area, by full test name prefix.
@@ -158,19 +165,83 @@ def pick(prefixes, names):
     return [n for n in names if any(n.startswith(p) for p in prefixes)]
 
 
+def changed_tests(base):
+    """The tests in test_v4.py whose own lines changed since BASE (17 November: an edit to one test
+    used to run every test and every planted bug). ALL if a line outside every test changed."""
+    r = subprocess.run(["git", "diff", "-U0", base, "--", "tests/test_v4.py"], cwd=ROOT, capture_output=True, text=True)
+    lines = []
+    for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", r.stdout, re.M):
+        start, count = int(m.group(1)), int(m.group(2) or 1)
+        lines += list(range(start, start + max(count, 1)))
+    if not lines:
+        return []
+    starts = []                                   # (first line, name) of each test, decorator included
+    for i, line in enumerate(open(os.path.join(HERE, "test_v4.py"), encoding="utf-8"), 1):
+        m = re.match(r'@test\("(.*)"\)', line)
+        if m:
+            starts.append((i, m.group(1)))
+    names = set()
+    for n in lines:
+        before = [name for first, name in starts if first <= n]
+        if not before:
+            return ALL                            # (the imports and helpers above the first test)
+        names.add(before[-1])
+    return sorted(names)
+
+
+def changed_bugs(base):
+    """Planted bugs whose own lines changed in mutate4.py; if anything else there changed (its
+    machinery), one of each kind as well, to show it still plants and catches. No tests: mutate4.py
+    changes none of them."""
+    import mutate4
+    r = subprocess.run(["git", "diff", "-U0", base, "--", "tests/mutate4.py"], cwd=ROOT, capture_output=True, text=True)
+    added = [l[1:] for l in r.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    pairs, other = set(), False
+    for line in added:
+        hit = [(k, n) for k, table in mutate4.KINDS.items() for n in table if f'"{n}"' in line]
+        pairs |= set(hit)
+        other = other or (not hit and line.strip() != "")
+    if other:
+        pairs |= {(k, next(iter(table))) for k, table in mutate4.KINDS.items() if table}
+    return sorted(pairs)
+
+
+def bugs_for(names):
+    """The planted bugs whose test is one of these: (kind, name) pairs."""
+    import mutate4
+    return [(k, n) for k, table in mutate4.KINDS.items() for n, entry in table.items()
+            if any(entry[2] in t for t in names)]
+
+
 def plan(base):
     names = run_each.all_names()
     files = changed_files(base)
-    tests, kinds, why = set(), set(), []
+    tests, kinds, pairs, why = set(), set(), set(), []
     for f in files:
         area = lookup(AREAS, f)
         k = lookup(BUG_KINDS, f) or []
+        if area == "BY_BUG":
+            mine = changed_bugs(base)
+            pairs |= set(mine)
+            why.append(f"  {f}: no tests; {len(mine)} planted bugs")
+            continue
+        if area == "BY_TEST":
+            got = changed_tests(base)
+            if got == ALL:
+                area, k = ALL, ALL
+            else:
+                tests |= set(got)
+                mine = bugs_for(got)
+                pairs |= set(mine)
+                why.append(f"  {f}: {len(got)} changed tests; {len(mine)} planted bugs on them")
+                continue
         got = pick(area, names)
         tests |= set(got)
         kinds |= set(["fw", "fw42", "prog", "ereader", "trade", "pc"] if k == ALL else k)
         why.append(f"  {f}: " + ("all tests" if area == ALL else f"{len(got)} tests" if got else "no tests")
                    + (f"; planted bugs: {'all' if k == ALL else ', '.join(k)}" if k else ""))
-    return files, [n for n in names if n in tests], sorted(kinds), why
+    pairs = sorted(p for p in pairs if p[0] not in kinds)
+    return files, [n for n in names if n in tests], sorted(kinds), pairs, why
 
 
 def main():
@@ -192,24 +263,27 @@ def main():
         counts = run_each.run_tests(tests, jobs, quiet_pass=True)
         ok = not counts["FAIL"]
     elif tier in ("changed", "full", "what"):
-        files, tests, kinds, why = plan(base)
+        files, tests, kinds, pairs, why = plan(base)
         print(f"Changed since {base}: {len(files)} file(s)")
         print("\n".join(why) if why else "  (nothing)")
         if tier == "full":
             tests = names
         if "--all-bugs" in flags:
             kinds = None
+        if kinds is None:
+            pairs = []
         print(f"{'Full' if tier == 'full' else 'Changed'} tier: {len(tests)} tests; planted bugs: "
-              + ("all" if kinds is None else ", ".join(kinds) or "none"), flush=True)
+              + ("all" if kinds is None else ", ".join(kinds) or "none")
+              + (f", and {len(pairs)} picked for the changed files" if pairs else ""), flush=True)
         if tier == "what":
             return 0
         ok = True
         if tests:
             counts = run_each.run_tests(tests, jobs, quiet_pass=True)
             ok = not counts["FAIL"]
-        if kinds is None or kinds:
+        if kinds is None or kinds or pairs:
             import mutate4
-            ok = mutate4.run_many(kinds, jobs) and ok
+            ok = mutate4.run_many(kinds, jobs, extra=pairs) and ok
     else:
         sys.exit(__doc__)
     ok = ok and anchors_ok

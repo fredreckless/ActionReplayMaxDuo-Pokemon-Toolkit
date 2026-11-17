@@ -24,9 +24,13 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   release is the user's own business now** (8 November: "I have sorted it"); don't raise it.
 - **Tiered testing, kept short** (`python tests/check.py`):
   - `quick` (about 60 s) after each small change while working;
-  - **`changed` before every push** (the only test step a push waits for);
+  - **`changed` before every push** (the only test step a push waits for). Since 17 November it
+    runs only what a change can reach: an edit to `test_v4.py` runs just the tests whose own lines
+    changed and the planted bugs on them; an edit to `mutate4.py`, just the planted bugs changed
+    (or one of each kind for its machinery); the link port (`pret_link.py`, `pret_cable_club.py`),
+    the cable routines' tests. `hwsim.py`, `fixtures.py` and anything unmapped still run everything;
   - `full --all-bugs` (about 30 minutes) only before a release, at the end of a long session, or when
-    `tests/hwsim.py`, `tests/mutate4.py` or the firmware builds change. Start it in the background
+    `tests/hwsim.py` or the firmware builds change. Start it in the background
     and keep working; if it finds something, fix it in the next push;
   - nothing for documentation-only changes (`*.md`, `lab/`, `docs/`);
   - never restart a run that's already going.
@@ -65,6 +69,11 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
 
 ## The four-player experiment, 14 November evening (step C)
+
+**Parked, 17 November:** the hybrid's sweep (docs/HARDWARE_QUEUE.md, 12h 17 Nov) tried all 12 ways
+of sending slots 2 and 3, 2353 times; the game read the DUO's hand-sent words as garbage every time,
+while taking the DUO's link hardware's word every time. No more runs unless a new idea changes how
+those slots go out. The history below is kept for that.
 
 Fred chose step C (docs/MULTI.md section 2) next. Hardware 12a: the game answered every transfer but
 the DUO read 0xB9A0 as 0xB8A0 every time: an HBlank DMA's stall, fixed in `lab4p` (see
@@ -321,8 +330,8 @@ then a double battle; Record Mixing with the player in the DUO's way.
 
 - **The four-player experiment** (`firmware/programs/lab4p.c`, `duo_events.py lab4p`,
   `tests/gp_link_model.py`, docs/MULTI.md section 2): the DUO, as master, drives the port bit by bit
-  and sends slots 0, 2 and 3 itself. Simulator only; a hardware run with Ruby's Trade Center is in
-  docs/HARDWARE_QUEUE.md (the DUO on the master end).
+  and sends slots 0, 2 and 3 itself. **Parked 17 November**: on hardware the game never reads the
+  hand-sent slots (docs/HARDWARE_QUEUE.md, 12h).
 - **Record Mixing with Emerald** (`mix.c`): the DUO says Ruby to Emerald, so Emerald mixes in
   Ruby's layout, saves and closes as Ruby does. Simulator only.
 - **Emerald's link Contest, E MODE** (`firmware/programs/contest.c`, `duo_events.py contest`,

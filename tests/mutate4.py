@@ -413,11 +413,13 @@ def runnable_kinds():
     return [k for k in KINDS if k not in ("fw", "fw42")]
 
 
-def run_many(kinds=None, jobs=None):
-    """Run every planted bug of the given kinds (default: all that can run here). True if all were caught."""
+def run_many(kinds=None, jobs=None, extra=()):
+    """Run every planted bug of the given kinds (default: all that can run here; [] for none), and the
+    (kind, name) pairs in `extra`. True if all were caught."""
     import concurrent.futures as cf
-    kinds = [k for k in (kinds or runnable_kinds()) if k in runnable_kinds()]
+    kinds = [k for k in (runnable_kinds() if kinds is None else kinds) if k in runnable_kinds()]
     todo = [(k, n) for k in kinds for n in KINDS[k]]
+    todo += [(k, n) for k, n in extra if k in runnable_kinds() and (k, n) not in todo]
     jobs = jobs or max(1, os.cpu_count() or 2)
     print(f"{len(todo)} planted bugs ({', '.join(kinds)}), {jobs} at a time", flush=True)
     def one(kn):

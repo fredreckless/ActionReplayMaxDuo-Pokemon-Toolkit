@@ -61,12 +61,15 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
 | e-Reader route, Mystery Event (`ereader`) | R/S | `mystery_event_menu.c`, `mystery_event_script.c` | `link_game_model.py`, `mevent_model.py` | from source |
 | e-Reader Trainer Hill/Tower | E, FR/LG (Japanese) | `ereader_helpers.c`, `cereader_tool.c` | `link_game_model.py` | from source |
 | Wireless Adapter (`adapter*`) | E, FR/LG | `librfu_intr.c`, `librfu_stwi.c`, `librfu_sio32id.c`, `mystery_gift_*.c` | `rfu_game_model.py`, `sio32id_model.py` | from source (librfu: a port, file-level citations) |
-| Four players on a two-player cable (`lab4p`) | R/S | `link.c` (above) | `gp_link_model.py` | serial layer **ported**; Trade Center flow its own copy; lines hardware |
+| Four players on a two-player cable (`lab4p`) | R/S | `link.c` (above) | `gp_link_model.py` | **parked** (17 November: the game read the DUO's hand-sent slots as garbage on all 12 settings, 2353 tries); serial layer ported |
 
 ## Next, in order
 
-1. Move `gp_link_model`'s game side (lab4p) onto `Console`, `LinkUp` and `LinkRoom`, replacing its
-   own Trade Center flow (its unconditional room keys and its invented 300-frame patience).
+Porting is frozen in breadth (17 November): a routine's protocol is ported, with citations, when
+that routine is next worked on, not before.
+
+1. (Parked with four players) Move `gp_link_model`'s game side onto `Console`, `LinkUp` and
+   `LinkRoom`, replacing its own Trade Center flow.
 2. Have the routine models use `LinkUp` for the Cable Club steps instead of their own.
 3. Add line citations to each routine's own protocol (trade.c, record_mixing.c, ...) as it's next
    touched, so the anchors check them.
