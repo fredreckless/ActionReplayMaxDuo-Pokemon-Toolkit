@@ -15,6 +15,9 @@ FW42_MUTANTS = {
     "run accepts an entry point outside the code": ("    cmp  r1, r4\n    bhs  run_bad\n", "", "refused"),
 }
 PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a copy of the tool
+    "union room: broadcasts the distributor's serial, not the game's": ("        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */", "        dist_serial = SERIAL_DECOMP;", "Union Room (milestone 1): the game finds"),
+    "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD ? ACT_ACCEPT : ACT_DECLINE;", "            ur_answer = ACT_DECLINE;", "Union Room (milestone 1): the game finds"),
+    "union room: accepts what it can't do (a trade)": ("            ur_answer = ur_packet == ACT_CARD ? ACT_ACCEPT : ACT_DECLINE;", "            ur_answer = ACT_ACCEPT;", "Union Room (milestone 1): asked for"),
     "adapter skips the ready handshake": ("    if (!wait_si(1, HANDSHAKE_LINES)) {\n#ifndef PROBE\n        judge_flick(0);", "    if (0) {\n#ifndef PROBE\n        judge_flick(0);", "wireless adapter"),
     "adapter acknowledges without the 0x80": ("((cmd + 0x80) & 0xFF)", "(cmd & 0xFF)", "wireless adapter: Emerald"),
     "adapter never takes its turn after a wait": ("frames * LINES_PER_FRAME)\n            break;", "frames * LINES_PER_FRAME * 100000)\n            break;", "wireless adapter: Emerald"),
@@ -191,7 +194,7 @@ def run(kind, name):
         in_walk = good_src.count(old) == 0 and open(walk_path).read().count(old) == 1   # (the shared walk)
         assert in_walk or good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
-        builds = {"prog": ("adapter", "adapter_lab"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
+        builds = {"prog": ("adapter", "adapter_lab", "union"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
                   "colosseum": ("colosseum",), "tower": ("tower",), "blender": ("blender",),
                   "contest": ("contest",), "lab4p": ("lab4p",)}[kind]
         with BUILD_LOCK:
@@ -211,8 +214,10 @@ def run(kind, name):
                 for b in builds:
                     try:
                         bad[b] = programs.build(b).hex()
-                    except AssertionError:          # the planted bug doesn't fit this build: test the other
-                        if b == "adapter":
+                    except (AssertionError, subprocess.CalledProcessError):
+                        # the planted bug doesn't fit this build (too big, or code this build leaves
+                        # out - the Union Room build drops the Mystery Gift server): test the others
+                        if b == builds[0]:
                             raise
                         bad[b] = good[b]
             finally:

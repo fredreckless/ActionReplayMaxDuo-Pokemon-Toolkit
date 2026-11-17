@@ -1,0 +1,142 @@
+"""
+The game's side of the Union Room, for the simulator (docs/UNION_ROOM.md): what Emerald (or
+FireRed/LeafGreen) does from walking into the room to reading a partner's trainer card, as the
+partner's child. It rides on rfu_game_model (librfu's commands and link_rfu_2's child, ChildLink),
+and follows pokeemerald's union_room.c.
+"""
+import rfu_game_model as RFU
+from rfu_game_model import LinkError
+
+IN_UNION_ROOM = 0x40                    # pret:pokeemerald/include/constants/union_room.h:56 IN_UNION_ROOM
+ACTIVITY_CARD = 8                       # pret:pokeemerald/include/constants/union_room.h:28 ACTIVITY_CARD
+ACTIVITY_ACCEPT = 17                    # pret:pokeemerald/include/constants/union_room.h:39 ACTIVITY_ACCEPT
+ACTIVITY_DECLINE = 18                   # pret:pokeemerald/include/constants/union_room.h:40 ACTIVITY_DECLINE
+ACTIVITY_TRADE = 3
+RFU_SERIAL_GAME = 0x0002                # pret:pokeemerald/include/link_rfu.h:23 RFU_SERIAL_GAME
+CMD_PACKET = 0x2F00                     # pret:pokeemerald/include/link_rfu.h:10 RFUCMD_SEND_PACKET
+LANGUAGE_JAPANESE = 1
+# pret:pokeemerald/src/data/union_room.h:1029 sAcceptedActivityIds_Resume (activities 0, 1, 3, 4, 8, 17, 18, 15, 16)
+ACCEPTED_RESUME = {IN_UNION_ROOM | a for a in (0, 1, 3, 4, 8, 17, 18, 15, 16)}
+
+
+def trainer_card(name=b"\xC1\xC2\xC3\xFF\xFF\xFF\xFF\xFF", trainer_id=0xD4C1, version=3):
+    """The game's own struct TrainerCard as CreateTrainerCardInBuffer fills it (the fields the
+    tests look at), 100 bytes: pret:pokeemerald/src/union_room.c:1631 CreateTrainerCardInBuffer."""
+    c = bytearray(100)
+    c[0x0E:0x10] = trainer_id.to_bytes(2, "little")
+    c[0x30:0x38] = name[:8]
+    c[0x38] = version
+    return bytes(c)
+
+
+def find_union_room_player(game, compat=RFU.EN_EMERALD, polls=150):
+    """Entering the Union Room (pret:pokeemerald/src/union_room.c:2509 UR_STATE_INIT_LINK): the
+    game broadcasts itself as IN_UNION_ROOM and looks for players. A parent shows in its list when
+    its serial is accepted and its activity is one the room shows
+    (pret:pokeemerald/src/union_room.c:3465 Task_SearchForChildOrParent), Japanese ones dropped by
+    a non-Japanese game (the language check at pret:pokeemerald/src/union_room.c:3465 Task_SearchForChildOrParent)."""
+    yield ("until_ready",)
+    if (yield from game.check_id()) != 0x8001:
+        raise LinkError("adapter not found")
+    yield from game.command(0x10)
+    yield from game.command(0x17, [0x003C0420])
+    # (serial, RfuGameData: compatibility, trainer ID, partnerInfo, trade fields, activity at byte 10)
+    yield from game.command(0x16, [RFU_SERIAL_GAME | compat << 16, 0, 0, IN_UNION_ROOM, 0, 0xFFFFFFFF])
+    yield from game.command(0x1C)
+    my_language = compat & 0xF
+    for _ in range(polls):
+        ack = yield from game.command(0x1D)
+        for h in RFU.parse_candidates(ack):
+            g = h["gname"]
+            if not h["checksum_ok"] or h["serial"] != RFU_SERIAL_GAME:
+                continue
+            if (IN_UNION_ROOM | g["activity"]) not in ACCEPTED_RESUME or g["started"]:
+                continue
+            if (g["language"] == LANGUAGE_JAPANESE) != (my_language == LANGUAGE_JAPANESE):
+                continue
+            yield from game.command(0x1E)
+            return h
+        yield ("delay", 16 * RFU.MS)
+    raise LinkError("nobody in the Union Room")
+
+
+class URoomChild:
+    """union_room.c's states for the player who walked up to a partner and pressed A, from
+    UR_STATE_TRY_COMMUNICATING to reading the card (the partner is player 0, the game player 1)."""
+
+    def __init__(self, child, card, activity=ACTIVITY_CARD):
+        self.c, self.card, self.activity = child, card, activity
+        self.state, self.cards, self.answer, self.result = "communicating", {}, None, None
+
+    def frame(self):
+        c = self.c
+        if self.state == "communicating":                # pret:pokeemerald/src/union_room.c:2659 UR_STATE_TRY_COMMUNICATING
+            if c.received_remote_link_players:
+                c.block_send_buffer[:len(self.card)] = self.card
+                self.state = "cards"
+        elif self.state == "cards":                      # pret:pokeemerald/src/union_room.c:1517 Task_ExchangeCards
+            want = (1 << c.player_count) - 1
+            if c.block_status() == want:
+                for i in range(c.player_count):
+                    self.cards[i] = bytes(c.block_recv_buffer[i][:100])
+                    c.reset_block_received(i)
+                self.state = "choose"
+        elif self.state == "choose":                     # pret:pokeemerald/src/union_room.c:2707 UR_STATE_HANDLE_DO_SOMETHING_PROMPT_INPUT
+            if c.send_cmd[0] == 0 and c.callback is None:   # Rfu_SendPacket
+                c.send_cmd[:7] = [CMD_PACKET, IN_UNION_ROOM | self.activity, 0, 0, 0, 0, 0]
+                self.state = "waiting"
+        elif self.state == "waiting":                    # pret:pokeemerald/src/union_room.c:2773 UR_STATE_WAIT_FOR_RESPONSE_TO_REQUEST
+            r = c.recv_cmds[0][1] if (c.recv_cmds[0][0] & 0xFF00) == CMD_PACKET else 0
+            if r == IN_UNION_ROOM | ACTIVITY_ACCEPT:     # pret:pokeemerald/src/union_room.c:4289 PollPartnerYesNoResponse
+                self.answer = "accept"
+                if self.activity == ACTIVITY_CARD:
+                    c.set_standby()                      # pret:pokeemerald/src/union_room.c:2808 UR_STATE_PRINT_CARD_INFO
+                    self.state = "reading card"
+                else:
+                    self.state, self.result = "done", "accepted"
+            elif r == IN_UNION_ROOM | ACTIVITY_DECLINE:
+                self.answer = "decline"
+                c.close_task = True                      # UR_STATE_REQUEST_DECLINED: SetCloseLinkCallback
+                self.state, self.result = "done", "declined"
+        elif self.state == "reading card":
+            if c.callback is None and c.all_ready_num:   # the standby is over
+                c.close_task = True                      # (the player chooses EXIT)
+                self.state, self.result = "done", "read the card"
+        return self.state == "done"
+
+
+def union_room_session(game, child, ur, max_frames=3000):
+    """After joining: every frame the adapter says 'data ready', the game reads the host's packet,
+    runs link_rfu_2 and the Union Room's states, and answers. Ends once the link is closed."""
+    for _ in range(max_frames):
+        ack = yield from game.command(0x26)
+        child.msc(ack)
+        child.main()
+        ur.frame()
+        child.tasks()
+        if child.disconnect_mode:
+            cmd, words = child.packet()
+            yield from game.command(0x24, words if cmd == 0x25 else [])
+            yield from game.command(0x30, [1])
+            child.received_remote_link_players = False
+            return ur
+        if child.errors:
+            raise LinkError("; ".join(child.errors))
+        cmd, words = child.packet()
+        ready = yield from game.change(cmd, words)
+        if ready != 0x99660028:
+            raise LinkError(f"expected 'data ready', got {ready:#010x}")
+    raise LinkError(f"Union Room not finished (state {ur.state}, exchange {child.exchange_state})")
+
+
+def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=None):
+    """The whole of milestone 1: find the DUO in the room, walk up, press A, connect, exchange
+    link players and cards, ask for `activity` and see the answer."""
+    found = yield from find_union_room_player(game, compat=compat)
+    yield from RFU.connect_to(game, found["id"])                 # TryConnectToUnionRoomParent
+    yield from RFU.send_child_name(game, RFU.child_name_bytes())
+    yield from RFU.wait_join_status(game)
+    child = RFU.ChildLink()
+    ur = URoomChild(child, card or trainer_card(), activity)
+    yield from union_room_session(game, child, ur)
+    return found, child, ur

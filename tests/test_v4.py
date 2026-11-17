@@ -1156,6 +1156,7 @@ def _():
         raise Skip(f"clang {version} here; the embedded copy was built with {programs.CLANG_VERSION}")
     assert programs.build("adapter") == W.PROGRAMS["adapter"]
     assert programs.build("adapter_probe") == W.PROGRAMS["adapter_probe"]
+    assert programs.build("union") == W.PROGRAMS["union"]
 
 
 @test("wireless adapter: Emerald's Mystery Gift search, command by command, answered as a real adapter would")
@@ -3142,6 +3143,34 @@ def gift_script(game, compat=RFU.JP_EMERALD):
     child = RFU.ChildLink()
     client = yield from RFU.receive_gift(game, child)
     return child, client
+
+
+@test("Union Room (milestone 1): the game finds the DUO in the room, walks up, links, exchanges trainer cards, asks to see its card (Greetings) and reads it; then leaves")
+def _():
+    import union_room_model as UR
+    hw, game, trace, st, counters = adapter_session(lambda g: UR.talk_to_partner(g), first_bit=True, seconds=120,
+                                                    program="union")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    assert found["serial"] == UR.RFU_SERIAL_GAME and found["gname"]["activity"] == UR.IN_UNION_ROOM, found
+    assert child.player_count == 2 and child.multiplayer_id == 1, (child.player_count, child.multiplayer_id)
+    assert ur.result == "read the card" and ur.answer == "accept", (ur.state, ur.answer)
+    assert ur.cards[0][0x30:0x33] == bytes([0xBE, 0xCF, 0xC9]), ur.cards[0].hex()        # the DUO's card: "DUO"
+    link = W.adapter_trace.last_link
+    assert link["player_ok"] and link["game_data"][0x30:0x33] == bytes([0xC1, 0xC2, 0xC3]), link   # the game's card
+    names = [t for t, _ in trace]
+    assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
+    assert game.retries == 0, game.retries
+
+
+@test("Union Room (milestone 1): asked for something not built yet (a trade), the DUO declines politely and the game closes the link")
+def _():
+    import union_room_model as UR
+    hw, game, trace, st, counters = adapter_session(lambda g: UR.talk_to_partner(g, activity=UR.ACTIVITY_TRADE),
+                                                    first_bit=True, seconds=120, program="union")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    assert ur.result == "declined", (ur.state, ur.answer)
 
 
 @test("distributor: link players exchanged, then Mystery Gift delivers the Wonder Card and RAM script; the link closes")

@@ -155,8 +155,8 @@ static u32 host_cfg[6], host_on = 1, n_hosts = 1, connect_polls, child_connected
  * twice, each time in less than the 240 frames Emerald then spends looking for the host it
  * accepted - so it finds it again and connects (0x1F) to that ID. */
 static u32 sweep_n, found_serial;
-#ifdef LAB
-#define sweep 0                          /* the lab build leaves the sweep out, to make room */
+#if defined(LAB) || defined(UNION_ROOM)
+#define sweep 0                          /* the lab and Union Room builds leave the sweep out, to make room */
 #define next_sweep_serial() 0
 #else
 static u32 sweep;
@@ -170,7 +170,7 @@ __attribute__((noinline)) static u32 next_sweep_serial(void)
 
 #define GIFT_MAX (4 + 0x14C + 1000)
 static u32 gift_words[(GIFT_MAX + 3) / 4];               /* (defined with the Mystery Gift server) */
-#ifdef LAB
+#if defined(LAB) || defined(UNION_ROOM)
 #define GIFT_IS_NEWS 0                   /* the lab build sends Wonder Cards only, to make room */
 #else
 #define GIFT_IS_NEWS (gift_words[0] >> 16 & 1)
@@ -179,10 +179,16 @@ static u32 gift_words[(GIFT_MAX + 3) / 4];               /* (defined with the My
 static void build_host(void)
 {
     u8 b[24];
+#ifdef UNION_ROOM
+    /* A player in the Union Room (docs/UNION_ROOM.md): pret:pokeemerald/src/link_rfu_2.c:2066
+     * SetHostRfuGameData - no Wonder Card or News, activity IN_UNION_ROOM (0x40), not started */
+    u32 compat = host_lang | 1 << 7 | 1 << 8 | 1 << 9 | 3 << 10;
+#else
     u32 compat = host_lang               /* language: the game's own (Japanese until it says) */
                | (GIFT_IS_NEWS ? 1 << 4 : 1 << 5)   /* hasNews or hasCard: what we offer */
                | 1 << 7 | 1 << 8 | 1 << 9 /* canLinkNationally, hasNationalDex, gameClear */
                | 3 << 10;                /* version: Emerald */
+#endif
     static const u8 uname[8] = { 0xBE, 0xCF, 0xC9, 0x00, 0xFF, 0, 0, 0 };   /* "DUO " */
     u8 sum = 0;
     memset(b, 0, sizeof b);
@@ -190,7 +196,11 @@ static void build_host(void)
     b[1] = dist_serial >> 8;
     b[2] = compat; b[3] = compat >> 8;   /* RfuGameData.compatibility */
     b[4] = HOST_TRAINER & 0xFF; b[5] = HOST_TRAINER >> 8;   /* .playerTrainerId */
+#ifdef UNION_ROOM
+    b[12] = 0x40;                        /* .activity = IN_UNION_ROOM | ACTIVITY_NONE, not started */
+#else
     b[12] = 21 + GIFT_IS_NEWS;           /* .activity = ACTIVITY_WONDER_CARD (or _NEWS), not started */
+#endif
     memcpy(b + 16, uname, 8);
     for (int i = 0; i < 8; i++)
         sum += b[2 + i] + uname[i];
@@ -391,6 +401,7 @@ static u8 child_uni[16];
 static u32 child_uni_new, link_state, link_timer, n_child_cmds, n_uni, n_resent, uni_acked;
 static u16 rx_cmd[7], tx_cmd[7];
 
+#ifndef UNION_ROOM
 static u16 crc16(const u8 *p, u32 n, u16 crc)    /* util.c CalcCRC16WithTable, before its final ~ */
 {
     while (n--) {
@@ -400,6 +411,7 @@ static u16 crc16(const u8 *p, u32 n, u16 crc)    /* util.c CalcCRC16WithTable, b
     }
     return crc;
 }
+#endif
 
 /* What the PC loads (0x2C PUT), from the user's own files:
  *   a Wonder Card: its size, the card, then the 1000-byte RAM script (struct RamScriptData);
@@ -476,6 +488,72 @@ static void rb_chunk(u32 n)
     }
 }
 
+#ifdef UNION_ROOM
+/* The Union Room partner (docs/UNION_ROOM.md), after the link players: cards, then the game's
+ * requests. mg_step: 0 ask for cards, 1 waiting for the game's, 2 waiting for a request (and
+ * answering it), on and on. Steps and answers go to the trace as EV_MG_STEP (step << 16 | value). */
+static u32 mg_step, mg_sub, mg_errors, mg_got, mg_resp, ur_packet, ur_reply, ur_answer;
+#define ACT_CARD   (0x40 | 8)            /* IN_UNION_ROOM | ACTIVITY_CARD ("Greetings") */
+#define ACT_ACCEPT (0x40 | 17)
+#define ACT_DECLINE (0x40 | 18)
+#define CMD_PACKET 0x2F00                /* pret:pokeemerald/include/link_rfu.h:10 RFUCMD_SEND_PACKET */
+#define EV_UR_STEP 0x0E                  /* the Union Room partner moved on (step << 16 | detail) */
+
+/* Our struct TrainerCard (pret:pokeemerald/include/trainer_card.h): 100 bytes, the block size
+ * Task_ExchangeCards asks for (BLOCK_REQ_SIZE_100). */
+static u8 our_card[100];
+static void build_card(void)
+{
+    memset(our_card, 0, sizeof our_card);
+    our_card[0x01] = 1;                                    /* stars */
+    our_card[0x02] = 1;                                    /* hasPokedex */
+    our_card[0x0C] = 151;                                  /* caughtMonsCount */
+    our_card[0x0E] = HOST_TRAINER & 0xFF; our_card[0x0F] = HOST_TRAINER >> 8;
+    our_card[0x10] = 42;                                   /* playTimeHours */
+    our_card[0x24] = 0x10; our_card[0x25] = 0x27;          /* money: 10000 */
+    memset(our_card + 0x28, 0xFF, 8);                      /* easyChatProfile: no words */
+    our_card[0x30] = 0xBE; our_card[0x31] = 0xCF; our_card[0x32] = 0xC9;   /* "DUO" */
+    memset(our_card + 0x33, 0xFF, 5);
+    our_card[0x38] = 3;                                    /* version: Emerald */
+}
+
+static void mg_frame(void)
+{
+    if (bs.active)
+        return;
+    switch (mg_step) {
+    case 0:                                  /* pret:pokeemerald/src/union_room.c:1517 Task_ExchangeCards */
+        tx_cmd[0] = CMD_BLOCK_REQ; tx_cmd[1] = 2;          /* BLOCK_REQ_SIZE_100 */
+        build_card();
+        bs_start(our_card, sizeof our_card, sizeof our_card);
+        mg_step = 1;
+        trace(EV_UR_STEP, 0, 1 << 16);
+        break;
+    case 1:
+        if (rb.done != mg_got) {
+            mg_got = rb.done;
+            memcpy(game_data, rb.head, sizeof game_data);
+            mg_step = 2;
+            trace(EV_UR_STEP, 0, 2 << 16 | game_data[0x0E] | game_data[0x0F] << 8);
+        }
+        break;
+    default:                                 /* pret:pokeemerald/src/union_room.c:4289 PollPartnerYesNoResponse */
+        if (ur_packet) {
+            mg_resp = ur_packet;
+            ur_answer = ur_packet == ACT_CARD ? ACT_ACCEPT : ACT_DECLINE;
+            ur_packet = 0;
+            ur_reply = 3;                                  /* (the game reads it on any frame) */
+            mg_step++;
+            trace(EV_UR_STEP, 0, mg_step << 16 | mg_resp << 8 | ur_answer);
+        }
+        if (ur_reply) {
+            ur_reply--;
+            tx_cmd[0] = CMD_PACKET; tx_cmd[1] = ur_answer;
+        }
+        break;
+    }
+}
+#else
 /* The Mystery Gift server: Emerald's gMysteryGiftServerScript_SendWonderCard, reduced to what a
  * distributor needs. Client scripts are struct MysteryGiftClientCmd {u32 instr, parameter}. */
 enum { CLI_RETURN = 1, CLI_RECV = 2, CLI_SEND_LOADED = 3, CLI_COPY_RECV = 4, CLI_LOAD_GAME_DATA = 8,
@@ -602,6 +680,8 @@ static void mg_frame(void)
     }
 }
 
+#endif
+
 static void rb_init(void)
 {
     if (rb.state == 0) {
@@ -621,6 +701,9 @@ static void handle_child_cmd(void)
     case CMD_BLOCK:      rb_chunk(rx_cmd[0] & 0xFF); break;
     case CMD_READY_EXIT: standby_reply = 1; standby_num = rx_cmd[1]; break;
     case CMD_READY_CLOSE: close_reply = 1; break;
+#ifdef UNION_ROOM
+    case CMD_PACKET:     ur_packet = rx_cmd[1]; break;   /* the game's request (Rfu_SendPacket) */
+#endif
     }
 }
 
@@ -818,8 +901,12 @@ static void respond(void)
         u32 compat = req[0] >> 16, lang = compat & 0xF;               /* RfuGameCompatibilityData */
         memcpy(game_config, req, sizeof game_config);
         if (lang) host_lang = lang;
+#ifdef UNION_ROOM
+        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */
+#else
         dist_serial = pc_serial ? pc_serial
                     : lang == 1 && (compat >> 10 & 0xF) == 3 ? SERIAL_JP_EMERALD : SERIAL_DECOMP;
+#endif
         build_host();
         break;
     }
@@ -1448,7 +1535,7 @@ static int pc_service(api_t *api)
         v = dist_serial | (game_config[0] >> 16) << 16;
         break;
     case 26:                                                   /* --check-search, --sweep-serial */
-#ifndef LAB
+#if !defined(LAB) && !defined(UNION_ROOM)
         if (idx & 0x10) { sweep = 1; n_hosts = 3; }
         else
 #endif
@@ -1503,7 +1590,7 @@ u32 start(api_t *api)
     }
     SIOCNT = saved_siocnt & ~CNT_START;
     RCNT = saved_rcnt;
-#if !defined(LAB) && !defined(PROBE)
+#if !defined(LAB) && !defined(PROBE) && !defined(UNION_ROOM)
     /* stopped by the PC, which waits until the game has hung up: the link is over */
     if (mg_step >= 6)
         api->log(GIFT_IS_NEWS ? "News sent: the game saves" : "Card sent: the game saves");

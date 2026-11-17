@@ -5,8 +5,14 @@ readable, then trades (and later battles and chat), all over the Mystery Gift ca
 Game Boy Color cable: a GBA link cable won't do, see WIRELESS.md). No Wireless Adapter: the DUO
 plays the adapter *and* the player behind it, as it already does for Mystery Gift.
 
-**Status (18 November):** planned from the source; simulator work under way overnight. Nothing on
-hardware yet - it needs the cable swapped.
+**Status (18 November):** milestone 1 works in the simulator - `python duo_events.py union`, the
+`union` program (adapter.c built with `-DUNION_ROOM`, 10.4 KB). Nothing on hardware yet - it needs
+the cable swapped.
+
+**Try it (when the MGB-010 or another Game Boy Color cable is in):** `python duo_events.py union`,
+then in Emerald, FireRed or LeafGreen go to the Union Room, walk up to the trainer called DUO, press
+A and choose GREETINGS. The trace lists each step: the connection, the link players, the cards, the
+game's request and the DUO's answer. Anything else it declines for now.
 
 ## What is already there
 
@@ -23,7 +29,12 @@ The game's side of that is modelled in `tests/rfu_game_model.py` (`ChildLink`: l
 
 So the Union Room is mostly *what is said* on an existing link, not a new link.
 
-## Milestone 1: listed in the room, card readable
+## Milestone 1: listed in the room, card readable (simulator: done 18 November)
+
+In the simulator (`tests/union_room_model.py`, the game's side, cited to pokeemerald) the game finds
+the DUO, connects, exchanges link players and cards, asks for Greetings, reads the DUO's card and
+leaves; asked for a trade, the DUO declines and the game closes the link. Three planted bugs (the
+wrong serial, declining Greetings, accepting a trade) are each caught.
 
 The DUO hosts (multiplayer id 0); the game, walking up and pressing A, connects as its child.
 

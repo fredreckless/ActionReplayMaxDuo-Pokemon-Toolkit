@@ -62,6 +62,7 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
 | e-Reader Trainer Hill/Tower | E, FR/LG (Japanese) | `ereader_helpers.c`, `cereader_tool.c` | `link_game_model.py` | from source |
 | Wireless Adapter (`adapter*`) | E, FR/LG | `librfu_intr.c`, `librfu_stwi.c`, `librfu_sio32id.c`, `mystery_gift_*.c` | `rfu_game_model.py`, `sio32id_model.py` | from source (librfu: a port, file-level citations) |
 | Four players on a two-player cable (`lab4p`) | R/S | `link.c` (above) | `gp_link_model.py` | **parked** (17 November: the game read the DUO's hand-sent slots as garbage on all 12 settings, 2353 tries); serial layer ported |
+| Union Room, milestone 1: listed, Greetings, the card (`union`) | E, FR/LG | `union_room.c` (Task_ExchangeCards, the activity packets), `link_rfu_2.c` (Rfu_SendPacket, SetHostRfuGameData) | `union_room_model.py` on `rfu_game_model.py` | **from source**, cited; simulator done 18 November, hardware needs the MGB-010 |
 
 ## Next, in order
 

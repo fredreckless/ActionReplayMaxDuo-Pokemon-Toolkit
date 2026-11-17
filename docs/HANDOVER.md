@@ -68,6 +68,14 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
 
+## The Union Room (from 18 November, overnight)
+
+The DUO as a Union Room trainer over the Mystery Gift cable: docs/UNION_ROOM.md. Milestone 1 (the
+game finds "DUO", links, exchanges cards, asks Greetings and reads the card) works in the simulator:
+`python duo_events.py union`, program `union` = adapter.c built with `-DUNION_ROOM`. Next:
+milestone 2, a Union Room trade. Hardware needs the MGB-010 (or any Game Boy Color cable) in place
+of the link cable.
+
 ## The four-player experiment, 14 November evening (step C)
 
 **Parked, 17 November:** the hybrid's sweep (docs/HARDWARE_QUEUE.md, 12h 17 Nov) tried all 12 ways

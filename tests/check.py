@@ -26,7 +26,7 @@ ALL = "ALL"
 # Test groups, as prefixes of test names in test_v4.py.
 MYSTERY_GIFT = ["wireless adapter", "distributor", "serial sweep", "find serial", "every game", "Wonder News",
                 "search check", "finishing", "guided start-up", "2 MHz probe", "card checks",
-                "v4.2 adapter test", "adapter program", "v4.2 programs"]
+                "v4.2 adapter test", "adapter program", "v4.2 programs", "Union Room"]
 EREADER = ["e-Reader", "e-Card", "Mystery Event files", "Enigma Berry", "v4.2 programs", "guided start-up"]
 TRADE = ["trade", "party form", "Pokemon files", "v4.2 programs"]
 MIX = ["Record Mixing", "Secret Base", "v4.2 programs"]
@@ -61,7 +61,7 @@ AREAS = [
     ("lab_runner.py", ["lab_runner"]),
     ("records.py", ["Record files"]),
     ("duo_battle.py", ["battle:", "battle partner", "Battle Tower"]), ("battle_data.py", ["battle:", "battle partner", "Battle Tower"]), ("contest_data.py", CONTEST), ("tools/make_battle_data.py", ["battle:"]),
-    ("tests/rfu_game_model.py", MYSTERY_GIFT),
+    ("tests/rfu_game_model.py", MYSTERY_GIFT), ("tests/union_room_model.py", MYSTERY_GIFT),
     ("tests/link_game_model.py", EREADER),
     ("tests/mevent_model.py", EREADER),
     ("tests/trade_game_model.py", TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST),
@@ -97,7 +97,7 @@ BUG_KINDS = [
     ("firmware/build_v4.py", ["fw", "fw42"]),
     ("firmware/build_*.py", ["fw", "fw42"]),
     ("duo_events.py", ["pc"]), ("maxduo_saves.py", ["pc"]), ("secret_bases.py", ["pc"]), ("records.py", []), ("secret_base_workshop.html", []),
-    ("tests/rfu_game_model.py", ["prog"]),
+    ("tests/rfu_game_model.py", ["prog"]), ("tests/union_room_model.py", ["prog"]),
     ("tests/link_game_model.py", ["ereader"]), ("tests/mevent_model.py", ["ereader", "pc"]),
     ("tests/ecard_fixtures.py", ["pc"]),
     ("tests/trade_game_model.py", ["trade", "mix", "colosseum", "blender", "contest"]),
