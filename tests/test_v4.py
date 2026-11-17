@@ -4072,8 +4072,8 @@ def lab4p_run(players=3, link="trade", seconds=60, hblank_dma=False, hybrid=Fals
         hw.mu.mem_write(0x040000BA, struct.pack("<H", 0xA200))      # DMA0: enable, HBlank, repeat
     game = GPL.GpLinkGame(hw, **game_kw)
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
-    r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=players, link=link, seconds=seconds, gap=4, bit_adjust=0,
-                                                                    hybrid=hybrid),
+    r = quiet(W.lab4p_session, duo, types.SimpleNamespace(players=players, link=link, seconds=seconds, gap=None if hybrid else 4,
+                                                                    bit_adjust=0, hybrid=hybrid),
               poll_s=0.2, stop_when=lambda: game.result["closed"])
     hw.text = r[1]
     assert duo.hello() == 0x104
@@ -4236,6 +4236,29 @@ def _():
     assert report["in_room"] and "went into the Trade Center room" in hw.text, (report, hw.text[-800:])
     rec = open(report["file"] + ".txt").read()
     assert "the trainer cards asked for" in rec and "both are in the Trade Center room" in rec, rec[-1500:]
+
+
+@test("lab4p --hybrid --players 3 (16 November, night, hardware: the game read the DUO's hand-sent slots as garbage every time and never linked). A game that reads a hand-sent slot only when it starts 270-370 cycles after the word before: the DUO steps through its ways of sending slots 2 and 3, the game first links with slot 2 alone 6/4 bit after its word (as three players: it read the hand-sent word), and the tool lists what each way did")
+def _():
+    hw, game, report = lab4p_run(players=3, link="trade", seconds=40, max_players=2, hybrid=True, cycles_per_block=35,
+                                 delay_bits=2.5, gap_window=(270, 370))
+    r = game.result
+    assert r["handshake_players"] == 3, (r, hw.text[-1500:])
+    assert report["taken_setting"] == (6, 0, 1) and report["hs_taken_after"] == 19, report
+    assert report["outcomes"][:7] == [1] * 6 + [3], report
+    assert "READ: linked as three" in hw.text and hw.text.count("garbage (never linked)") == 6, hw.text[-1500:]
+    assert "slot 2 alone (slot 3 left off)" in hw.text, hw.text[-1500:]
+
+
+@test("lab4p --hybrid --players 3: a game that never reads a hand-sent slot - the DUO goes through all its ways of sending slots 2 and 3; the last, longest gap is past the game's wait, so it links as two; the tool lists each way's outcome")
+def _():
+    hw, game, report = lab4p_run(players=3, link="trade", seconds=40, max_players=2, hybrid=True, cycles_per_block=35,
+                                 delay_bits=2.5, gap_window=(9000, 9001), window=2.5)
+    r = game.result
+    assert r["handshake_players"] == 2, r                  # (the last, longest gap: past the game's wait, so empty)
+    assert report["outcomes"] == [1] * 11 + [2], report
+    assert "counted two players: it took the DUO's hand-sent slots for empty" in hw.text, hw.text[-1500:]
+    assert hw.text.count("garbage (never linked)") == 11 and "missed (linked as two)" in hw.text, hw.text[-1500:]
 
 
 @test("lab4p (14 November): the not-master check reaches the PC - with the DUO's GBA on the cable's other end (its SI high) the program stops at once and the tool says the DUO isn't the master (the flag was 4, and 4 << 31 was lost)")

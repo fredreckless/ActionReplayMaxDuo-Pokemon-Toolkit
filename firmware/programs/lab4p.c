@@ -151,6 +151,20 @@ static const short SWEEP[][2] = {        /* the lead (cycles; 0: with SC), the b
     { 0, 512 }, { 0, -512 }, { 8, 0 }, { 48, 0 },
 };
 #define N_SWEEP (sizeof SWEEP / sizeof SWEEP[0])
+/* 16 November, night (hardware): with the hybrid, slot 0 comes from the link hardware, and the game
+ * has never read a word the DUO sent by hand - in DoHandshake a slot that isn't a handshake and isn't
+ * 0xFFFF makes the count 0, a missing one stops it at the slots before. So the hybrid steps through
+ * these instead (3 tries each): the gap before slots 2 and 3 (quarter bits), the bit time, and whether
+ * slot 3 is sent at all - sent alone, slot 2 shows apart "the game read it" (it links as three) from
+ * "it read garbage" (it never links) and "it missed it" (it links as two). */
+static const short HYB[][3] = {          /* gap (quarter bits), the bit time's change (1/256 cycle), slots by hand */
+    { 4, 0, 2 }, { 4, 0, 1 }, { 2, 0, 2 }, { 2, 0, 1 }, { 1, 0, 2 }, { 6, 0, 2 },
+    { 6, 0, 1 }, { 4, 256, 2 }, { 4, -256, 2 }, { 8, 0, 2 }, { 8, 0, 1 }, { 12, 0, 2 },
+};                                       /* (the longest gaps last: past the game's wait it links as two, and stays) */
+static u8 hyb_out[16];                   /* each one's outcome: 1 garbage (never linked), 2 linked as two (missed),
+                                            3 linked as three (slot 2 read), 4 linked as four */
+#define N_HYB (sizeof HYB / sizeof HYB[0])
+static u32 hyb_gap = 4, hyb_slots = 2;
 static u32 silent_run;
 static u32 scope_n, scope_taken, scope_words, scope_hs;   /* (the scope, below) */
 static u32 sweep_at, sweep_tries, taken_setting = 0xFF, hs_like_count, tx_fp, lead = 64;
@@ -159,12 +173,20 @@ static void tx_offsets(void);
 static void sweep_next(u32 why)
 {
     sweep_tries = 0; silent_run = 0;
-    if (++sweep_at == N_SWEEP) sweep_at = 0;
+    if (++sweep_at == (SCOPE == 2 ? N_HYB : N_SWEEP)) sweep_at = 0;
     sweep_apply();
     log_event(E_TIMING, why | sweep_at);
 }
 static void sweep_apply(void)
 {
+    if (SCOPE == 2) {
+        u32 k = sweep_at < N_HYB ? sweep_at : 0;
+        hyb_gap = GAP_Q ? GAP_Q : HYB[k][0];
+        hyb_slots = HYB[k][2];
+        tx_fp = (145 << 8) + 163 + (signed char)BIT_ADJ + HYB[k][1];
+        tx_offsets();
+        return;
+    }
     lead = SWEEP[sweep_at][0];
     tx_fp = (145 << 8) + 163 + (signed char)BIT_ADJ + SWEEP[sweep_at][1];
     tx_offsets();
@@ -227,17 +249,19 @@ static void tx_tally(void)
 static u16 st_at[2 * 19], st_val[2 * 19];
 static void prepare_stream(void)          /* slots 2 and 3 back to back, their gap between */
 {
-    u32 gap = GAP_Q ? GAP_Q : 4;
+    u32 gap = hyb_gap;
     u16 second = at_tx(0, (18 << 8) + (gap << 6));
     for (u32 i = 0; i < 19; i++) {
         st_at[i] = tx_edge[i];           st_val[i] = tx_val[1][i];
-        st_at[19 + i] = second + tx_edge[i]; st_val[19 + i] = tx_val[2][i];
+        st_at[19 + i] = second + tx_edge[i];
+        st_val[19 + i] = hyb_slots >= 2 ? tx_val[2][i] : tx_val[1][18];   /* (slot 3 off: SD left free) */
     }
 }
 static void put_stream(u16 t0)
 {
     u16 now = TM0CNT_L;
-    if ((s16)(now + 16 - t0) > 0) t0 = now + 16;             /* overdue: the whole schedule later, never squeezed */
+    if ((s16)(now + 64 - t0) > 0) t0 = now + 64;             /* overdue: the whole schedule later, never squeezed
+                                                                (64: time to reach the first edge, so it goes out as late as the rest) */
     u16 *late = tx_late[1];                                  /* (tx_late[1] and [2] in a row: 38 entries) */
     for (u32 i = 0; i < 2 * 19; i++) {
         u16 t = t0 + st_at[i];
@@ -363,7 +387,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
             if (d < edge_min) edge_min = d;
             if (d > edge_max) edge_max = d;
             if (game_on) { if (d < edge_min2) edge_min2 = d; if (d > edge_max2) edge_max2 = d; }
-            u32 gap = GAP_Q ? GAP_Q : 4;
+            u32 gap = hyb_gap;
             /* the game's word, as the link hardware read it: just after its stop bit, before the pins are
              * taken (16 November, evening: read after, it was stale - the handshake every time, so the DUO
              * thought the game never linked and went back, over and over: "Please wait") */
@@ -373,7 +397,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
             while (hw1 == 0xFFFF && (s16)(tnow() - give_up) < 0) hw1 = SIOMULTI(1);
             put_stream(at_bit(te, (18 << 8) + (gap << 6)));  /* slots 2 and 3; the first edge takes the pins */
             words[2] = mine[2];
-            words[3] = mine[3];
+            words[3] = hyb_slots >= 2 ? mine[3] : 0xFFFF;
             hw_used++;
             if (hw1 == 0xFFFF) hw_differ++;                  /* (not there in time: counted, shown as no answer) */
             words[1] = hw1;
@@ -417,7 +441,7 @@ static void transfer(const u16 *mine)     /* one multi-player transfer, the DUO 
 /* ------------------------------------------------------------------ the link above the bits */
 enum { ST_WAITING, ST_HANDSHAKE, ST_LINKED, ST_PLAYERS, ST_CLOSING, ST_DONE };
 static u32 state, transfers, sessions, stop_requested, hs_seen, players_seen, close_pending, close_at;
-static u32 sum_two, sum_four, ck_game_two, ck_game_four, ck_neither, cycles, link_sent;
+static u32 sum_two, sum_four, ck_game_two, ck_game_four, ck_neither, cycles, link_sent, sum_three, ck_game_three;
 static u16 game_first[8];
 static u32 send_idx, recv_idx;
 static u16 frame[CMD_LEN][4];
@@ -588,8 +612,10 @@ static void on_words(void)                /* after each transfer: the link layer
             if (hs_like_count >= 2) {                        /* no: still its handshake. Back to the handshake */
                 confirm = 2; state = ST_HANDSHAKE; send_idx = CMD_LEN; recv_idx = 0;
                 log_event(E_HANDSHAKE, 0x100 | (hs_tries & 0xFF));
-                if (taken_setting == 0xFF && ++sweep_tries >= 3)     /* the next sending timing */
+                if (taken_setting == 0xFF && ++sweep_tries >= 3) {   /* the next sending timing */
+                    if (SCOPE == 2 && sweep_at < N_HYB && !hyb_out[sweep_at]) hyb_out[sweep_at] = 1;
                     sweep_next(0);
+                }
                 return;
             }
             confirm = 0;
@@ -599,16 +625,22 @@ static void on_words(void)                /* after each transfer: the link layer
     if (send_idx == 0) {                                     /* the checksum slot just went */
         if (cycles > 1) {
             u16 g = words[1];
-            if (g == (u16)sum_four && g == (u16)sum_two) { }
-            else if (g == (u16)sum_four) ck_game_four++;
-            else if (g == (u16)sum_two) ck_game_two++;
-            else ck_neither++;
+            /* which slots the game summed: only where the sums differ (slots 2 and 3 often send zeros, and
+             * then two, three and four slots sum alike) */
+            u16 s2 = sum_two, s3 = sum_three, s4 = sum_four;
+            u8 o = 0;
+            if (g == s4 && s4 != s3 && s4 != s2) { ck_game_four++; o = 4; }
+            else if (g == s3 && s3 != s4 && s3 != s2) { ck_game_three++; o = 3; }   /* (slot 2 alone, read) */
+            else if (g == s2 && s2 != s3 && s2 != s4) { ck_game_two++; o = 2; }
+            else if (g != s2 && g != s3 && g != s4) ck_neither++;
+            if (SCOPE == 2 && taken_setting < N_HYB && o && !hyb_out[taken_setting]) hyb_out[taken_setting] = o;
             if (g != (u16)sum_four && ck_game_two + ck_neither <= 8) log_event(E_CHECKSUM, g ^ (u16)sum_four);
         }
-        sum_two = sum_four = 0;
+        sum_two = sum_four = sum_three = 0;
     } else {
         for (u32 i = 0; i < 4; i++) frame[recv_idx][i] = words[i];
         sum_two += words[0] + words[1];
+        sum_three += words[0] + words[1] + words[2];
         sum_four += words[0] + words[1] + words[2] + words[3];  /* (as a four-player game sums: 0xFFFF data too) */
         if (++recv_idx == CMD_LEN) { game_command(); recv_idx = 0; }
     }
@@ -631,7 +663,7 @@ static void our_words(u16 *mine)          /* what our slots send in the next tra
     }
     if (send_idx == 0) { next_cycle(); cycles++; }
     if (send_idx == CMD_LEN) {                               /* the checksum: our sum over the slots we count */
-        u16 ck = PLAYERS >= 3 ? sum_four : sum_two;
+        u16 ck = PLAYERS >= 3 ? (SCOPE == 2 && hyb_slots < 2 ? sum_three : sum_four) : sum_two;
         mine[0] = mine[2] = mine[3] = ck;
         send_idx = 0;
         return;
@@ -686,7 +718,11 @@ static int pc_service(api_t *api)
     case 28: v = tx_late_max | tx_late_bit << 16 | (tx_late_bad > 255 ? 255 : tx_late_bad) << 24; break;
     case 25: v = scope_n | scope_words << 16; break;
     case 26: v = scope_hs | scope_taken << 16; break;
-    case 23: v = taken_setting | sweep_at << 8 | N_SWEEP << 16; break;   /* the sending timing that worked (0xFF: none) */
+    case 30: v = ck_game_three; break;
+    case 32: v = 0; for (u32 k = 0; k < 8; k++) v |= (u32)(hyb_out[k] & 15) << (4 * k); break;
+    case 33: v = 0; for (u32 k = 8; k < 16; k++) v |= (u32)(hyb_out[k] & 15) << (4 * (k - 8)); break;
+    case 31: { u32 k = idx < N_HYB ? idx : 0; v = (u16)HYB[k][0] | (u32)(HYB[k][1] & 0xFFF) << 16 | (u32)HYB[k][2] << 28; } break;
+    case 23: v = taken_setting | sweep_at << 8 | (SCOPE == 2 ? N_HYB : N_SWEEP) << 16; break;   /* the sending timing that worked (0xFF: none) */
     case 24: v = (u16)SWEEP[idx][0] | (u32)(u16)SWEEP[idx][1] << 16; break;
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);

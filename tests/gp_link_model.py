@@ -31,7 +31,7 @@ P_SC, P_SD, P_SI, P_SO = 1, 2, 4, 8
 
 class GpLinkGame:
     def __init__(self, hw, cycles_per_block=20, delay_bits=0.5, window=3.0, max_players=2, game_version=2,
-                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None, silent_lead=None, hardware=True):
+                 link_player=None, garble=0.0, hblank_stall=0, miss_master=0, lead_window=None, silent_lead=None, hardware=True, gap_window=None):
         self.hw, self.cpb = hw, cycles_per_block
         self.delay, self.window, self.max_players = delay_bits, window, max_players
         self.version = game_version
@@ -70,6 +70,10 @@ class GpLinkGame:
         # silent_lead (15 November, late: leads of 146 and 220 silenced the game): no answer at all when the DUO's
         # start bit comes more than this many cycles after SC going low
         self.silent_lead = silent_lead
+        # gap_window (16 November, night, hardware: the game read the DUO's hand-sent slots as garbage): the
+        # game reads a hand-sent slot right only if its start bit comes (lo, hi) cycles after the word before
+        # it ends; otherwise it reads garbage (and DoHandshake counts no players)
+        self.gap_window, self.gaps = gap_window, set()
         hw.mu.hook_add(UC_HOOK_BLOCK, self.on_block)
         hw.mu.hook_add(UC_HOOK_MEM_WRITE, self.on_write, begin=RCNT, end=RCNT + 1)
         hw.mu.hook_add(UC_HOOK_MEM_READ, self.on_read, begin=RCNT, end=RCNT + 1)
@@ -246,6 +250,11 @@ class GpLinkGame:
             for i in range(16):
                 if self.level_at(start + (i + 1.5) * BIT):
                     w |= 1 << i
+            if slot >= 2:
+                d = start - t
+                self.gaps.add(round(d))
+                if self.gap_window and not self.gap_window[0] <= d <= self.gap_window[1]:
+                    w = 0x1234                               # garbage
             if not self.level_at(start + 17.5 * BIT):
                 self.errors.append(f"slot {slot}: no stop bit")
             words.append(w)
@@ -266,6 +275,8 @@ class GpLinkGame:
                 if (x & ~3) == SLAVE_HS or x == MASTER_HS:
                     n += 1
                 else:
+                    if x != 0xFFFF:                     # (DoHandshake: a slot that's neither counts no one at all)
+                        n = 0
                     break
             if n > 1 and n == self.prev_count and w[0] == MASTER_HS:
                 self.linked, self.player_count = True, n
