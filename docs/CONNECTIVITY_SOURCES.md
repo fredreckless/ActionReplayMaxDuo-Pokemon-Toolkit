@@ -20,7 +20,15 @@ simulator's model of the game, and how far that model is a port.
   (`check.py quick`, `changed`, `full`). It fails if the cited line doesn't name the function or
   macro it claims. Without the source cached it says it's skipped; it doesn't pass silently.
 - **Shared, not copied:** a ported piece lives in one module, and every model uses it. Today that's
-  `tests/pret_link.py` (link.c's serial layer).
+  `tests/pret_link.py` (link.c whole: the serial layer `GameLink`, and above it `Console` - the
+  commands, blocks, link players, callbacks, error status and main.c's loop - plus `Cable`, which
+  joins consoles frame by frame) and `tests/pret_cable_club.py` (the Cable Club's link-up and the
+  link rooms).
+- **The models on top:** `trade_game_model.Session` runs each routine's handlers on a `Console`
+  (trade, Record Mixing, battles, the Battle Tower, the blender, contests all go through it). What
+  a handler sends goes into `gSendCmd` as the game's task code would put it; the room's keys go
+  through link.c's keys callback, with its lockstep; blocks, link players, the "ready" barrier and
+  the close are link.c's own.
 - **What the source can't say:** the link hardware itself, meaning bit timing, the error flag's
   conditions, when SIOMULTI latches, and how long a unit waits for the next. That comes from GBATEK
   and our own hardware runs (the scope, 16 November), and the code marks it with the run's date.
@@ -34,8 +42,10 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
 | What | Source | Model | Status |
 |---|---|---|---|
 | Serial layer: handshake, checksums, queues, error status | pokeruby `link.c`: `LinkMain1`, `SerialCB`, `DoHandshake`, `DoRecv`, `DoSend`, `SendRecvDone`, `LinkVSync`, `EnqueueSendCmd`, `DequeueRecvCmds`, `CheckErrorStatus` (the same in Emerald and FireRed, checked by hand on 17 November) | `tests/pret_link.py`, used by `link_game_model.LinkLayer` (trade, mix, battle, tower, contest, blender, e-Reader) and `gp_link_model` (lab4p) | **ported** |
-| Link commands: `0x2222` link players, `0xBBBB`/`0x8888` blocks, `0xCCCC` block requests, `0x5FFF` close, `0x2FFE` ready | pokeruby `link.c` `ProcessRecvCmds`, `BuildSendCmd`, block send | written into each model separately | from source, **duplicated**: port next |
-| Cable Club link-up, trainer cards, the room's lockstep keys (`0xCAFE`) | `cable_club.c`, `overworld.c`, `data/scripts/cable_club.inc` | trade, mix, battle, tower, blender, contest models, and `gp_link_model`, each its own copy | from source, **duplicated**: port next |
+| Link commands: `0x2222` link players, `0xBBBB`/`0x8888` blocks, `0xCCCC` block requests, `0x5FFF` close, `0x2FFE` ready, `0xCAFE` keys; the link callbacks; `OpenLink`/`CloseLink`; main.c's loop (the lockstep, the double update) | pokeruby `link.c` `ProcessRecvCmds`, `BuildSendCmd`, `InitBlockSend` and the block callbacks, `HandleReceiveRemoteLinkPlayer`, `SetCloseLinkCallback`, `sub_80084A4` (ready), `sub_8007B14` (keys), `GetLinkPlayerDataExchangeStatusTimed`; `main.c` `UpdateLinkAndCallCallbacks` | `pret_link.Console`, under `trade_game_model.Session` (every Cable Club routine) | **ported** |
+| Cable Club link-up, trainer cards | `cable_club.c` `sub_8082CD4` and its tasks, `sub_8082D9C` | `pret_cable_club.LinkUp` | **ported**; the routine models still do their own link-up steps on top of `Console` (next: use `LinkUp`) |
+| Link rooms: entering (the ready barrier, the keys callback), the key codes, the queue throttle (27/28) | `overworld.c` `sub_8055354`, `sub_8055390`, `sub_8055408`, `sub_8055438`, `sub_8054FF8`; `field_fadetransition.c` `sub_8080A5C` | `pret_cable_club.LinkRoom` | **ported** (walking reduced to "busy for a step"); the routine models keep their own room maps on top |
+| lab4p's game side (the Trade Center as a child, at the line level) | as above | `gp_link_model` | serial layer ported; its Trade Center flow is still its own copy (next) |
 | Link hardware: start/stop bits, SO hand-over, error flag, SIOMULTI latching, the wait for the next unit | none (GBATEK; scope 16 November) | `gp_link_model` (lines), `SioHardwareMaster`, hwsim | hardware |
 
 ## Routines
@@ -51,14 +61,13 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
 | e-Reader route, Mystery Event (`ereader`) | R/S | `mystery_event_menu.c`, `mystery_event_script.c` | `link_game_model.py`, `mevent_model.py` | from source |
 | e-Reader Trainer Hill/Tower | E, FR/LG (Japanese) | `ereader_helpers.c`, `cereader_tool.c` | `link_game_model.py` | from source |
 | Wireless Adapter (`adapter*`) | E, FR/LG | `librfu_intr.c`, `librfu_stwi.c`, `librfu_sio32id.c`, `mystery_gift_*.c` | `rfu_game_model.py`, `sio32id_model.py` | from source (librfu: a port, file-level citations) |
-| Four players on a two-player cable (`lab4p`) | R/S | `link.c` (above) | `gp_link_model.py` | link layer **ported**; Trade Center flow duplicated; lines hardware |
+| Four players on a two-player cable (`lab4p`) | R/S | `link.c` (above) | `gp_link_model.py` | serial layer **ported**; Trade Center flow its own copy; lines hardware |
 
 ## Next, in order
 
-1. Port link.c's commands (`ProcessRecvCmds`, `BuildSendCmd`, blocks) into `pret_link.py`, and
-   replace each model's copy.
-2. Port the Cable Club flow (`cable_club.c` link-up tasks, `overworld.c` link-room keys) once into
-   `tests/pret_cable_club.py`, and replace the six copies.
+1. Move `gp_link_model`'s game side (lab4p) onto `Console`, `LinkUp` and `LinkRoom`, replacing its
+   own Trade Center flow (its unconditional room keys and its invented 300-frame patience).
+2. Have the routine models use `LinkUp` for the Cable Club steps instead of their own.
 3. Add line citations to each routine's own protocol (trade.c, record_mixing.c, ...) as it's next
    touched, so the anchors check them.
 4. Check the ported functions are the same across Ruby, Emerald and FireRed mechanically, not by
@@ -73,15 +82,35 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
   `gLink.hardwareError` on every transfer once linked. `CheckErrorStatus` makes that a link error,
   even with every checksum matching. Neither copy of the link layer knew this.
 - **One command a frame:** `LinkVSync` starts each command at VBlank and the timer spaces its nine
-  transfers. With the game queueing a command every frame in the Trade Center room, lab4p's pacing,
-  which drifted later each frame, let the game's queue fill: a link error after a while. lab4p now
-  keeps to its schedule.
+  transfers. lab4p's pacing drifted later each frame; it now keeps to its schedule.
+- **Correction (17 November, afternoon):** the morning's claim that the game's queue fills in the
+  Trade Center room came from the old room model, which queued a key every frame without fail. The
+  real room throttles itself: the key function sends 27 or 28 when either queue holds more than four
+  commands and freezes the player until it's down to two (`overworld.c` `sub_8055390`,
+  `sub_8055408`, `sub_8055438`), and the keys callback's lockstep skips the game's callbacks on a
+  frame with nothing received. On the ported room, four consoles walking for 600 frames never had
+  more than one command queued.
+- **CloseLink turns the game's serial off** (`DisableSerial`), and `EnableSerial` loads 0 for the next
+  link's first word. As slave, a closed game reads as nobody (0xFFFF) to the DUO. The DUO programs
+  counted that as checksum mismatches at every change of link (25 in one DUO-as-master trade).
+  Fixed in `trade`, `mix`, `tower`, `colosseum`: a 0xFFFF where the game's checksum is due means its
+  link closed, and the DUO waits for the next one. (On hardware, session 29 saw 2 and 0, and session
+  25 put "the mismatches after the close" down to the game opening its link again.)
+- **A slave game counts VBlanks without a transfer** (`LinkVSync`: more than 10 is a link error).
+  As master, the DUO planned its walk round the player without starting a transfer, for 6 frames and
+  sometimes more than 10. Fixed in `room_walk.h`: as master it plans a row at a time, so its commands
+  go out on time. (The cable as fitted makes the game master, so this is the less common way round.)
+- **Order within a frame (`MASTER_ORDER` in `pret_link.py`):** a frame's LinkMain1 dequeues the
+  commands finished before this VBlank, and a CloseLink there stops the command just begun after one
+  transfer. With that order the DUO sees no mismatch when the game closes as master.
+- **The blender writes `gSendCmd` itself** (`berry_blender.c` `sub_80500A8`), so its game isn't in
+  lockstep with the DUO: the DUO's copy of the blend can end a frame or two off the game's own, as the
+  game itself allows (it takes the leader's time and RPM). The test now allows it too.
 
-## To check once the Cable Club flow is ported
+## Still to check
 
-- **The same drift in the other programs:** `trade`, `mix`, `colosseum`, `ereader`, `tower` and
-  `link_tail.h` set each command's start from when they noticed (`next_cycle = now() + LINES_PER_FRAME`),
-  as lab4p did. In a room the game queues a key command every frame, so a DUO that falls behind lets
-  its queue fill. Trades work on hardware, so nothing is changed on a hunch. The faithful room port
-  (with DequeueRecvCmds one a frame, not at once) will show whether a long session fills it, and
-  whether it has anything to do with the black screen after the trade on 15 November (parked).
+- **The drift in the other programs:** `trade`, `mix`, `colosseum`, `ereader`, `tower` and
+  `link_tail.h` set each command's start from when they noticed (`next_cycle = now() +
+  LINES_PER_FRAME`), as lab4p did. With the room's own throttle ported, a DUO that falls behind
+  makes the game send 27/28 and wait rather than overflow; whether that has anything to do with the
+  black screen after the trade on 15 November (parked) is still open.

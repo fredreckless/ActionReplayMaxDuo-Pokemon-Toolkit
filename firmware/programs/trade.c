@@ -489,7 +489,10 @@ static void on_transfer(void)
     }
     u16 gw = w[is_master ? 1 : 0];
     hs_run = ((gw & ~3) == SLAVE_HS || gw == MASTER_HS) ? hs_run + 1 : 0;
-    if (hs_run >= 3) {                                           /* the game opened a new link */
+    /* the game opened a new link - or has left the chain: its link closed (link.c CloseLink turns its
+     * serial off) and, as slave, it reads as nobody where its checksum is due; either way, wait for
+     * its next link rather than count mismatches (17 November, from the ported link.c) */
+    if (hs_run >= 3 || (send_idx == 0 && gw == 0xFFFF && checksum_ready && checksum != 0xFFFF)) {
         hs_run = 0xFFFF;
         rx_on = tx_on = qcount = player_pending = 0;
         loaded = SLAVE_HS;
@@ -645,8 +648,10 @@ u32 start(api_t *api)
         }
         if (!(REG_IF & IF_SERIAL))
             pc_service(api);
-        if (rw_need && send_idx == 0 && recv_idx == 0 && !in_flight)
-            rw_plan_run(is_master ? 0 : 1);       /* (between two frames' cycles; it gives way to transfers) */
+        if (rw_need && send_idx == 0 && recv_idx == 0 && !in_flight) {
+            rw_give_way = is_master;
+            rw_plan_run(is_master ? 0 : 1);
+        }       /* (between two frames' cycles; it gives way to transfers) */
         /* the end: done once our own 0x5FFF has gone out and the game has had time to close */
         if (close_pending && !qcount && !tx_on && state != ST_DONE) {
             if (!close_at) close_at = now() | 1;

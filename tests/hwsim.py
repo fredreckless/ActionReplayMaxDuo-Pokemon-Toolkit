@@ -891,7 +891,8 @@ class Hw:
             self.mp_deadline = self.blocks + op[1]
         elif op[0] == "mp_slave":
             self.mp_game_word = op[1]                       # loaded once the game's interrupt has run
-            self.mp_ready_at = self.blocks + self.mp_latency
+            if not (len(op) > 3 and op[3]):                 # (op[3]: still the word loaded last time)
+                self.mp_ready_at = self.blocks + self.mp_latency
             self.mp_deadline = self.blocks + op[2]
 
     def mp_slave_step(self):

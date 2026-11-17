@@ -237,7 +237,7 @@ class BerryBlenderLink(RubyTrade):
         arrow, speed, timer, progress, shown, frames, max_rpm = 0xC000, MIN_SPEED, 0, 0, 0, 0, 0
         history, partner_hits, game_hits, passes = [], [], [], {0: 0, 1: 0}
         inside, pressed, plan = {0: False, 1: False}, False, None
-        s.link.send(SEND_KEYS, 0, 0)                          # (the callback starts a frame before the play)
+        s.link.put(SEND_KEYS, 0, 0)                          # (the callback starts a frame before the play)
         yield
         while True:
             frames += 1
@@ -303,7 +303,7 @@ class BerryBlenderLink(RubyTrade):
             max_rpm = max(max_rpm, 60 * 60 * 100 * speed // 0x10000)
             if shown < progress:                              # TryUpdateProgressBar
                 shown += 2
-            s.link.send(SEND_KEYS, 1 if score else 0, score)
+            s.link.put(SEND_KEYS, 1 if score else 0, score)
             if shown >= MAX_PROGRESS:
                 break
             if frames > 20000:
@@ -313,7 +313,7 @@ class BerryBlenderLink(RubyTrade):
             yield
             speed -= 32
             if speed > 0:
-                s.link.send(SEND_KEYS, 0, 0)
+                s.link.put(SEND_KEYS, 0, 0)
         po = passes[self.other]
         if len(partner_hits) > po + 1:
             raise LinkError(f"the partner pressed {len(partner_hits)} times in {po} passes over its spot")

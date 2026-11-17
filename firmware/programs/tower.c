@@ -547,7 +547,10 @@ static void on_transfer(void)
     }
     u16 gw = w[is_master ? 1 : 0];
     hs_run = ((gw & ~3) == SLAVE_HS || gw == MASTER_HS) ? hs_run + 1 : 0;
-    if (hs_run >= 3) {                                           /* the game opened a new link */
+    /* the game opened a new link - or has left the chain: its link closed (link.c CloseLink turns its
+     * serial off) and, as slave, it reads as nobody where its checksum is due; either way, wait for
+     * its next link rather than count mismatches (17 November, from the ported link.c) */
+    if (hs_run >= 3 || (send_idx == 0 && gw == 0xFFFF && checksum_ready && checksum != 0xFFFF)) {
         hs_run = 0xFFFF;
         rx_on = tx_on = qcount = player_pending = 0;
         loaded = SLAVE_HS;

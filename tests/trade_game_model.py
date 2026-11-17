@@ -18,6 +18,7 @@ would: walls and the seat in the room, link types, block sizes, every Pokemon's 
 menu's order. `result` says what the game ended up with.
 """
 import struct
+from pret_link import Console
 from link_game_model import (LinkLayer, LinkError, handshake_count, link_player_block, parse_link_player,
                              MASTER_HANDSHAKE, SLAVE_HANDSHAKE, CMD_LENGTH, QUEUE_CAPACITY, LANG_ENGLISH)
 
@@ -196,49 +197,63 @@ class RubyTrade:
         return words
 
     def _session(self, link_type, handler, max_frames=6000):
-        """Open a link, exchange link players, then run `handler` one frame at a time until it
-        closes the link. handler(session) is a generator yielding once per frame."""
-        # the handshake (the master's player presses nothing: the link opens by itself)
-        loaded, prev, seen_two, n = SLAVE_HANDSHAKE, 0, 0, 0
-        while True:
-            words = yield from self._xfer(loaded)
-            n += 1
-            count = handshake_count(words)
-            if count > 1 and count == prev and words[0] == MASTER_HANDSHAKE:
-                break
-            prev = count
-            seen_two = seen_two + 1 if count == 2 else 0
-            loaded = MASTER_HANDSHAKE if self.master and seen_two >= 30 else SLAVE_HANDSHAKE
-            if n > 400000:
-                raise LinkError(f"no handshake for link type {link_type:#06x}")
-        s = Session(self, link_type)
+        """Open a link, exchange link players, then run `handler` one frame at a time until it closes
+        the link. handler(session) is a generator yielding once per frame. The link software is the
+        game's own, ported (pret_link.Console); this drives it on hwsim's cable: as master, the
+        transfers LinkVSync starts (one command a frame, `pace` apart); as slave, the DUO's transfers
+        until the frame ends."""
+        con = self.con = Console(dict(trainer_id=0x0001E240, name=b"\xCC\xC9\xBB\xC3\xFF", gender=0,
+                                      language=self.language, lp_field_2=self.lp_field_2),
+                                 game_version=self.version)
+        con.gl.si = 0 if self.master else 1
+        s = Session(self, link_type, con)
+        con.patch_link_player = s.patch_link_player
+        con.link_type = link_type
+        con.open_link_timed()
         gen = handler(s)
-        rxq, last_frame, frames = [], None, 0
-        if self.master:
-            s.after(30, lambda: s.link.send(0x2222, link_type))
+        con.add_task(s.task(gen))
+        frames, quiet, loaded = 0, 0, False
         while True:
-            words = yield from self._xfer(s.link.loaded, cycle_end=s.link.send_idx == CMD_LENGTH)
-            s.link.on_transfer(words)
-            if s.link.bad_checksums:
-                raise LinkError(f"a command's checksum didn't match (link type {link_type:#06x}; {s.stage}; "
-                                f"close sent {s.sent_close}, closes seen {sorted(s.closing)})")
-            rxq += s.link.received
-            s.link.received = []
-            if len(rxq) > QUEUE_CAPACITY:
-                raise LinkError("the receive queue overflowed")
-            frame = (yield ("now",)) // self.frame_blocks
-            if frame == last_frame:
-                continue
-            last_frame = frame
+            if self.master:
+                # the VBlank starts a command; its first transfer is over before the main loop gets to
+                # LinkMain1, the rest go on (by the timer) after it (MASTER_ORDER in pret_link)
+                con.vblank()
+                first = True
+                while con.gl.start_transfer and con.gl.is_master:
+                    con.gl.start_transfer = False
+                    words = yield ("mp_xfer", con.gl.siomlt_send)
+                    con.transfer(words, 0)
+                    if first:
+                        con.main_loop()
+                        first = False
+                    if con.gl.start_transfer:
+                        yield ("delay", self.pace)
+                if first:
+                    con.main_loop()
+                yield from self._next_frame()
+            else:
+                # (`loaded`: the word in SIOMLT_SEND is the one already there - only a transfer changes it)
+                t = yield ("now",)
+                end = (t // self.frame_blocks + 1) * self.frame_blocks
+                while t < end:
+                    # (with its serial off - closed, or opening - the game isn't in the chain: 0xFFFF)
+                    # (and that's at once: no interrupt handler to wait for)
+                    word = con.gl.siomlt_send if con.gl.state >= 2 else 0xFFFF
+                    words = yield ("mp_slave", word, end - t, loaded or word == 0xFFFF)
+                    if words is None:
+                        loaded = True
+                        break
+                    con.transfer(words, 1)
+                    quiet, loaded = 0, False
+                    t = yield ("now",)
+                quiet += 1
+                if quiet * self.frame_blocks > 400000 and con.gl.state < 4:
+                    raise LinkError("the other side never started a transfer")
+                con.vblank()
+                con.main_loop()
             frames += 1
             self.frame += 1
-            s.cmd = rxq.pop(0) if rxq else None
-            s.process()
-            s.tick()
-            try:
-                next(gen)
-            except StopIteration:
-                pass
+            s.check()
             if s.closed():
                 return s
             if frames > max_frames:
@@ -598,22 +613,67 @@ class RubyTrade:
         s.close()
 
 
+class _SessionLink:
+    """What the handlers call `s.link`: commands and blocks to send, one a frame."""
+    def __init__(self, session):
+        self.s = session
+
+    def send(self, *words):
+        self.s.outgoing.append(("cmd", words))
+
+    def send_block(self, data):
+        self.s.outgoing.append(("block", bytes(data)))
+
+    def put(self, *words):
+        """Straight into gSendCmd this frame, over whatever is there - as code that writes gSendCmd
+        itself does (pret:pokeruby/src/berry_blender.c:1812 sub_80500A8, the blender's hits)."""
+        cmd = self.s.con.send_cmd
+        for i, w in enumerate(words):
+            cmd[i] = w
+
+    @property
+    def queue(self):
+        """Anything not yet sent (a block still going out counts)."""
+        return bool(self.s.outgoing) or self.s.con.block_send["active"]
+
+
 class Session:
-    """One link's worth of link.c: commands in, blocks, link players, block requests, barriers."""
-    def __init__(self, game, link_type):
-        self.game, self.link_type = game, link_type
-        self.link = LinkLayer(game.my_id)
+    """One link's worth of the game, on its own link software (pret_link.Console): what the
+    trade-screen, room and routine handlers see - link players checked, blocks in, messages, the
+    "ready" barrier, closing. A handler's command (s.link.send) goes into gSendCmd as the game's
+    task code would put it, one a frame and never over a command link.c built itself."""
+    def __init__(self, game, link_type, con):
+        self.game, self.link_type, self.con = game, link_type, con
+        self.link = _SessionLink(self)
+        self.outgoing = []
         self.cmd = None
         self.stage = "starting"
-        self.blocks = {}
         self.blocks_in = {}                           # complete blocks this round, by sender
         self.messages = []                            # 20-byte trade messages: (sender, words)
-        self.pending = set()
         self.players_checked = False
-        self.send_buffer = bytes(200)
         self.closing, self.sent_close = set(), False
+        self.close_wanted = False
         self.barrier_seen = set()
         self.timers = []
+        self.handshake_frames = 0
+
+    @property
+    def send_buffer(self):
+        return bytes(self.con.block_send_buffer)
+
+    @send_buffer.setter
+    def send_buffer(self, data):
+        self.con.block_send_buffer[:] = bytes(data).ljust(256, b"\0")[:256]
+
+    def patch_link_player(self, block):
+        """InitLocalLinkPlayer's fields the model sets itself: lp_field_2, the progress flags (the
+        later games), and the model's own (the Record Corner's player)."""
+        g = self.game
+        block[18:20] = g.lp_field_2.to_bytes(2, "little")
+        if g.modern:                                  # link.c: progressFlags = National Dex | 0x10 if champion
+            block[16 + 0x10] = (1 if g.national_dex else 0) | 0x10
+        if hasattr(g, "patch_link_player"):
+            g.patch_link_player(block)
 
     def after(self, frames, fn):
         self.timers.append([frames, fn])
@@ -640,12 +700,19 @@ class Session:
         return out if with_sender else [m for i, m in out]
 
     def close(self):
-        if not self.sent_close:
-            self.link.send(0x5FFF)
-            self.sent_close = True
+        """The routine's end: link.c's close callback (0x5FFF, then everyone's) once nothing is
+        left to send (pret:pokeruby/src/link.c:1148 SetCloseLinkCallback)."""
+        self.close_wanted = True
 
     def closed(self):
-        return self.sent_close and self.closing >= {0, 1}
+        return self.sent_close and not self.con.link_open
+
+    def clear_room_keys(self):
+        """ClearLinkCallback / ClearLinkCallback_2 (pret:pokeruby/src/link.c:681 ClearLinkCallback):
+        the room's keys stop."""
+        self.outgoing = [o for o in self.outgoing if not (o[0] == "cmd" and o[1][0] == 0xCAFE)]
+        if self.con.keys_callback_active():
+            self.con.callback = None
 
     def barrier(self):
         self.link.send(0x2FFE)
@@ -653,55 +720,101 @@ class Session:
             yield
         self.barrier_seen = set()
 
-    def process(self):
-        cmd = self.cmd
-        if cmd is None:
+    # ------------------------------------------------------------ each frame, in the game's tasks
+    def task(self, handler):
+        """The model's task: what the game's own code does each frame (CallCallbacks)."""
+        con = self.con
+        while True:
+            self._handshake()
+            self.process()
+            self.tick()
+            try:
+                next(handler)
+            except StopIteration:
+                pass
+            self._send()
+            yield
+
+    def _handshake(self):
+        """The master's screen starts the link once it sees a partner (the Cable Club: the player
+        presses A; the trade screens, by themselves) - pret:pokeruby/src/link.c:938 sub_8007F4C."""
+        con = self.con
+        if self.game.master and con.gl.state == 2 and con.player_count() > 1:
+            self.handshake_frames += 1
+            if self.handshake_frames >= 30:
+                con.advance_as_master()
+
+    def _send(self):
+        con = self.con
+        if self.close_wanted and not self.sent_close and not self.outgoing and not con.block_send["active"]:
+            if con.keys_callback_active():
+                con.callback = None                   # (ClearLinkCallback, before the close)
+            if con.callback is None:
+                con.set_close_link_callback()
+                self.sent_close = True
+                return
+        if self.outgoing and self.outgoing[0][0] == "cmd" and self.outgoing[0][1][0] == 0xCAFE:
+            words = self.outgoing.pop(0)[1]           # the room's key: link.c's keys callback sends it
+            con.room_key = words[1] if len(words) > 1 else 17     # (overworld.c sub_8055280)
+            if con.callback is None:
+                con.set_keys_callback()
             return
-        g = self.game
-        for i in range(2):
-            c = cmd[0][i]
-            if c == 0x2222:
-                if cmd[1][i] != self.link_type and cmd[1][i] not in getattr(g, "ask_types", ()):
+        if not self.outgoing or any(con.send_cmd):
+            return
+        kind, what = self.outgoing[0]
+        if kind == "block":
+            if con.callback is not None and con.callback != con.cb_keys:
+                return
+            if con.init_block_send(what):
+                self.outgoing.pop(0)
+            return
+        words = list(what)
+        con.send_cmd[:len(words)] = words
+        self.outgoing.pop(0)
+
+    def process(self):
+        con, g = self.con, self.game
+        self.cmd = None if con.link_status & 0x100 or not con.link_status & 0x40 else \
+            [list(con.recv_cmds[j]) for j in range(CMD_LENGTH)]
+        cmd = self.cmd
+        if cmd is not None:
+            for i in range(2):
+                c = cmd[0][i]
+                if c == 0xCCCC and cmd[1][i] >= len(BLOCK_REQUEST_SIZES):
+                    raise LinkError(f"a block request for type {cmd[1][i]}")
+                if c == 0x2222 and cmd[1][i] != self.link_type and cmd[1][i] not in getattr(g, "ask_types", ()):
                     raise LinkError(f"0x2222 asked for link type {cmd[1][i]:#06x}, expected {self.link_type:#06x}")
-                self.pending = {0, 1}
-                block = bytearray(link_player_block(language=g.language, link_type=self.link_type,
-                                                    version=g.version))
-                block[18:20] = g.lp_field_2.to_bytes(2, "little")
-                if g.modern:                          # link.c: progressFlags = National Dex | 0x10 if champion
-                    block[16 + 0x10] = (1 if g.national_dex else 0) | 0x10
-                if hasattr(g, "patch_link_player"):  # (the Record Corner's player: its own name and IDs)
-                    g.patch_link_player(block)
-                self.link.send_block(bytes(block))
-            elif c == 0xBBBB:
-                self.blocks[i] = dict(size=cmd[1][i], data=bytearray())
-            elif c == 0x8888 and i in self.blocks:
-                b = self.blocks[i]
-                for j in range(1, CMD_LENGTH):
-                    b["data"] += cmd[j][i].to_bytes(2, "little")
-                if len(b["data"]) >= b["size"]:
-                    data = bytes(b["data"][:b["size"]])
-                    del self.blocks[i]
-                    if i in self.pending:
-                        self.pending.discard(i)
-                        lp = parse_link_player(data)
-                        lp["field_2"] = int.from_bytes(data[18:20], "little")
-                        lp["progress"] = data[16 + 0x10]
-                        g.link_players[i] = lp
-                        if not self.pending:
-                            self.check_players()
-                    elif len(data) == 20:
-                        self.messages.append((i, list(struct.unpack("<10H", data))))
-                    else:
-                        self.blocks_in[i] = data
-            elif c == 0xCCCC:
-                n = cmd[1][i]
-                if n >= len(BLOCK_REQUEST_SIZES):
-                    raise LinkError(f"a block request for type {n}")
-                self.link.send_block(self.send_buffer[:BLOCK_REQUEST_SIZES[n]].ljust(BLOCK_REQUEST_SIZES[n], b"\0"))
-            elif c == 0x2FFE:
-                self.barrier_seen.add(i)
-            elif c == 0x5FFF:
-                self.closing.add(i)
+                if c == 0x2FFE:
+                    self.barrier_seen.add(i)
+                elif c == 0x5FFF:
+                    self.closing.add(i)
+        if con.received_remote_link_players and not self.players_checked:
+            for i in range(2):
+                block = con.link_player_blocks[i]
+                lp = parse_link_player(block)
+                lp["field_2"] = int.from_bytes(block[18:20], "little")
+                lp["progress"] = block[16 + 0x10]
+                g.link_players[i] = lp
+            self.check_players()
+        status = con.block_received_status()
+        for i in range(2):
+            if status & 1 << i:
+                data = con.block(i)
+                con.block_received[i] = False         # pret:pokeruby/src/link.c:932 ResetBlockReceivedFlag
+                if len(data) == 20:
+                    self.messages.append((i, list(struct.unpack("<10H", data))))
+                else:
+                    self.blocks_in[i] = data
+
+    def check(self):
+        """After each frame: the game's link error, if it has shown one."""
+        con = self.con
+        if con.error_screen or con.link_error_occurred:
+            why = con.error_screen or "a link error"
+            if "checksum" in why:
+                why = "a command's checksum didn't match"
+            raise LinkError(f"{why} (link type {self.link_type:#06x}; {self.stage}; close sent {self.sent_close}, "
+                            f"closes seen {sorted(self.closing)})")
 
     def check_players(self):
         lps = self.game.link_players

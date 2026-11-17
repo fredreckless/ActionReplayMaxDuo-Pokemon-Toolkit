@@ -143,9 +143,15 @@ static u32 rw_plan_closed(u32 me, int x, int y)  /* for planning: pass 0 an empt
     return 0;
 }
 
+static u32 rw_give_way;                /* as master: plan a little at a time */
+
 static void rw_plan_run(u32 me)
 {
-    /* a tile at a time (only the 16 columns that can be open), checking for a transfer before each */
+    /* a tile at a time (only the 16 columns that can be open), checking for a transfer before each -
+     * and, as master, a row at a time, so the main loop can start our commands in between
+     * (17 November, from link.c LinkVSync: a slave game that goes 10 frames without a transfer stops
+     * with a link error; planning round the player took 6 frames and more, and as master nothing
+     * else starts the transfers) */
     u8 *d = RW_DIST;
     while (rw_need) {
         if (REG_IF & IF_SERIAL) return;                      /* the link first; carry on later */
@@ -169,7 +175,7 @@ static void rw_plan_run(u32 me)
         }
         if (++rw_cx < (rw_phase ? rw_x0 + 16 : rw_w) && rw_cx < rw_w) continue;
         rw_cx = rw_phase ? rw_x0 : 0;
-        if (++rw_cy < rw_h) continue;
+        if (++rw_cy < rw_h) { if (rw_give_way) return; continue; }
         rw_cy = 0;
         if (rw_phase == 0 || rw_changed) { rw_phase = 1; rw_changed = 0; rw_cx = rw_x0; continue; }
         u32 best = 0xFF;                                     /* settled: the step towards the goal */

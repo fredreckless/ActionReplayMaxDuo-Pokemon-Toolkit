@@ -650,6 +650,7 @@ class RubyRecordCorner(RubyTrade):
             raise LinkError(f"the partner never sat down (at {room.pos[self.other]}, status {room.status[self.other]:#x})")
         self.result["partner_seat"] = room.seated_at.get(self.other)
         room.seats_on = False                         # VAR_TEMP_0 = 1 from here
+        s.clear_room_keys()
         # Task_RecordMixing_Main: ClearLinkCallback_2 (no more room keys), 20 + 60 frames
         s.stage = "mixing: getting ready"
         for _ in range(81):

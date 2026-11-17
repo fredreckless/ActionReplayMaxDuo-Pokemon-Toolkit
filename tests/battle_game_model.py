@@ -245,6 +245,7 @@ class RubyColosseum(RubyTrade):
             raise LinkError("both players on the same spot")
         # sub_808382C: the fade, gLinkType = 0x2211, no more room keys, 20 frames, the link closes
         s.stage = "Colosseum: both seated, closing"
+        s.clear_room_keys()
         for _ in range(30):
             yield
         s.close()
