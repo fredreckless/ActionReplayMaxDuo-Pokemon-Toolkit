@@ -139,7 +139,7 @@ lines (it reads SD as a GBA's hardware would, and needs each unit's start bit wi
 after the previous stop bit) and of its link layer. The real hardware's window, how soon a child
 answers, and whether the DUO's timing from EWRAM is steady enough are what the hardware run tells.
 
-## 3. The Union Room (Emerald, FireRed/LeafGreen): wireless only
+## 3. The Union Room (Emerald, FireRed/LeafGreen): wireless only - now planned in UNION_ROOM.md
 
 Battles and trades in the Union Room go through the Wireless Adapter's RFU protocol, not the
 cable. The project already plays the adapter for Mystery Gift (`adapter.c`), but the Union Room
