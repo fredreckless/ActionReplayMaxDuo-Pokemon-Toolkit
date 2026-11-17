@@ -814,12 +814,16 @@ u32 start(api_t *api)
             if (state == ST_WAITING) state = ST_HANDSHAKE;
             continue;
         }
-        /* the pace of link.c's master: one transfer a frame until linked, then a command of nine
-         * transfers a frame, eight lines apart */
+        /* the pace of link.c's master (pret:pokeruby/src/link.c:1615 LinkVSync): one transfer a frame until
+         * linked, then a command of nine transfers a frame, eight lines apart. Scheduled from the last
+         * time, not from when the DUO noticed (17 November, the simulator with link.c ported: from
+         * when it noticed, each frame ran a little long, the game - which queues a command every
+         * frame in the Trade Center room - got ahead, and its queue filled: a link error) */
         if ((int)(t - next) < 0) continue;
-        if (state < ST_LINKED) next = t + LINES_PER_FRAME;
-        else if (++in_cycle < 9) next = t + 8;
-        else { in_cycle = 0; next = t + LINES_PER_FRAME - 8 * 8; }
+        if ((int)(t - next) > 2 * LINES_PER_FRAME) next = t;      /* (far behind: start again from now) */
+        if (state < ST_LINKED) next += LINES_PER_FRAME;
+        else if (++in_cycle < 9) next += 8;
+        else { in_cycle = 0; next += LINES_PER_FRAME - 8 * 8; }
         u16 mine[4] = { 0, 0, 0, 0 };
         our_words(mine);
         transfer(mine);

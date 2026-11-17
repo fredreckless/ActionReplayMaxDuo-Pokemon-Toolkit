@@ -21,6 +21,8 @@ hblank_stall models an HBlank DMA left running on the DUO's GBA (14 November, ha
 stops for so many cycles at each line's HBlank while a DMA channel is enabled with HBlank timing,
 so a sample due then is taken late."""
 import struct
+
+import pret_link
 from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE, UC_HOOK_BLOCK
 
 BIT = 16777216 / 115200                  # CPU cycles a bit at 115,200 baud
@@ -46,6 +48,11 @@ class GpLinkGame:
         self.errors = []
         # the game's link layer
         self.player_count, self.prev_count, self.linked = 0, 0, False
+        # the game's link layer: link.c itself, ported (tests/pret_link.py) - 17 November: this model's own
+        # copy got DoHandshake's count wrong and never knew the link hardware's error flag ends the link
+        self.gl = pret_link.GameLink()
+        self.gl.state, self.gl.is_master = pret_link.HANDSHAKE, 0     # (OpenLink done: in the Cable Club)
+        self.next_frame, self.stop_err = 280896, False
         self.send_idx = self.recv_idx = 0
         self.checksum, self.checksum_ready = 0, False
         self.frame = [[0] * 4 for _ in range(8)]
@@ -94,6 +101,9 @@ class GpLinkGame:
 
     def on_block(self, mu, addr, size, _):
         self.blocks += 1
+        if self.t() >= self.next_frame:                  # the game's frame: LinkVSync, then LinkMain1
+            self.next_frame += 280896
+            self.game_frame()
         if self.stall and self.t() >= self.next_hblank:
             self.next_hblank = (self.t() // 1232 + 1) * 1232 + 960
             if any(struct.unpack("<H", bytes(mu.mem_read(0x040000BA + 12 * k, 2)))[0] & 0xB000 == 0xA000
@@ -257,6 +267,7 @@ class GpLinkGame:
                     w = 0x1234                               # garbage
             if not self.level_at(start + 17.5 * BIT):
                 self.errors.append(f"slot {slot}: no stop bit")
+                self.stop_err = True                     # (the game's link hardware sets its error flag)
             words.append(w)
             t = start + 18 * BIT
         self.transfers.append(words)
@@ -264,51 +275,44 @@ class GpLinkGame:
 
     # ------------------------------------------------------------ the game's link layer (link.c)
     def on_words(self, w):
+        """The game's serial interrupt after a transfer: pret_link (link.c's SerialCB) with what the game's
+        link hardware read, and its error flag (a slot without its stop bit)."""
+        if self.result.get("link_error"):
+            self.game_t0, self.game_word = None, 0xFFFF   # (CB2_LinkError: the link closed, no answer)
+            return
+        w = list(w)
         if not self.linked:
             if w[0] == MASTER_HS and self.miss_master > 0:
                 self.miss_master -= 1
-                w = [0x8FFE] + list(w[1:])                  # misread: not a handshake word, so no players
+                w[0] = 0x8FFE                               # misread: not a handshake word, so no players
             elif w[0] == MASTER_HS and self.lead_window and not self.lead_window[0] <= self.lead0 <= self.lead_window[1]:
-                w = [0x8FFE] + list(w[1:])
-            n = 0
-            for x in w:
-                if (x & ~3) == SLAVE_HS or x == MASTER_HS:
-                    n += 1
-                else:
-                    if x != 0xFFFF:                     # (DoHandshake: a slot that's neither counts no one at all)
-                        n = 0
-                    break
-            if n > 1 and n == self.prev_count and w[0] == MASTER_HS:
-                self.linked, self.player_count = True, n
-                self.result["handshake_players"] = n
-                self.send_idx, self.recv_idx, self.checksum_ready = 0, 0, False
-                # DoHandshake loaded SIOMLT_SEND with the handshake before it decided: the next
-                # transfer still carries it (pret link.c; 15 November, the hardware's ~1000 retries)
-                self.game_word = SLAVE_HS
-                return
-            self.prev_count = n
-            self.game_word = SLAVE_HS | 1
-            return
-        if self.send_idx == 0:                           # DoRecv: the checksum slot
-            if self.checksum_ready and any(w[i] != self.checksum for i in range(self.player_count)):
+                w[0] = 0x8FFE
+        err, self.stop_err = self.stop_err, False
+        before = len(self.gl.history)
+        self.gl.serial_cb(w, sio_id=1, sio_error=err)
+        for h in self.gl.history[before:]:
+            if h[0] == "linked":
+                self.linked, self.player_count = True, h[1]
+                self.result["handshake_players"] = h[1]
+            elif h[0] == "bad checksum":
                 self.result["checksum_errors"] += 1
-            self.checksum, self.checksum_ready = 0, True
-        else:
-            for i in range(self.player_count):
-                self.frame[self.recv_idx][i] = w[i]
-                self.checksum = (self.checksum + w[i]) & 0xFFFF
-            self.recv_idx += 1
-            if self.recv_idx == 8:
-                self.command()
-                self.recv_idx = 0
-        if self.send_idx == 8:                           # DoSend
-            self.game_word, self.send_idx = self.checksum, 0
-        else:
-            if self.send_idx == 0:
-                idle = [0xCAFE, 17] + [0] * 6 if self.in_room else [0] * 8   # (in the room: its keys every frame)
-                self.current = self.queue.pop(0) if self.queue else idle
-            self.game_word = self.current[self.send_idx]
-            self.send_idx += 1
+        self.game_word = self.gl.siomlt_send
+
+    def game_frame(self):
+        """The game's frame: LinkVSync, then LinkMain1 with this frame's command (gSendCmd), and what
+        DequeueRecvCmds gives back (one command a frame); then CheckErrorStatus."""
+        if self.result.get("link_error"):
+            return
+        self.gl.vsync()
+        cmd = self.queue.pop(0) if self.queue and self.linked else (
+            [0xCAFE, 17] + [0] * 6 if self.in_room else [0] * 8)        # (in the room: its keys every frame)
+        _, recv, _ = self.gl.main1(0, cmd)
+        if self.linked and any(any(row) for row in recv):
+            self.frame = recv
+            self.command()
+        err = self.gl.link_error() if self.linked else None
+        if err:
+            self.result["link_error"] = err
 
     def send(self, *words):
         self.queue.append(list(words) + [0] * (8 - len(words)))

@@ -47,6 +47,17 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   `git add .` there. If a file must still go across the desktop bridge (a save state, a script for
   him to run), read it back and compare SHA-1s. Run logs are in `logs\` there: read them through
   the bridge rather than asking for pasted output. The bridge can't reach WSL's own folders.
+- **Connectivity starts from the games' source** (17 November: "analyse the source code for this
+  (and all) connectivity routines in future ... built into the simulator"). Before writing or
+  changing any link routine (firmware program or PC side), read what the game does in pret's
+  decompilation (`python tools/pret.py` fetches it, pinned) and port it into the simulator's game
+  side, citing each function as `pret:<repo>/<file>:<line> <Name>`; `tests/source_anchors.py` checks
+  every citation on every test tier. Ported code is shared (`tests/pret_link.py` is link.c, used by
+  every cable model), not copied per model. What the source can't say (the link hardware's timing,
+  its error flag, when SIOMULTI latches) comes from GBATEK and our own hardware runs, and is marked
+  as such with the run's date. docs/CONNECTIVITY_SOURCES.md lists every routine and how far it's
+  ported; keep it current. Why: on 16 November two hand-written copies of link.c disagreed, one got
+  DoHandshake's count wrong, and four hardware runs chased a result that the source rules out.
 - **The user chooses what to work on.** On 8 November they asked for: the room walk always reaching
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).

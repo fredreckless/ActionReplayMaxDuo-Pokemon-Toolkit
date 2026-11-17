@@ -181,6 +181,9 @@ def main():
     jobs = next((int(a.split("=", 1)[1]) for a in flags if a.startswith("--jobs=")), None)
     names = run_each.all_names()
     t0 = time.time()
+    # every tier: the simulator's citations of the games' source still hold (17 November)
+    import source_anchors
+    anchors_ok = tier == "what" or source_anchors.check()
     if tier == "quick":
         tests = pick(QUICK, names)
         missing = [q for q in QUICK if not pick([q], names)]
@@ -209,6 +212,7 @@ def main():
             ok = mutate4.run_many(kinds, jobs) and ok
     else:
         sys.exit(__doc__)
+    ok = ok and anchors_ok
     print(f"{'ALL GOOD' if ok else 'FAILURES - see above'} ({time.time() - t0:.0f} s in all)")
     return 0 if ok else 1
 

@@ -4,6 +4,8 @@ e-Reader route (docs/EREADER.md). Written for this project from the behaviour de
 link model: ("mp_xfer", word) when the game is master, ("mp_slave", word, timeout) when it isn't.
 """
 
+import pret_link
+
 MASTER_HANDSHAKE, SLAVE_HANDSHAKE = 0x8FFF, 0xB9A0
 CMD_LENGTH = 8
 LINKTYPE_MYSTERY_EVENT = 0x5501
@@ -51,54 +53,71 @@ def parse_link_player(block):
 
 
 class LinkLayer:
-    """One console's link layer once connected: commands of 8 words plus a checksum slot."""
+    """One console's link layer once connected: commands of 8 words plus a checksum slot - link.c
+    itself (tests/pret_link.py, ported from pret's pokeruby), with the interface the game models use.
+    17 November: it was a copy written from notes; now there's one, and it cites its source.
+
+    One simplification, kept on purpose: received commands are taken off the queue as soon as they're
+    complete (`received`), where the game takes one a frame (DequeueRecvCmds in LinkMain1) - the
+    models do their own frames. A full queue still shows (pret_link's queueFull)."""
     def __init__(self, my_id, players=2):
         self.my_id, self.players = my_id, players
-        self.queue = []                       # commands to send (lists of 8 words)
-        self.send_idx = self.recv_idx = 0
-        self.checksum, self.checksum_ready = 0, False
-        self.frame = [[0] * players for _ in range(CMD_LENGTH)]
-        self.nonzero = 0
+        self.gl = pret_link.GameLink()
+        self.gl.state = pret_link.CONN_ESTABLISHED
+        self.gl.player_count, self.gl.local_id = players, my_id
+        self.gl.is_master = 8 if my_id == 0 else 0
         self.received = []                    # complete commands: frame[word][player]
-        self.loaded = 0                       # what goes out on the next transfer
-        self.current = None
         self.bad_checksums = 0
+        # what the game would build into gSendCmd, a command a frame (pret:pokeruby/src/link.c:438 LinkMain2);
+        # None: a frame with nothing (the block send's delay). A frame here is a command cycle.
+        self.pending = []
+
+    @property
+    def loaded(self):                         # what goes out on the next transfer (REG_SIOMLT_SEND)
+        return self.gl.siomlt_send
+
+    @property
+    def send_idx(self):
+        return self.gl.send_cmd_index
+
+    @property
+    def queue(self):                          # the commands waiting to go: in link.c's queue, then still to build
+        q = self.gl.send_queue
+        return [[q["data"][i][(q["pos"] + k) % pret_link.QUEUE_CAPACITY] for i in range(CMD_LENGTH)]
+                for k in range(q["count"])] + [c for c in self.pending if c is not None]
+
+    def _frame(self):
+        """A frame's LinkMain2/LinkMain1: the next command built goes into link.c's queue."""
+        if self.pending:
+            c = self.pending.pop(0)
+            if c is not None:
+                self.gl._enqueue_send_cmd(c)
 
     def on_transfer(self, words):
-        words = words[:self.players]
-        if self.send_idx == 0:                # the checksum slot
-            if self.checksum_ready and any(w != self.checksum for w in words):
-                self.bad_checksums += 1
-            self.checksum, self.checksum_ready = 0, True
-        else:
-            for i, w in enumerate(words):
-                self.frame[self.recv_idx][i] = w
-                self.checksum = (self.checksum + w) & 0xFFFF
-                self.nonzero |= w
-            self.recv_idx += 1
-            if self.recv_idx == CMD_LENGTH and self.nonzero:
-                self.received.append([row[:] for row in self.frame])
-                self.nonzero = 0
-        # load the next word
-        if self.send_idx == CMD_LENGTH:
-            self.loaded = self.checksum
-            self.current = None
-        else:
-            if self.send_idx == 0:
-                self.current = self.queue.pop(0) if self.queue else [0] * CMD_LENGTH
-            self.loaded = self.current[self.send_idx]
-            self.send_idx += 1
-        if self.recv_idx == CMD_LENGTH:
-            self.send_idx = self.recv_idx = 0
+        words = (list(words) + [0xFFFF] * 4)[:4]
+        before = len(self.gl.history)
+        self.gl.serial_cb(words, sio_id=self.my_id)
+        self.bad_checksums += sum(1 for h in self.gl.history[before:] if h[0] == "bad checksum")
+        if self.gl.send_cmd_index == 0 and self.gl.recv_cmd_index == 0:   # a command cycle done: a frame
+            self._frame()
+        while self.gl.recv_queue["count"]:
+            recv = self.gl._dequeue_recv_cmds()
+            self.received.append([row[:self.players] for row in recv])
 
     def send(self, *words):
-        self.queue.append(list(words) + [0] * (CMD_LENGTH - len(words)))
+        self.pending.append(list(words) + [0] * (CMD_LENGTH - len(words)))
+        if len(self.pending) == 1 and self.gl.send_queue["count"] == 0 and self.gl.send_cmd_index == 0:
+            self._frame()                     # (nothing queued and between cycles: this frame's)
 
     def send_block(self, data):
+        """pret:pokeruby/src/link.c:790 InitBlockSend - 0xBBBB, three frames with nothing
+        (pret:pokeruby/src/link.c:821 LinkCB_BlockSendBegin), then a 0x8888 a frame
+        (pret:pokeruby/src/link.c:828 LinkCB_BlockSend)."""
         self.send(0xBBBB, len(data), self.my_id + 128)
+        self.pending += [None] * 3
         for at in range(0, len(data), 14):
             chunk = data[at:at + 14].ljust(14, b"\0")
-            self.send(0x8888, *[chunk[j] | chunk[j + 1] << 8 for j in range(0, 14, 2)])
+            self.pending.append([0x8888] + [chunk[j] | chunk[j + 1] << 8 for j in range(0, 14, 2)])
 
 
 BLOCK_BUFFER_SIZE = 0x100                             # link.c
