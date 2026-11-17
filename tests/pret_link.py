@@ -58,6 +58,7 @@ class GameLink:
         self.s_recv_nonzero_check = 0
         self.s_checksum_available = False
         self.s_handshake_player_count = 0
+        self.last_recv_queue_count = 0    # gLastRecvQueueCount (not gLink's: EnableSerial clears it, below)
 
     # ------------------------------------------------------------------ once a frame
     def main1(self, should_advance, send_cmd):
@@ -119,7 +120,9 @@ class GameLink:
 
     def _disable_serial(self):
         """pret:pokeruby/src/link.c:1376 DisableSerial"""
+        keep = self.last_recv_queue_count
         self._clear()
+        self.last_recv_queue_count = keep     # (gLastRecvQueueCount isn't in gLink)
 
     def _enable_serial(self):
         """pret:pokeruby/src/link.c:1390 EnableSerial"""
@@ -201,8 +204,12 @@ class GameLink:
                 else:
                     self.state = CONN_ESTABLISHED
                 self.history.append(("linked", self.player_count))
-        self.serial_intr_counter += 1
+        self.serial_intr_counter = (self.serial_intr_counter + 1 + 128) % 256 - 128   # (an s8)
         self.s_num_vblanks_without_serial_intr = 0
+        if self.serial_intr_counter == 8:
+            # what the close and ready callbacks wait on to be 0: sampled here only - each command's
+            # eighth transfer as master (LinkVSync resets the count), once in 256 transfers as slave
+            self.last_recv_queue_count = self.recv_queue["count"]
 
     def _do_handshake(self, recv):
         """pret:pokeruby/src/link.c:1705 DoHandshake"""
@@ -659,7 +666,7 @@ class Console:
 
     def cb_close_send(self):
         """pret:pokeruby/src/link.c:1157 sub_8008350"""
-        if self.gl.recv_queue["count"] == 0:              # gLastRecvQueueCount
+        if self.gl.last_recv_queue_count == 0:            # gLastRecvQueueCount (SerialCB's sample)
             self.build_send_cmd(0x5FFF)
             self.callback = self.cb_close_wait
 
@@ -677,7 +684,7 @@ class Console:
 
     def cb_ready_send(self):
         """pret:pokeruby/src/link.c:1235 sub_80084C8"""
-        if self.gl.recv_queue["count"] == 0:
+        if self.gl.last_recv_queue_count == 0:
             self.build_send_cmd(0x2FFE)
             self.callback = self.cb_ready_wait
 

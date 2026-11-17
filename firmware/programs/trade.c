@@ -268,7 +268,11 @@ static void next_command(void)
         current[0] = 0xCAFE;
         current[1] = room_key();
         if (state < ST_WALKING) state = ST_WALKING;
-    } else if (game_lp_type == LT_BACK && room_keys_seen) {
+    } else if (game_lp_type == LT_BACK && room_keys_seen && !(sent_exit && game_exiting)) {
+                     /* (17 November: once both have left - our 23 sent, the game's seen - the game
+                      * stops its keys and closes, pret:pokeruby/src/field_fadetransition.c:478
+                      * sub_8081050; its close waits for an empty receive queue, link.c sub_8008350,
+                      * so a partner that kept sending a key a frame could hold it on a black screen) */
         current[0] = 0xCAFE;
         current[1] = exit_key();
     }

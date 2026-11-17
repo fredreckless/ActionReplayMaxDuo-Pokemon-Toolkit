@@ -106,6 +106,12 @@ that routine is next worked on, not before.
 - **Order within a frame (`MASTER_ORDER` in `pret_link.py`):** a frame's LinkMain1 dequeues the
   commands finished before this VBlank, and a CloseLink there stops the command just begun after one
   transfer. With that order the DUO sees no mismatch when the game closes as master.
+- **The close waits on a sample, not the queue** (17 November, evening): `sub_8008350` sends `0x5FFF`
+  only when `gLastRecvQueueCount` is 0, and Ruby's `SerialCB` sets that only when its transfer count
+  reaches 8 - each command's eighth transfer as master, once in 256 transfers as slave. Leaving a
+  room, the game stops its own keys first (`sub_8081050`); the DUO didn't, so with the DUO as master
+  the game could wait on a black screen for good (15 November). The DUO now stops its keys once both
+  have left, and the ported link layer samples as the game does.
 - **The blender writes `gSendCmd` itself** (`berry_blender.c` `sub_80500A8`), so its game isn't in
   lockstep with the DUO: the DUO's copy of the blend can end a frame or two off the game's own, as the
   game itself allows (it takes the leader's time and RPM). The test now allows it too.

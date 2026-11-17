@@ -1879,6 +1879,9 @@ def _():
     assert res["received"] == W.pk3_party_form(event), "the game didn't receive the event Pokemon exactly"
     assert res["saved"] and not res["national_dex_enabled"] and res["partner_seat"] == (7, 5), res
     assert len(res["partner_party"]) == 1 and res["partner_pick"] == 0
+    # once both have left the room the DUO's keys stop, as a real partner's do (17 November: the black
+    # screen of 15 November - the game's close waits for an empty receive queue)
+    assert res.get("partner_keys_after_close", 0) == 0, res.get("partner_keys_after_close")
     assert report["traded"] and report["bad_checksums"] == 0 and report["barriers"] == 4, report   # the room's fade-in, then the save's three
     assert kept_files(path) == [res["gave"]], "the .pk3 kept isn't what the game gave"
     assert W.parse_pk3(res["gave"])[0]["name"] == "MEW"
@@ -2784,7 +2787,8 @@ def _():
     assert r["mixed"] and r["partner_seat"] == (13, 6), r
     assert not set(trail[:-1]) & set(MG.SEATS), f"walked onto another seat: {trail}"
     assert _reversals(trail) == 0, f"back and forth: {trail}"
-    assert "blocked by your character" in hw.text, "the PC wasn't told the DUO was waiting"
+    # (whether a player pacing between two tiles ever blocks every way at once depends on the frame the
+    # DUO looks: since the link port, sometimes not - the PC's notice is checked with _shadow, below)
 
 
 @test("Record Mixing: the player sits in the DUO's seat - the DUO takes the seat behind it on its side")
@@ -2803,6 +2807,7 @@ def _():
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-800:])
     r = game.result
     assert r["mixed"] and r["partner_seat"] == (13, 6), (r, r.get("partner_trail"))
+    assert "blocked by your character" in hw.text, "the PC wasn't told the DUO was waiting"
 
 
 @test("trade into Emerald without the National Pokedex: the DUO's link player says it has one, so the player may offer a non-Hoenn Pokemon; the tool names the game; Jirachi (in the Hoenn Pokedex) is received")

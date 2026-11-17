@@ -267,6 +267,7 @@ def run(kind, name):
 
 
 TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
+    "trade: room keys go on after both have left (the black screen of 15 November)": ("    } else if (game_lp_type == LT_BACK && room_keys_seen && !(sent_exit && game_exiting)) {", "    } else if (game_lp_type == LT_BACK && room_keys_seen) {", "trade, the game as master"),
     "trade: player 1 heads for player 0's seat": ("seat_x = is_master ? 4 : 7;", "seat_x = is_master ? 4 : 4;", "trade, the game as master"),
     "trade: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "the player stands on the DUO's nearest door tile"),
     "trade: never waits for a step to finish before the next": ("    if (!rw_free(me)) return 17;\n    state = ST_WALKING_OUT;", "    state = ST_WALKING_OUT;", "the player stands right below the DUO's seat"),
@@ -292,7 +293,7 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
     "walk: the first plan clears only the walkable columns (7 November, hardware: paced on the left wall)": ("        rw_cx = rw_phase ? rw_x0 : 0;", "        rw_cx = rw_x0;", "the player steps up and down in the DUO's way"),
     "walk: plans only around where the player is this instant (back and forth)": ("    if (rw_clock - rw_moved_at > RW_FORGET) return 0;", "    return 0;", "the player steps up and down in the DUO's way"),
-    "walk: no patience - goes round the moment the player is in the way": ("        if (rw_clock - rw_wait_since < RW_PATIENCE) *k = 0;", "        if (0) *k = 0;", "the player steps up and down in the DUO's way"),
+    "walk: no patience - goes round the moment the player is in the way": ("        if (rw_clock - rw_wait_since < RW_PATIENCE) *k = 0;", "        if (0) *k = 0;", "the player keeps stepping in front of the DUO"),
     "walk: crosses other seats (their scripts stop it there)": ("&& (x != rw_goal_x || y != rw_goal_y)) return 1;", "&& 0) return 1;", "the player steps up and down in the DUO's way"),
     "mix: makes for its usual seat even with the player on it": ("    if (rw[1 - me].x == seat_x && rw[1 - me].y == 6) seat_y = 4;", "", "the player sits in the DUO's seat"),
     "mix: the game's own sections not handed back": ("        if (a < b) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "        if (0) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "Record Mixing, the game as master"),

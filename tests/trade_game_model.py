@@ -777,6 +777,10 @@ class Session:
         self.cmd = None if con.link_status & 0x100 or not con.link_status & 0x40 else \
             [list(con.recv_cmds[j]) for j in range(CMD_LENGTH)]
         cmd = self.cmd
+        if cmd is not None and self.close_wanted and self.link_type == LT_BACK and cmd[0][g.other] == 0xCAFE:
+            # the partner's room keys after the game has started to close (a real partner's game has
+            # stopped them by then: field_fadetransition.c sub_8081050's ClearLinkCallback_2)
+            g.result["partner_keys_after_close"] = g.result.get("partner_keys_after_close", 0) + 1
         if cmd is not None:
             for i in range(2):
                 c = cmd[0][i]
