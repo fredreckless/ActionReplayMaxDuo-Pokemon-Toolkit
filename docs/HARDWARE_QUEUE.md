@@ -66,13 +66,18 @@ When a test has been done, move it to "Done" with the date and what was seen (or
 | 12a | **The control**: the bit-by-bit link as one player (Ruby, the Trade Center) | `python duo_events.py lab4p --players 1` | Push the purple plug fully into the DUO's GBA. The live line should go to "the game's link is open and it answers" once you're with the attendant and saved, and its handshake read many times; then the game links and the trade screen comes as usual (cancel it). At the end: which DMA was found and paused, the latest sample (well under 48 cycles late), and no missing stop bits |
 | 12b | **Three players** (Ruby, the Trade Center) | `python duo_events.py lab4p --players 3` | The game says the number of participants is wrong (it counted four), and the tool says the game's checksums took in four slots. If the trade carries on as usual instead, try `--gap 2`, then `--gap 1` |
 
-## With the Wireless Adapter (once the cable comes out)
+## With the Mystery Gift cable (once the link cable comes out)
+
+No Wireless Adapter needed: the DUO plays it. Use the MGB-010, or any Game Boy Color cable that fits
+the GBA (not the GBA link cable: docs/WIRELESS.md).
 
 | # | Test | Command | What to look for |
 |---|---|---|---|
 | 13 | Mystery Gift through the guided start-up | `python duo_events.py gift --card X.wc3` | Received first time; the start-up's order is right |
 | 14 | English and European Emerald, FireRed, LeafGreen in other languages | `gift --card ...` (and `--sweep-serial` if a game never finds the distributor) | The serial table gains a line per game |
 | 15 | Wonder News (needs a real news file) | `python duo_events.py news --news X` | "News received"; the delivery man's berries |
+| 16 | **The Union Room: the DUO as a trainer** (Emerald, FireRed or LeafGreen; Pokemon Center 2F, the Union Room attendant) | `python duo_events.py union` | A trainer called DUO in the room; walk up, press A, GREETINGS: its card shows ("DUO"). The trace lists each step. Never tried on hardware |
+| 17 | **A Union Room trade from the trading board** | `python duo_events.py union --pk3 X.pk3 --want normal` | The board by the counter shows DUO's offer; pick it, choose one of yours of that type: the two cross, the game saves, the tool keeps yours in `received\` |
 
 ## Done
 
