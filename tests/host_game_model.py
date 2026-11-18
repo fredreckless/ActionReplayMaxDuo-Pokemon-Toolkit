@@ -517,12 +517,12 @@ from rfu_game_model import MGLink, crc16
  CLI_LOAD_GAME_DATA, CLI_SAVE_NEWS, CLI_SAVE_CARD, CLI_PRINT_MSG, CLI_COPY_MSG, CLI_ASK_TOSS, CLI_LOAD_TOSS_RESPONSE,
  CLI_RUN_MEVENT_SCRIPT, CLI_SAVE_STAMP, CLI_SAVE_RAM_SCRIPT, CLI_RECV_EREADER_TRAINER, CLI_SEND_STAT,
  CLI_SEND_READY_END) = range(21)
-CLI_MSG_CARD_RECEIVED, CLI_MSG_NEWS_RECEIVED, CLI_MSG_HAD_CARD, CLI_MSG_HAD_NEWS = 2, 3, 5, 7
+CLI_MSG_CARD_RECEIVED, CLI_MSG_NEWS_RECEIVED, CLI_MSG_HAD_CARD, CLI_MSG_HAD_NEWS = 2, 3, 5, 7   # pret:pokeemerald/include/mystery_gift_client.h:48 CLI_MSG_CARD_RECEIVED
 CLI_MSG_COMM_CANCELED, CLI_MSG_CANT_ACCEPT, CLI_MSG_COMM_ERROR, CLI_MSG_BUFFER_FAILURE = 9, 10, 11, 14
-# pret:pokeemerald/include/mystery_gift_link.h:9 MG_LINKID_*
+# pret:pokeemerald/include/mystery_gift_link.h:9 MG_LINKID_CLIENT_SCRIPT (and on)
 (MG_CLIENT_SCRIPT, MG_GAME_DATA, MG_GAME_STAT, MG_RESPONSE, MG_READY_END, MG_DYNAMIC_MSG, MG_CARD, MG_NEWS,
  MG_STAMP, MG_RAM_SCRIPT) = range(16, 26)
-SVR_MSG_CARD_SENT, SVR_MSG_NEWS_SENT, SVR_MSG_HAS_CARD, SVR_MSG_HAS_NEWS = 2, 3, 5, 7
+SVR_MSG_CARD_SENT, SVR_MSG_NEWS_SENT, SVR_MSG_HAS_CARD, SVR_MSG_HAS_NEWS = 2, 3, 5, 7   # pret:pokeemerald/include/mystery_gift_server.h:55 SVR_MSG_CARD_SENT
 SVR_MSG_CLIENT_CANCELED, SVR_MSG_CANT_SEND_GIFT_1 = 9, 10
 HAS_NO_CARD, HAS_SAME_CARD, HAS_DIFF_CARD = 0, 1, 2                # pret:pokeemerald/include/constants/mystery_gift.h:28
 SEND_TYPE_DISALLOWED, SEND_TYPE_ALLOWED = 0, 1
@@ -533,7 +533,7 @@ def client_script(*cmds):
     return b"".join(i.to_bytes(4, "little") + p.to_bytes(4, "little") for i, p in cmds)
 
 
-# pret:pokeemerald/src/mystery_gift_scripts.c:18 onwards (the client scripts the "Send" server uses)
+# pret:pokeemerald/src/mystery_gift_scripts.c:18 sClientScript_SendGameData onwards (the client scripts the "Send" server uses)
 CS_SEND_GAME_DATA = client_script((CLI_LOAD_GAME_DATA, 0), (CLI_SEND_LOADED, 0), (CLI_RECV, MG_CLIENT_SCRIPT), (CLI_COPY_RECV, 0))
 CS_CANT_ACCEPT = client_script((CLI_SEND_READY_END, 0), (CLI_RETURN, CLI_MSG_CANT_ACCEPT))
 CS_SAVE_CARD = client_script((CLI_RECV, MG_CARD), (CLI_SAVE_CARD, 0), (CLI_RECV, MG_RAM_SCRIPT), (CLI_SAVE_RAM_SCRIPT, 0),
@@ -551,13 +551,17 @@ CS_DYNAMIC_ERROR = client_script((CLI_RECV, MG_DYNAMIC_MSG), (CLI_COPY_MSG, 0), 
 GAME_DATA_VALID_VAR, GIFT_TYPE_1, GIFT_TYPE_2 = 0x101, 1 << 2, 1 << 9   # pret:pokeemerald/src/mystery_gift.c:342
 
 
-def validate_link_game_data(d, is_news):
+def validate_link_game_data(d, is_news, frlg=False):
     """pret:pokeemerald/src/mystery_gift.c:390 MysteryGift_ValidateLinkGameData (struct
-    MysteryGiftLinkGameData: u32 at 0, u16 at 4, u32 at 8, u16 at 0xC, u32 at 0x10, flagId at 0x14)."""
+    MysteryGiftLinkGameData: u32 at 0, u16 at 4, u32 at 8, u16 at 0xC, u32 at 0x10, flagId at 0x14).
+    FireRed/LeafGreen check the same words differently, for cards and news alike
+    (pret:pokefirered/src/mystery_gift.c:373 MysteryGift_ValidateLinkGameData)."""
     u16 = lambda o: d[o] | d[o + 1] << 8
     u32 = lambda o: int.from_bytes(d[o:o + 4], "little")
     if u32(0) != GAME_DATA_VALID_VAR or not u16(4) & 1 or not u32(8) & 1:
         return False
+    if frlg:
+        return bool(u16(0xC) & 1 and u32(0x10) & 0x0F)
     if not is_news and (not u16(0xC) & GIFT_TYPE_1 or not u32(0x10) & (GIFT_TYPE_2 | 0x180)):
         return False
     return True
@@ -569,8 +573,9 @@ class MGServer:
     (and RAM script) or news with the player linked as 1. Each script step is one call of run(), as
     MysteryGiftServer_CallFunc is called once a frame."""
 
-    def __init__(self, parent, card=None, ram_script=b"", news=None):
+    def __init__(self, parent, card=None, ram_script=b"", news=None, frlg=False):
         self.link = MGLink(parent, 0, 1)                           # MysteryGiftServer_Init(svr, script, 0, 1)
+        self.frlg = frlg
         self.is_news = news is not None
         card = bytearray(card or bytes(0x14C))
         if card[8] >> 6 == SEND_TYPE_ALLOWED:                      # DisableWonderCardSending
@@ -588,7 +593,7 @@ class MGServer:
             yield ("load", MG_CLIENT_SCRIPT, CS_SEND_GAME_DATA)
             yield ("send",)
             yield ("recv", MG_GAME_DATA)
-            if not validate_link_game_data(self.recv_buf, True):
+            if not validate_link_game_data(self.recv_buf, True, self.frlg):
                 yield from self._end(CS_CANT_ACCEPT, SVR_MSG_CANT_SEND_GIFT_1)
                 return
             yield ("load", MG_CLIENT_SCRIPT, CS_SAVE_NEWS)
@@ -605,7 +610,7 @@ class MGServer:
         yield ("send",)
         yield ("recv", MG_GAME_DATA)
         game_data = self.recv_buf
-        if not validate_link_game_data(game_data, False):
+        if not validate_link_game_data(game_data, False, self.frlg):
             yield from self._end(CS_CANT_ACCEPT, SVR_MSG_CANT_SEND_GIFT_1)
             return
         their_flag = game_data[0x14] | game_data[0x15] << 8         # MysteryGift_CompareCardFlags
@@ -666,7 +671,8 @@ class MGServer:
         return self.func == "done"
 
 
-def lead_and_share(game, card=None, ram_script=b"", news=None, compat=RFU.EN_EMERALD, wait_frames=121, max_frames=1500):
+def lead_and_share(game, card=None, ram_script=b"", news=None, compat=RFU.EN_EMERALD, wait_frames=121, max_frames=1500,
+                   frlg=False):
     """Stage H3, all of "Send" as the game does it (pret:pokeemerald/src/mystery_gift_menu.c:1522
     MG_STATE_SEND onwards): host, accept, link players, the server - while the leader's standby
     (Task_SendMysteryGift state 16) runs - then Rfu_SetCloseLinkCallback and, once the DUO is ready
@@ -689,7 +695,7 @@ def lead_and_share(game, card=None, ram_script=b"", news=None, compat=RFU.EN_EME
             if not standby:
                 parent.set_standby()                               # Task_SendMysteryGift 16
                 standby = True
-                server = MGServer(parent, card, ram_script, news)  # MG_STATE_SERVER_LINK_START
+                server = MGServer(parent, card, ram_script, news, frlg)   # MG_STATE_SERVER_LINK_START
             elif server.result is None and server.run():
                 parent.close_task = True                           # MG_STATE_SERVER_LINK_END
         parent.tasks()

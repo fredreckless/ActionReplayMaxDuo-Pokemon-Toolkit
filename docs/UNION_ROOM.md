@@ -5,9 +5,14 @@ readable, then trades (and later battles and chat), all over the Mystery Gift ca
 Game Boy Color cable: a GBA link cable won't do, see WIRELESS.md). No Wireless Adapter: the DUO
 plays the adapter *and* the player behind it, as it already does for Mystery Gift.
 
-**Status (18 November):** milestones 1 and 2 work in the simulator - `python duo_events.py union`, the
-`union` program (adapter.c built with `-DUNION_ROOM`, 10.4 KB). Nothing on hardware yet - it needs
-the cable swapped.
+**Status (18 November):** milestones 1 and 2 and chat work in the simulator - `python duo_events.py
+union`, the `union` program (adapter.c built with `-DUNION_ROOM`, 11.1 KB). Nothing on hardware yet -
+it needs the cable swapped.
+
+**Fixed 18 November, afternoon:** the trade request's activity was taken as 3; it is
+`ACTIVITY_TRADE`, 4 (pret:pokeemerald/include/constants/union_room.h:24 - 3 is a multi battle). The
+model had the same slip, so the simulator agreed with the program; on hardware the DUO would have
+said no to every trade. Both now cite the header, and a planted bug brings back the old value.
 
 **Try it (when the MGB-010 or another Game Boy Color cable is in):** `python duo_events.py union`,
 then in Emerald, FireRed or LeafGreen go to the Union Room, walk up to the trainer called DUO, press
@@ -95,14 +100,30 @@ another picks that offer, chooses one of their own of that type, and asks.
 The full trade screen (choosing from the whole party) is the Direct Corner's wireless Trade Center:
 a group link-up, then the Cable Club trade over wireless. That's a later milestone.
 
+## Chat (simulator: done 18 November)
+
+From the talk menu, CHAT (`IN_UNION_ROOM | ACTIVITY_CHAT`, 0x45): the DUO says yes, a standby, then
+both are in pret:pokeemerald/src/union_room_chat.c. Every message there is a 40-byte block: its kind
+(CHAT 1, JOIN 2, LEAVE 3, DROP 4), the sender's name (8 bytes), then the text - or, for the others,
+the sender's player number (pret:pokeemerald/src/union_room_chat.c:1830 PrepareSendBuffer_Join and
+the rest). The DUO is the leader, player 0:
+
+- when the player's JOIN arrives, it joins too and says "HELLO! I'M THE DUO.";
+- each message the player sends, it says back, and the PC prints it (`"NAME: text"`);
+- when the player leaves (LEAVE), the DUO ends the chat with DROP, as a leader left on its own does
+  (`Task_ReceiveChatMessage`, then `Chat_Exit`); the game then closes the link as usual.
+
+The model is `URoomChild.chat_frame` in `tests/union_room_model.py`.
+
 ## Later
 
 - The player contacting the game first (the DUO as child: the game's `UR_STATE_PLAYER_CONTACTED_YOU`).
-- Battles (`union_room_battle.c`), chat (`union_room_chat.c`), the trade board.
-- Mystery Gift with a friend (`Task_SendMysteryGift`, `Task_CardOrNewsWithFriend`).
+- Battles (`union_room_battle.c`).
+- Mystery Gift with a friend: done the other way round (the game sends, the DUO keeps it) in the
+  `join` program - docs/WIRELESS_HOST.md.
 - The wireless minigames and groups of more than two.
 
 ## Size
 
 The distributor program is 11,656 of 11,760 bytes. The Union Room is a new program, `union`, from
-the same parts with the Mystery Gift server left out.
+the same parts with the Mystery Gift server left out: 11,384 bytes with chat.

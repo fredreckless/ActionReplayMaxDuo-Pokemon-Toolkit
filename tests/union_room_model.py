@@ -11,7 +11,8 @@ IN_UNION_ROOM = 0x40                    # pret:pokeemerald/include/constants/uni
 ACTIVITY_CARD = 8                       # pret:pokeemerald/include/constants/union_room.h:28 ACTIVITY_CARD
 ACTIVITY_ACCEPT = 17                    # pret:pokeemerald/include/constants/union_room.h:39 ACTIVITY_ACCEPT
 ACTIVITY_DECLINE = 18                   # pret:pokeemerald/include/constants/union_room.h:40 ACTIVITY_DECLINE
-ACTIVITY_TRADE = 3
+ACTIVITY_TRADE = 4                      # pret:pokeemerald/include/constants/union_room.h:24 ACTIVITY_TRADE
+ACTIVITY_CHAT = 5                       # pret:pokeemerald/include/constants/union_room.h:25 ACTIVITY_CHAT
 RFU_SERIAL_GAME = 0x0002                # pret:pokeemerald/include/link_rfu.h:23 RFU_SERIAL_GAME
 CMD_PACKET = 0x2F00                     # pret:pokeemerald/include/link_rfu.h:10 RFUCMD_SEND_PACKET
 LANGUAGE_JAPANESE = 1
@@ -76,6 +77,7 @@ class URoomChild:
         self.c, self.card, self.activity, self.offer = child, card, activity, offer
         self.state, self.cards, self.answer, self.result = "communicating", {}, None, None
         self.received_mon, self.timer, self.anim_frames = None, 0, anim_frames
+        self.say = b"\xC2\xDD\x00\xBE\xCF\xC9\xAB"          # "Hi DUO!" (what the player types)
 
     def frame(self):
         c = self.c
@@ -105,6 +107,9 @@ class URoomChild:
                 elif self.activity == ACTIVITY_TRADE:
                     c.set_standby()                      # pret:pokeemerald/src/union_room.c:3010 UR_STATE_START_ACTIVITY_LINK
                     self.state = "starting trade"
+                elif self.activity == ACTIVITY_CHAT:
+                    c.set_standby()
+                    self.state = "starting chat"
                 else:
                     self.state, self.result = "done", "accepted"
             elif r == IN_UNION_ROOM | ACTIVITY_DECLINE:
@@ -163,6 +168,12 @@ class URoomChild:
                     else:
                         c.close_task = True
                         self.state, self.result = "done", "traded"
+        elif self.state == "starting chat":              # then EnterUnionRoomChat (pret:pokeemerald/src/union_room.c:1715)
+            if c.callback is None and c.all_ready_num:
+                self.chat_log, self.chat_sent, self.chat_state = [], 0, "join"
+                self.state = "chat"
+        elif self.state == "chat":
+            return self.chat_frame()
         elif self.state == "reading card":
             if c.callback is None and c.all_ready_num:   # the standby is over
                 c.close_task = True                      # (the player chooses EXIT)
@@ -170,11 +181,71 @@ class URoomChild:
         return self.state == "done"
 
 
-def union_room_session(game, child, ur, max_frames=3000):
+    # -- the chat (pret:pokeemerald/src/union_room_chat.c), as player 1 -----------------------------
+    CHAT_NAME = b"\xC1\xC2\xC3\xFF\xFF\xFF\xFF\xFF"
+
+    def chat_buffer(self, kind, text=b""):
+        """PrepareSendBuffer_*: the kind, our name, then the text or (JOIN, LEAVE) our player number."""
+        b = bytearray(40)
+        b[0], b[1:9] = kind, self.CHAT_NAME
+        if kind == CHAT_MESSAGE_CHAT:
+            b[9:9 + len(text) + 1] = text + b"\xFF"
+        else:
+            b[9] = self.c.multiplayer_id
+        return bytes(b)
+
+    def chat_frame(self):
+        """Chat_Join, Chat_SendMessage, then leaving (Chat_HandleInput's "quit": LEAVE, then wait to be
+        dropped - Chat_Drop), with Task_ReceiveChatMessage reading every block as it comes."""
+        c = self.c
+        st = c.block_status()
+        for i in range(c.player_count):                  # Task_ReceiveChatMessage
+            if st >> i & 1:
+                msg = bytes(c.block_recv_buffer[i][:40])
+                c.reset_block_received(i)
+                self.chat_log.append((i, msg))
+                if i == 0 and msg[0] == CHAT_MESSAGE_DROP:
+                    self.chat_state = "dropped"          # CHAT_EXIT_DROPPED (we are not the leader)
+        free = c.callback is None and c.send_cmd[0] == 0 and not c.exchange_active
+        from_duo = [m for i, m in self.chat_log if i == 0]
+        if self.chat_state == "join":
+            if free and c.init_block_send(self.chat_buffer(CHAT_MESSAGE_JOIN), 40):
+                self.chat_state = "wait hello"
+        elif self.chat_state == "wait hello":
+            if any(m[0] == CHAT_MESSAGE_CHAT for m in from_duo):
+                self.chat_state = "say"
+        elif self.chat_state == "say":
+            if free and c.init_block_send(self.chat_buffer(CHAT_MESSAGE_CHAT, self.say), 40):
+                self.chat_state = "wait reply"
+        elif self.chat_state == "wait reply":
+            if sum(m[0] == CHAT_MESSAGE_CHAT for m in from_duo) >= 2:
+                self.chat_state = "leave"
+        elif self.chat_state == "leave":
+            if free and c.init_block_send(self.chat_buffer(CHAT_MESSAGE_LEAVE), 40):
+                self.chat_state = "wait drop"
+        elif self.chat_state == "dropped":                # Chat_Drop: SetCloseLinkCallback
+            if free:
+                c.close_task = True
+                self.state, self.result = "done", "chatted"
+        return self.state == "done"
+
+
+CHAT_MESSAGE_CHAT, CHAT_MESSAGE_JOIN, CHAT_MESSAGE_LEAVE, CHAT_MESSAGE_DROP = 1, 2, 3, 4   # pret:pokeemerald/src/union_room_chat.c:43 CHAT_MESSAGE_CHAT
+
+
+def union_room_session(game, child, ur, max_frames=3000, drop_every=0):
     """After joining: every frame the adapter says 'data ready', the game reads the host's packet,
-    runs link_rfu_2 and the Union Room's states, and answers. Ends once the link is closed."""
-    for _ in range(max_frames):
+    runs link_rfu_2 and the Union Room's states, and answers. Ends once the link is closed.
+    drop_every=N: every Nth packet is lost on the way, as in rfu_game_model.receive_gift."""
+    child.dropped = 0
+    for frame in range(max_frames):
         ack = yield from game.command(0x26)
+        if drop_every and frame % drop_every == drop_every - 1:
+            child.dropped += 1
+            ready = yield from game.change(0x27)
+            if ready != 0x99660028:
+                raise LinkError(f"expected 'data ready', got {ready:#010x}")
+            continue
         child.msc(ack)
         child.main()
         ur.frame()
@@ -194,7 +265,7 @@ def union_room_session(game, child, ur, max_frames=3000):
     raise LinkError(f"Union Room not finished (state {ur.state}, exchange {child.exchange_state})")
 
 
-def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=None, offer=None):
+def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=None, offer=None, drop_every=0):
     """The whole of milestone 1: find the DUO in the room, walk up, press A, connect, exchange
     link players and cards, ask for `activity` and see the answer."""
     found = yield from find_union_room_player(game, compat=compat)
@@ -203,5 +274,5 @@ def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=No
     yield from RFU.wait_join_status(game)
     child = RFU.ChildLink()
     ur = URoomChild(child, card or trainer_card(), activity, offer=offer)
-    yield from union_room_session(game, child, ur, max_frames=6000)
+    yield from union_room_session(game, child, ur, max_frames=6000, drop_every=drop_every)
     return found, child, ur

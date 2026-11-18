@@ -553,8 +553,31 @@ static void build_card(void)
 #define UR_TRADE_MAIL 11
 #define UR_TRADE_SCENE 12
 #define UR_TRADE_DONE 13
-#define ACT_TRADE (0x40 | 3)
+#define ACT_TRADE (0x40 | 4)            /* pret:pokeemerald/include/constants/union_room.h:24 ACTIVITY_TRADE */
 static u8 game_mon[100];
+
+/* Chat (pret:pokeemerald/src/union_room_chat.c): every message is a 40-byte block - its kind
+ * (CHAT_MESSAGE_CHAT 1, JOIN 2, LEAVE 3, DROP 4), the sender's name (8 bytes), then the text (or,
+ * for JOIN, LEAVE and DROP, the sender's player number). We are the leader, player 0: we join,
+ * say hello, repeat back whatever the player says, and when the player leaves, end the chat
+ * (DROP), as a leader left alone does (Task_ReceiveChatMessage, then Chat_Exit). */
+#define ACT_CHAT (0x40 | 5)             /* pret:pokeemerald/include/constants/union_room.h:25 ACTIVITY_CHAT */
+#define UR_CHAT 14
+#define UR_CHAT_DONE 15
+static u8 chat_out[40], chat_last[40];
+static u32 chat_due, chat_count;
+static const u8 chat_hello[] = { 0xC2, 0xBF, 0xC6, 0xC6, 0xC9, 0xAB, 0x00, 0xC3, 0xB4, 0xC7, 0x00, 0xCE, 0xC2, 0xBF, 0x00,
+                                 0xBE, 0xCF, 0xC9, 0xAD, 0xFF };           /* "HELLO! I'M THE DUO." */
+
+static void chat_block(u32 kind, const u8 *text, u32 n)
+{
+    memset(chat_out, 0, sizeof chat_out);
+    chat_out[0] = kind;
+    chat_out[1] = 0xBE; chat_out[2] = 0xCF; chat_out[3] = 0xC9; chat_out[4] = 0xFF;   /* "DUO" */
+    for (u32 i = 0; i < n && 9 + i < sizeof chat_out; i++)
+        chat_out[9 + i] = text[i];
+    bs_start(chat_out, sizeof chat_out, sizeof chat_out);
+}
 static const u8 confirm_block[2] = { 0xBA, 0xDC };        /* LINKCMD_CONFIRM_FINISH_TRADE */
 #define MAIL_SIZE (6 * 36 + 4)                            /* sizeof(struct Mail) * PARTY_SIZE + 4 */
 
@@ -606,11 +629,38 @@ static void mg_frame(void)
         }
         break;
     case UR_TRADE_DONE:
+    case UR_CHAT_DONE:
+        break;
+    case UR_CHAT:
+        if (chat_due) {                                    /* after our JOIN: hello */
+            chat_due = 0;
+            chat_block(1, chat_hello, sizeof chat_hello);
+            break;
+        }
+        if (rb.done != mg_got) {
+            mg_got = rb.done;
+            switch (rb.head[0]) {
+            case 2:                                        /* the player joined: so do we (player 0) */
+                chat_block(2, 0, 0);
+                chat_due = 1;
+                break;
+            case 1:                                        /* a message: kept for the PC, said back */
+                memcpy(chat_last, rb.head, sizeof chat_last);
+                chat_count++;
+                chat_block(1, rb.head + 9, 31);
+                break;
+            case 3:                                        /* the player left: the chat is over */
+                chat_block(4, 0, 0);
+                mg_step = UR_CHAT_DONE;
+                break;
+            }
+            trace(EV_UR_STEP, 0, UR_CHAT << 16 | rb.head[0] << 8 | (chat_count & 0xFF));
+        }
         break;
     default:                                 /* pret:pokeemerald/src/union_room.c:4289 PollPartnerYesNoResponse */
         if (ur_packet) {
             mg_resp = ur_packet;
-            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)
+            ur_answer = ur_packet == ACT_CARD || ur_packet == ACT_CHAT || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)
                       ? ACT_ACCEPT : ACT_DECLINE;
             ur_packet = 0;
             ur_reply = 3;                                  /* (the game reads it on any frame) */
@@ -619,6 +669,10 @@ static void mg_frame(void)
             if (mg_resp == ACT_TRADE && ur_answer == ACT_ACCEPT) {
                 mg_got = rb.done;
                 mg_step = UR_TRADE_MON;
+            }
+            if (mg_resp == ACT_CHAT) {
+                mg_got = rb.done;
+                mg_step = UR_CHAT;
             }
         }
         if (ur_reply) {
@@ -2028,6 +2082,8 @@ static int pc_service(api_t *api)
 #endif
 #ifdef UNION_ROOM
     case 29: ur_offer = idx; build_host(); v = ur_offer; break;          /* the trading board's offer */
+    case 33: v = idx < 10 ? chat_last[4 * idx] | chat_last[4 * idx + 1] << 8 | chat_last[4 * idx + 2] << 16
+                 | (u32)chat_last[4 * idx + 3] << 24 : chat_count; break;   /* the player's last chat message */
     case 30: v = (i & 31) < 25 ? game_mon[4 * (i & 31)] | game_mon[4 * (i & 31) + 1] << 8
                  | game_mon[4 * (i & 31) + 2] << 16 | (u32)game_mon[4 * (i & 31) + 3] << 24 : 0; break;
 #endif

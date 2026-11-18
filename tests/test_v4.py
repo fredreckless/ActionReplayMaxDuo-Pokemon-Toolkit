@@ -3174,6 +3174,56 @@ def _():
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
     found, child, ur = hw.lg_result
     assert ur.result == "declined", (ur.state, ur.answer)
+    names = [t for t, _ in trace]                     # (0x44: ACTIVITY_TRADE is 4, not 3 - 18 November)
+    assert any("the game asked for a trade; the DUO said no" in n for n in names), names[-8:]
+
+
+@test("Union Room chat: asked to chat, the DUO accepts; in the chat it joins, says hello, says back what the player types, and ends the chat when the player leaves; the PC shows the player's message")
+def _():
+    import union_room_model as UR
+    hw, game, trace, st, counters = adapter_session(lambda g: UR.talk_to_partner(g, activity=UR.ACTIVITY_CHAT),
+                                                    first_bit=True, seconds=150, program="union")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    assert ur.result == "chatted", (ur.state, ur.answer, getattr(ur, "chat_state", None))
+    duo = [m for i, m in ur.chat_log if i == 0]
+    assert [m[0] for m in duo] == [UR.CHAT_MESSAGE_JOIN, UR.CHAT_MESSAGE_CHAT, UR.CHAT_MESSAGE_CHAT, UR.CHAT_MESSAGE_DROP], [m.hex() for m in duo]
+    assert all(m[1:4] == bytes([0xBE, 0xCF, 0xC9]) for m in duo), duo               # all from "DUO"
+    assert W.gen3_text(duo[1][9:]) == "HELLO! I'M THE DUO." and duo[2][9:9 + len(ur.say)] == ur.say, duo
+    assert W.adapter_trace.chat == ["GHI: Hi DUO!"], W.adapter_trace.chat
+    names = [t for t, _ in trace]
+    assert any("the game asked for a chat; the DUO said yes" in n for n in names), names[-8:]
+    assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
+
+
+@test("Union Room trade, with every 7th packet lost on the way: both Pokemon still cross intact, the go-ahead still waits for the game's animation")
+def _():
+    import union_room_model as UR
+    duo_raw = test_pk3(species=25, pid=0x0BADF00D, otid=0x0000_4E44, ot="DUO")
+    duo_path = event_file(duo_raw, "025 - PIKACHU - TEST.pk3")
+    game_mon = W.pk3_party_form(test_pk3(species=19, pid=0x00C0FFEE, otid=0x0000_D4C1, ot="FRED"))
+    offer = dict(mon=game_mon, species=19, level=game_mon[84])
+    hw, game, trace, st, counters = adapter_session(
+        lambda g: UR.talk_to_partner(g, activity=UR.ACTIVITY_TRADE, offer=offer, drop_every=7), first_bit=True,
+        seconds=240, program="union", union_pk3=duo_path, union_want="normal")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    assert ur.result == "traded" and child.dropped > 20, (ur.state, ur.result, child.dropped)
+    assert ur.received_mon == W.pk3_party_form(duo_raw) and W.adapter_trace.last_received == game_mon
+
+
+@test("Union Room chat, with every 7th packet lost on the way: the DUO sends again until the game shows it got each one; the whole chat still goes through")
+def _():
+    import union_room_model as UR
+    hw, game, trace, st, counters = adapter_session(
+        lambda g: UR.talk_to_partner(g, activity=UR.ACTIVITY_CHAT, drop_every=7), first_bit=True, seconds=180,
+        program="union")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    assert ur.result == "chatted" and child.dropped > 20, (ur.state, getattr(ur, "chat_state", None), child.dropped)
+    duo = [m for i, m in ur.chat_log if i == 0]
+    assert [m[0] for m in duo] == [UR.CHAT_MESSAGE_JOIN, UR.CHAT_MESSAGE_CHAT, UR.CHAT_MESSAGE_CHAT, UR.CHAT_MESSAGE_DROP], [m.hex() for m in duo]
+    assert W.adapter_trace.chat == ["GHI: Hi DUO!"], W.adapter_trace.chat
 
 
 @test("Union Room (milestone 2): the DUO's Pokemon on the trading board; the game offers one of the wanted type, the DUO accepts, the two Pokemon cross, the game finishes its animation, gets the go-ahead, saves and closes; the PC keeps what came")
@@ -3252,6 +3302,20 @@ def _():
     assert "Mystery Gift with a friend: our client finished: the Wonder Card arrived" in names, names[-10:]
     assert any(n.startswith("the game is ready to close the link") for n in names), names[-10:]
     assert "Kept on this PC" in hw.text and game.retries == 0, (hw.text[-400:], game.retries)
+
+
+@test("the game as wireless host (stage H3, FireRed): FireRed's server checks the DUO's game data its own way (pret:pokefirered MysteryGift_ValidateLinkGameData) and the card still arrives")
+def _():
+    import host_game_model as HG
+    path, card, script = test_wc3("English")
+    W.RECEIVED_DIR = os.path.join(tempfile.mkdtemp(), "received")
+    fr = 0x02 | 1 << 7 | 1 << 8 | 1 << 9 | 4 << 10                   # English FireRed, as it broadcasts
+    hw, game, trace, st, counters = adapter_session(lambda g: HG.lead_and_share(g, card, script, compat=fr, frlg=True),
+                                                    first_bit=True, seconds=150, program="join")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    parent, server = hw.lg_result
+    assert server.result == HG.SVR_MSG_CARD_SENT, server.history
+    assert W.adapter_trace.last_gift["result"] == HG.CLI_MSG_CARD_RECEIVED, W.adapter_trace.last_gift
 
 
 @test("the game as wireless host (stage H3, news): Send for Wonder News - the DUO keeps the news and answers that it was saved; the PC writes a news file the tool can read back")

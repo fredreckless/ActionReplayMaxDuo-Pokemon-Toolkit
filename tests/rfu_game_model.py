@@ -494,10 +494,10 @@ def wait_join_status(game, max_frames=120):
 # the block send functions, Task_PlayerExchange, Rfu_LinkStandby, the close-link callbacks),
 # link_rfu_3.c (the queues), link.c (LocalLinkPlayerToBlock / LinkPlayerFromBlock),
 # mystery_gift_link.c and mystery_gift_client.c, util.c (CalcCRC16WithTable).
-CMD_SEND_PACKET, CMD_READY_CLOSE, CMD_READY_EXIT = 0x2F00, 0x5F00, 0x6600
-CMD_PLAYER_IDS, CMD_PLAYER_IDS_NEW = 0x7700, 0x7800
-CMD_BLOCK_INIT, CMD_BLOCK, CMD_BLOCK_REQ, CMD_DISCONNECT = 0x8800, 0x8900, 0xA100, 0xED00
-COMM_SLOT_LENGTH, MAX_RFU_PLAYERS, UNI_RECV_SIZE = 14, 5, 70
+CMD_SEND_PACKET, CMD_READY_CLOSE, CMD_READY_EXIT = 0x2F00, 0x5F00, 0x6600   # pret:pokeemerald/include/link_rfu.h:10 RFUCMD_SEND_PACKET
+CMD_PLAYER_IDS, CMD_PLAYER_IDS_NEW = 0x7700, 0x7800   # pret:pokeemerald/include/link_rfu.h:14 RFUCMD_SEND_PLAYER_IDS
+CMD_BLOCK_INIT, CMD_BLOCK, CMD_BLOCK_REQ, CMD_DISCONNECT = 0x8800, 0x8900, 0xA100, 0xED00   # pret:pokeemerald/include/link_rfu.h:16 RFUCMD_SEND_BLOCK_INIT
+COMM_SLOT_LENGTH, MAX_RFU_PLAYERS, UNI_RECV_SIZE = 14, 5, 70   # pret:pokeemerald/include/link_rfu.h:28 COMM_SLOT_LENGTH
 RECV_READY, RECV_RECEIVING, RECV_FINISHED = 0, 1, 2
 BLOCK_REQUEST_SIZES = [200, 200, 100, 220, 40]
 MAGIC = b"GameFreak inc."

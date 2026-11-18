@@ -77,8 +77,9 @@ the GBA (not the GBA link cable: docs/WIRELESS.md).
 | 14 | English and European Emerald, FireRed, LeafGreen in other languages | `gift --card ...` (and `--sweep-serial` if a game never finds the distributor) | The serial table gains a line per game |
 | 15 | Wonder News (needs a real news file) | `python duo_events.py news --news X` | "News received"; the delivery man's berries |
 | 16 | **The Union Room: the DUO as a trainer** (Emerald, FireRed or LeafGreen; Pokemon Center 2F, the Union Room attendant) | `python duo_events.py union` | A trainer called DUO in the room; walk up, press A, GREETINGS: its card shows ("DUO"). The trace lists each step. Never tried on hardware |
-| 17 | **A Union Room trade from the trading board** | `python duo_events.py union --pk3 X.pk3 --want normal` | The board by the counter shows DUO's offer; pick it, choose one of yours of that type: the two cross, the game saves, the tool keeps yours in `received\` |
+| 17 | **A Union Room trade from the trading board** | `python duo_events.py union --pk3 X.pk3 --want normal` | The board by the counter shows DUO's offer; pick it, choose one of yours of that type: the two cross, the game saves, the tool keeps yours in `received\` (the program before 18 November would have refused every trade: a wrong activity number, now fixed) |
 | 18 | **Mystery Gift with a friend, Send** (Emerald with a Wonder Card it may share: the card's view offers SEND) | `python duo_events.py friend` | DUO appears in the game's list of people to send to; choose YES. The game says the card was sent; the tool keeps a `.wc3` in `received\` (the tool can hand it out again with `gift --card`, to a game without that card). Never tried on hardware |
+| 19 | **Union Room chat** | `python duo_events.py union` | Walk up to DUO, press A, CHAT: the DUO says yes; in the chat it joins and says hello; type something (START sends it) and it says it back, and the PC prints what you typed; quit the chat and it ends. Never tried on hardware |
 
 ## Done
 
