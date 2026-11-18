@@ -406,6 +406,7 @@ static void nis_ack(u32 st, u32 phase, u32 n)
 #define CMD_READY_CLOSE 0x5F00
 #define CMD_READY_EXIT  0x6600
 #define CMD_PLAYER_IDS  0x7700
+#define CMD_PLAYER_IDS_NEW 0x7800
 #define CMD_BLOCK_INIT  0x8800
 #define CMD_BLOCK       0x8900
 #define CMD_BLOCK_REQ   0xA100
@@ -956,6 +957,91 @@ static const u8 our_name[26] = {
     0xBE, 0xCF, 0xC9, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00   /* uname: "DUO" */
 };
 
+/* Stage H2b (docs/WIRELESS_HOST.md): link_rfu_2 with the game as parent. Every frame it sends its
+ * command table - seven u16s per link player, its own in row 0, ours (as it last got them) in our
+ * row - and we answer each with one 14-byte UNI frame: our command, a sequence number in byte 0's
+ * top three bits (pret:pokeemerald/src/link_rfu_2.c:908 ChildBuildSendCmd), which the game checks
+ * counts up by one (pret:pokeemerald/src/link_rfu_2.c:824 RfuMain2_Parent). What we do with it is
+ * the child's side of pret:pokeemerald/src/link_rfu_2.c:1754 Task_PlayerExchange: take our player
+ * number from SEND_PLAYER_IDS, answer BLOCK_REQ with our link player, read the game's. */
+static u8 parent_uni[UNI_BYTES];
+static u32 parent_uni_new, child_seq, my_id, n_players, join_linked, n_tables;
+static struct { u32 state, count, next, echo, wait; } cs;     /* our block: 1 announcing, 2 chunks, 3 checking, 4 done */
+static const u8 block_req_size[5] = { 200, 200, 100, 220, 40 };   /* link_rfu_2.c sBlockRequests */
+#define EV_BLOCK_SENT 0x7D              /* the game has every chunk of our link player */
+
+static void cs_chunk(u32 n)
+{
+    tx_cmd[0] = CMD_BLOCK | n;
+    for (u32 j = 0; j < 6; j++) {
+        u32 at = n * 12 + 2 * j;
+        tx_cmd[1 + j] = (at < sizeof player_block ? player_block[at] : 0)
+                      | (at + 1 < sizeof player_block ? player_block[at + 1] : 0) << 8;
+    }
+}
+
+static void join_link(void)             /* one table from the game: pret RfuHandleReceiveCommand, as child */
+{
+    memset(tx_cmd, 0, sizeof tx_cmd);
+    n_tables++;
+    for (u32 j = 0; j < 7; j++)                                      /* row 0: the game's command */
+        rx_cmd[j] = parent_uni[2 * j] | parent_uni[2 * j + 1] << 8;
+    switch (rx_cmd[0] & 0xFF00) {
+    case CMD_PLAYER_IDS: case CMD_PLAYER_IDS_NEW:
+        n_players = rx_cmd[1];
+        my_id = rx_cmd[2] & 0xFF;                                    /* linkPlayerIdx[childSlot 0] */
+        break;
+    case CMD_BLOCK_INIT: rb_init(); break;
+    case CMD_BLOCK:      rb_chunk(rx_cmd[0] & 0xFF); break;
+    case CMD_BLOCK_REQ:
+        if (!cs.state && my_id) {
+            build_player_block();
+            cs.count = ((rx_cmd[1] < 5 ? block_req_size[rx_cmd[1]] : 0) + 11) / 12;
+            cs.state = cs.count ? 1 : 0;
+            cs.next = cs.echo = 0;
+        }
+        break;
+    }
+    if (rb.done && !join_linked) {                                   /* the game's link player */
+        join_linked = 1;
+        memcpy(child_player, rb.head, sizeof child_player);
+        trace(EV_LINK_PLAYERS, 0, child_player[20] | child_player[21] << 8 | child_player[22] << 16
+              | (u32)child_player[23] << 24);
+    }
+    if (my_id && my_id < 5) {                                        /* our row: what the game got from us */
+        u32 e = parent_uni[14 * my_id] | parent_uni[14 * my_id + 1] << 8;
+        if ((e & 0xFF00) == CMD_BLOCK_INIT && cs.state == 1)
+            cs.state = 2;
+        if ((e & 0xFF00) == CMD_BLOCK && (e & 0x1F) < 24)
+            cs.echo |= 1u << (e & 0x1F);
+    }
+    switch (cs.state) {
+    case 1:
+        tx_cmd[0] = CMD_BLOCK_INIT; tx_cmd[1] = cs.count; tx_cmd[2] = my_id + 0x80;
+        break;
+    case 2:
+        cs_chunk(cs.next++);
+        if (cs.next >= cs.count) { cs.state = 3; cs.wait = 0; }
+        break;
+    case 3:
+        if (cs.echo == (1u << cs.count) - 1) {
+            cs.state = 4;
+            trace(EV_BLOCK_SENT, 0, cs.count);
+        } else if (++cs.wait > 2) {                                  /* a chunk the game missed: again */
+            for (u32 k = 0; k < cs.count; k++) {
+                u32 n = cs.next + k;
+                if (n >= cs.count) n -= cs.count;
+                if (!(cs.echo >> n & 1)) { cs_chunk(n); cs.next = n + 1; break; }
+            }
+        }
+        break;
+    }
+    if (tx_cmd[0]) {
+        tx_cmd[0] |= child_seq << 5;
+        child_seq = (child_seq + 1) & 7;
+    }
+}
+
 static void join_receive(void)          /* the game's 0x24/0x25: total bytes, then parent sub-frames */
 {
     u32 bytes = req[0] & 0x7F, at = 0;
@@ -965,7 +1051,11 @@ static void join_receive(void)          /* the game's 0x24/0x25: total bytes, th
     while (bytes - at >= 3 && at < 4 * 31) {
         u32 h = d[at] | d[at + 1] << 8 | d[at + 2] << 16, len = h & 0x7F;
         u32 st = h >> 14 & 0xF, ph = h >> 9 & 3, n = h >> 11 & 3;
-        if (!(h >> 22 & 3) && (h >> 18 & 1) && st != LCOM_UNI) {
+        if (!(h >> 22 & 3) && (h >> 18 & 1) && st == LCOM_UNI && len <= UNI_BYTES) {
+            memcpy(parent_uni, d + at + 3, len);                     /* stage H2b: the game's table */
+            memset(parent_uni + len, 0, UNI_BYTES - len);
+            parent_uni_new = 1;
+        } else if (!(h >> 22 & 3) && (h >> 18 & 1) && st != LCOM_UNI) {
             if (h >> 13 & 1) {
                 if (nis.state & NI_BUSY)
                     nis_ack(st, ph, n);                              /* the game acknowledging our name */
@@ -999,6 +1089,17 @@ static u32 join_frame(void)             /* our frame for the game's next 0x26: b
             join_named = 1;
             trace(EV_NAME_SENT, 0, 0);
         }
+    }
+    if (parent_uni_new) {                                            /* UNI: one frame per table */
+        parent_uni_new = 0;
+        join_link();
+        u32 h = LCOM_UNI << 10 | 14;
+        out[bytes] = h; out[bytes + 1] = h >> 8;
+        for (u32 j = 0; j < 7; j++) {
+            out[bytes + 2 + 2 * j] = tx_cmd[j];
+            out[bytes + 3 + 2 * j] = tx_cmd[j] >> 8;
+        }
+        bytes += 16;
     }
     u32 total = bytes;
     while (bytes & 3)
@@ -1067,6 +1168,8 @@ static void respond(void)
                 child_connected = 1;
                 ni_reset();
                 nis_start(our_name, sizeof our_name, 1, 14);           /* data type 1: our name */
+                memset(&cs, 0, sizeof cs); memset(&rb, 0, sizeof rb);
+                my_id = n_players = child_seq = join_linked = parent_uni_new = 0;
                 hf_len = 0;
                 trace(EV_CONNECTED, 0, CHILD_ID);
             }

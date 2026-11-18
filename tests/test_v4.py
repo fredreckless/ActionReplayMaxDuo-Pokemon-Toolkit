@@ -3212,6 +3212,24 @@ def _():
     assert game.retries == 0, game.retries
 
 
+@test("the game as wireless host (stage H2b): once the slots are finalized, link_rfu_2 runs with the game as parent and the DUO as player 1 - player IDs, then both link players exchanged as blocks, the DUO's sequence numbers accepted")
+def _():
+    import host_game_model as HG
+    hw, game, trace, st, counters = adapter_session(lambda g: HG.lead_and_link(g), first_bit=True, seconds=90,
+                                                    program="join")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    child, name, parent = hw.lg_result
+    assert parent.player_count == 2 and parent.link_player_idx[0] == 1, (parent.player_count, parent.link_player_idx)
+    duo = parent.link_players[1]
+    assert duo[4:6] == (0x5678).to_bytes(2, "little"), duo.hex()                # HOST_TRAINER
+    assert duo[8:11] == bytes([0xBE, 0xCF, 0xC9]) and duo[0] == 3, duo.hex()     # "DUO", Emerald
+    assert not any(parent.child_recv_errors), parent.child_recv_errors
+    names = [t for t, _ in trace]
+    assert "link players exchanged (the game's trainer ID follows) (0x3d4c1)" in names, names[-8:]
+    assert any(n.startswith("the game (as host) has our link player") for n in names), names[-8:]
+    assert game.retries == 0, game.retries
+
+
 @test("distributor: link players exchanged, then Mystery Gift delivers the Wonder Card and RAM script; the link closes")
 def _():
     path, card, script = test_wc3()

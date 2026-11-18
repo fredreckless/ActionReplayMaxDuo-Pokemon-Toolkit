@@ -17,6 +17,9 @@ FW42_MUTANTS = {
 PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a copy of the tool
     "join: never acknowledges the game's answer": ("        u32 f = (ni.state & 0xF) << 10 | 1u << 9 | ni.phase << 5 | ni.n[ni.phase] << 7;", "        u32 f = (ni.state & 0xF) << 10 | ni.phase << 5 | ni.n[ni.phase] << 7;", "the game as wireless host"),
     "join: names itself with a serial the game doesn't accept": ("    0x02, 0x00,                          /* serialNo: RFU_SERIAL_GAME */", "    0x77, 0x77,", "the game as wireless host"),
+    "join: no sequence numbers on its link commands": ("        tx_cmd[0] |= child_seq << 5;", "        ;", "stage H2b"),
+    "join: takes the wrong player number from SEND_PLAYER_IDS": ("        my_id = rx_cmd[2] & 0xFF;                                    /* linkPlayerIdx[childSlot 0] */", "        my_id = rx_cmd[2] >> 8;", "stage H2b"),
+    "join: its link player's chunks cut from the wrong place": ("        tx_cmd[1 + j] = (at < sizeof player_block ? player_block[at] : 0)", "        tx_cmd[1 + j] = (at + 2 < sizeof player_block ? player_block[at + 2] : 0)", "stage H2b"),
     "join: phase and sequence swapped in its name's headers": ("    h = (nis.state & 0xF) << 10 | nis.phase << 5 | nis.n[nis.phase] << 7 | size;", "    h = (nis.state & 0xF) << 10 | nis.phase << 7 | nis.n[nis.phase] << 5 | size;", "the game as wireless host"),
     "union room: broadcasts the distributor's serial, not the game's": ("        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */", "        dist_serial = SERIAL_DECOMP;", "Union Room (milestone 1): the game finds"),
     "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "Union Room (milestone 1): the game finds"),

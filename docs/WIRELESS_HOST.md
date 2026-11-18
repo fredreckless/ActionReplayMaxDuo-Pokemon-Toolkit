@@ -18,8 +18,10 @@ Plan: docs/WIRELESS_HOST.md.
 in a child's 2-byte-headed frames; `tests/host_game_model.py`, the game as leader (cited), reads it
 and accepts its serial. The first half of H2 too: the game's answer, `RFU_STATUS_JOIN_GROUP_OK`, sent
 over NI in the parent's 3-byte-headed sub-frames of 8, reaches the DUO and is acknowledged chunk by
-chunk. Next: link_rfu_2 with the game as parent and the DUO as player 1 (the parent's command table
-each frame, the child's 14-byte answers, link players), then H3.
+chunk. Stage H2b too (18 November, afternoon): with the slots finalized, link_rfu_2 runs with the
+game as parent and the DUO as player 1 - the game's 70-byte command table each frame, the DUO's
+14-byte answers with sequence numbers the game accepts, player IDs, then both link players exchanged
+as 200-byte blocks (the `join` build is 9.6 KB). Next: H3.
 No command-line use yet: nothing useful happens on hardware until H3.
 
 ## What the game does as host (librfu 1026, Emerald and FireRed/LeafGreen)
@@ -81,19 +83,25 @@ roles.
    (pret:pokeemerald/src/mystery_gift_server.c), the DUO runs the client side
    (pret:pokeemerald/src/mystery_gift_client.c), the PC keeps the card as a `.wc3`.
 
-## Notes for H2b, the link (from the source, not yet built)
+## How H2b works (built, simulator)
 
-- The game as parent, each frame (pret:pokeemerald/src/link_rfu_2.c:778 RfuMain1_Parent): receive
-  (`0x26`), read every player's commands, ready its UNI send - the command table `gRfu.recvCmds`, 70
-  bytes, to all its children - and send with the clock handed over (`0x25`).
-- Then (pret:pokeemerald/src/link_rfu_2.c:824 RfuMain2_Parent), once the adapter says data are ready:
-  receive again; a child's 14-byte UNI answer has a sequence number in its first byte's top three
-  bits, which must count up by one (more than four misses is an error); its seven words become that
-  player's row in `gRecvCmds`; the parent's own command is copied to row 0; then the commands are
-  handled as usual.
-- A new child: `SetLinkPlayerIdsFromSlots`, then `Task_PlayerExchangeUpdate` - the link-player
-  exchange, with the DUO as player 1. The DUO's side of all this is `ChildLink` in
-  `tests/rfu_game_model.py` (the game as child today), turned into C.
-
-A separate build of `adapter.c` (as `union` is), so the distributor and Union Room programs keep
-their room.
+- The game as parent, each frame (pret:pokeemerald/src/link_rfu_2.c:778 RfuMain1_Parent): read every
+  player's commands into the table it sends (`gRfu.recvCmds`, 70 bytes: its own in row 0, each child's
+  as last received in that child's row), send it as one UNI sub-frame with the clock handed over
+  (`0x25`). Then (pret:pokeemerald/src/link_rfu_2.c:824 RfuMain2_Parent), once the adapter says data
+  are ready, receive (`0x26`): a child's 14-byte UNI answer has a sequence number in its first byte's
+  top three bits, which must count up by one (five misses in a row is an error); its seven words
+  become that player's row in `gRecvCmds`, the parent's own command goes in row 0, and the commands
+  are handled as usual. Before the first table, while Task_SendMysteryGift waits 120 frames after its
+  "OK", the parent sends only librfu's one-byte null frames, without handing the clock over (`0x24`).
+- The initial exchange is pret:pokeemerald/src/link_rfu_2.c:1754 Task_PlayerExchange (not
+  `Task_PlayerExchangeUpdate`, which is for children arriving later): `SEND_PLAYER_IDS` (two
+  players, slot 0 is player 1), then `BLOCK_REQ` size NONE; the game sends its own block too (row 0,
+  announced four times, no checks) and takes the child's four frames after its last chunk.
+- The DUO's side (`join_link` in `adapter.c`): its player number from `SEND_PLAYER_IDS`, its link
+  player as a 200-byte block once asked - announced until its own row shows the announcement,
+  then the chunks, then any chunk its row never echoed, again - and the game's block read from row 0.
+  It answers each table at once (a real child answers with last frame's command; the game takes
+  either). Trace events: 0x0A (the game's link player, with its trainer ID), 0x7D (every chunk of
+  ours echoed).
+- Model: `ParentLink`, `null_frames`, `lead_link` and `lead_and_link` in `tests/host_game_model.py`.
