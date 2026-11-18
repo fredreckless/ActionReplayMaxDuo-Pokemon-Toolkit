@@ -53,6 +53,13 @@ states) runs, in order:
 | `0x26` receive data | the DUO-child's frames: first the NI name (data type 1: serial `0x0002`, a game name, "DUO"), then link_rfu_2's child UNI frames |
 | `0x24`/`0x25` send data | the game's frames: its NI join answer, then its command table |
 
+**The receive format, as parent** (pret:pokeemerald/src/librfu_rfu.c:1924
+rfu_STC_PARENT_analyzeRecvPacket): the `0x26` answer's first data word, shifted right 8, holds four
+5-bit byte counts, one per child slot; the frames follow from byte 8, slot 0's first. Each frame
+starts with the *child's* 2-byte header (pret:pokeemerald/src/librfu_rfu.c:85 llsf_struct, the
+MODE_CHILD entry: slot state at bit 10, ack bit 9, n at 7, phase at 5, length in the low bits) -
+the same header the game writes today as the distributor's child, which `adapter.c` already parses.
+
 Every piece of that already exists in `adapter.c`, facing the other way: the NI sender (`nis_*`,
 used for "you may join"), the NI receiver (`ni_*`, used for the game's name), the parent's and
 child's UNI frame formats. The work is the parent-search answers and the turned-round link_rfu_2
