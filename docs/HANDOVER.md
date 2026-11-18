@@ -74,7 +74,9 @@ The DUO as a Union Room trainer over the Mystery Gift cable: docs/UNION_ROOM.md.
 game finds "DUO", links, exchanges cards, asks Greetings and reads the card) works in the simulator:
 `python duo_events.py union`, program `union` = adapter.c built with `-DUNION_ROOM`. Milestone 2
 (a trade from the trading board: `union --pk3 FILE --want TYPE`) too. Next: battles, or the Direct
-Corner's wireless Trade Center. Hardware needs the MGB-010 (or any Game Boy Color cable) in place
+Corner's wireless Trade Center. The other way round - the game as host, the DUO joining (Mystery Gift
+"Send" to a friend, so the PC can keep a card; the Direct Corner when the game leads) - is planned
+from the source in docs/WIRELESS_HOST.md. Hardware needs the MGB-010 (or any Game Boy Color cable) in place
 of the link cable.
 
 ## The four-player experiment, 14 November evening (step C)
