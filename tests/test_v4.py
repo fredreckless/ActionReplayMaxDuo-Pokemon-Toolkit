@@ -3198,7 +3198,7 @@ def _():
     assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
 
 
-@test("the game as wireless host (stage H1): it searches for children, the DUO's child is listed and connected, and sends its name over NI; the game accepts the serial and reads the name")
+@test("the game as wireless host (stages H1, H2a): it searches for children, the DUO's child is listed and connected, and sends its name over NI; the game accepts the serial, reads the name and tells the DUO it may join")
 def _():
     import host_game_model as HG
     hw, game, trace, st, counters = adapter_session(lambda g: HG.lead_and_accept(g), first_bit=True, seconds=60,
@@ -3207,6 +3207,8 @@ def _():
     child, name = hw.lg_result
     assert child["slot"] == 0, child
     assert name["serial"] == 0x0002 and name["uname"][:3] == bytes([0xBE, 0xCF, 0xC9]), name
+    names = [t for t, _ in trace]
+    assert "the game (as host) answered our request to join: yes" in names, names[-8:]
     assert game.retries == 0, game.retries
 
 

@@ -961,6 +961,7 @@ static void join_receive(void)          /* the game's 0x24/0x25: total bytes, th
     u32 bytes = req[0] & 0x7F, at = 0;
     const u8 *d = (const u8 *)&req[1];
     child_frames++;
+    ni_end_seen = 0;                     /* (set again by an end frame in this packet) */
     while (bytes - at >= 3 && at < 4 * 31) {
         u32 h = d[at] | d[at + 1] << 8 | d[at + 2] << 16, len = h & 0x7F;
         u32 st = h >> 14 & 0xF, ph = h >> 9 & 3, n = h >> 11 & 3;
@@ -974,7 +975,7 @@ static void join_receive(void)          /* the game's 0x24/0x25: total bytes, th
         }
         at += 3 + len;
     }
-    if (ni.state == NI_RECV_LAST && !join_answered) {
+    if (ni.state == NI_RECV_LAST && !ni_end_seen && !join_answered) {     /* librfu's rfu_CB_recvData */
         ni.state = NI_RECV_OK;
         join_answered = 1;
         trace(EV_JOIN_ANSWER, 0, child_name[0]);

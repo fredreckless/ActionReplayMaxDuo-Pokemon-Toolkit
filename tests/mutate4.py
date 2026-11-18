@@ -15,8 +15,9 @@ FW42_MUTANTS = {
     "run accepts an entry point outside the code": ("    cmp  r1, r4\n    bhs  run_bad\n", "", "refused"),
 }
 PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a copy of the tool
-    "join: names itself with a serial the game doesn't accept": ("    0x02, 0x00,                          /* serialNo: RFU_SERIAL_GAME */", "    0x77, 0x77,", "the game as wireless host (stage H1)"),
-    "join: phase and sequence swapped in its name's headers": ("    h = (nis.state & 0xF) << 10 | nis.phase << 5 | nis.n[nis.phase] << 7 | size;", "    h = (nis.state & 0xF) << 10 | nis.phase << 7 | nis.n[nis.phase] << 5 | size;", "the game as wireless host (stage H1)"),
+    "join: never acknowledges the game's answer": ("        u32 f = (ni.state & 0xF) << 10 | 1u << 9 | ni.phase << 5 | ni.n[ni.phase] << 7;", "        u32 f = (ni.state & 0xF) << 10 | ni.phase << 5 | ni.n[ni.phase] << 7;", "the game as wireless host"),
+    "join: names itself with a serial the game doesn't accept": ("    0x02, 0x00,                          /* serialNo: RFU_SERIAL_GAME */", "    0x77, 0x77,", "the game as wireless host"),
+    "join: phase and sequence swapped in its name's headers": ("    h = (nis.state & 0xF) << 10 | nis.phase << 5 | nis.n[nis.phase] << 7 | size;", "    h = (nis.state & 0xF) << 10 | nis.phase << 7 | nis.n[nis.phase] << 5 | size;", "the game as wireless host"),
     "union room: broadcasts the distributor's serial, not the game's": ("        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */", "        dist_serial = SERIAL_DECOMP;", "Union Room (milestone 1): the game finds"),
     "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "Union Room (milestone 1): the game finds"),
     "union room: accepts a trade with nothing on the board": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE)", "Union Room (milestone 1): asked for"),

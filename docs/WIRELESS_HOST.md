@@ -16,7 +16,10 @@ Plan: docs/WIRELESS_HOST.md.
 **Status (18 November):** stage H1 works in the simulator: the `join` build of `adapter.c`
 (`-DGAME_HOSTS`, 8.4 KB) is listed as the game's child after a few polls and sends its name over NI
 in a child's 2-byte-headed frames; `tests/host_game_model.py`, the game as leader (cited), reads it
-and accepts its serial. H2 (the join answer, then link_rfu_2 with the DUO as player 1) is next.
+and accepts its serial. The first half of H2 too: the game's answer, `RFU_STATUS_JOIN_GROUP_OK`, sent
+over NI in the parent's 3-byte-headed sub-frames of 8, reaches the DUO and is acknowledged chunk by
+chunk. Next: link_rfu_2 with the game as parent and the DUO as player 1 (the parent's command table
+each frame, the child's 14-byte answers, link players), then H3.
 No command-line use yet: nothing useful happens on hardware until H3.
 
 ## What the game does as host (librfu 1026, Emerald and FireRed/LeafGreen)
@@ -77,6 +80,20 @@ roles.
 3. **H3, Mystery Gift with a friend:** the game's Mystery Gift server sends its card
    (pret:pokeemerald/src/mystery_gift_server.c), the DUO runs the client side
    (pret:pokeemerald/src/mystery_gift_client.c), the PC keeps the card as a `.wc3`.
+
+## Notes for H2b, the link (from the source, not yet built)
+
+- The game as parent, each frame (pret:pokeemerald/src/link_rfu_2.c:778 RfuMain1_Parent): receive
+  (`0x26`), read every player's commands, ready its UNI send - the command table `gRfu.recvCmds`, 70
+  bytes, to all its children - and send with the clock handed over (`0x25`).
+- Then (pret:pokeemerald/src/link_rfu_2.c:824 RfuMain2_Parent), once the adapter says data are ready:
+  receive again; a child's 14-byte UNI answer has a sequence number in its first byte's top three
+  bits, which must count up by one (more than four misses is an error); its seven words become that
+  player's row in `gRecvCmds`; the parent's own command is copied to row 0; then the commands are
+  handled as usual.
+- A new child: `SetLinkPlayerIdsFromSlots`, then `Task_PlayerExchangeUpdate` - the link-player
+  exchange, with the DUO as player 1. The DUO's side of all this is `ChildLink` in
+  `tests/rfu_game_model.py` (the game as child today), turned into C.
 
 A separate build of `adapter.c` (as `union` is), so the distributor and Union Room programs keep
 their room.
