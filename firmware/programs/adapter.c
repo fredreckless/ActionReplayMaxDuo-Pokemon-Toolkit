@@ -176,6 +176,9 @@ static u32 gift_words[(GIFT_MAX + 3) / 4];               /* (defined with the My
 #define GIFT_IS_NEWS (gift_words[0] >> 16 & 1)
 #endif
 
+#ifdef UNION_ROOM
+static u32 ur_offer;                     /* the trading board: species | type << 10 | level << 16 (0: none) */
+#endif
 static void build_host(void)
 {
     u8 b[24];
@@ -197,7 +200,9 @@ static void build_host(void)
     b[2] = compat; b[3] = compat >> 8;   /* RfuGameData.compatibility */
     b[4] = HOST_TRAINER & 0xFF; b[5] = HOST_TRAINER >> 8;   /* .playerTrainerId */
 #ifdef UNION_ROOM
+    b[10] = ur_offer; b[11] = ur_offer >> 8;   /* .tradeSpecies (10 bits), .tradeType (6): the board */
     b[12] = 0x40;                        /* .activity = IN_UNION_ROOM | ACTIVITY_NONE, not started */
+    b[13] = ur_offer >> 16 << 1;         /* .playerGender 0, .tradeLevel */
 #else
     b[12] = 21 + GIFT_IS_NEWS;           /* .activity = ACTIVITY_WONDER_CARD (or _NEWS), not started */
 #endif
@@ -465,7 +470,11 @@ static int bs_step(void)                 /* fills tx_cmd; returns 1 while the bl
 /* The game's incoming blocks (row 1). */
 static struct {
     u32 state, count, flags, done;       /* state: 0 ready, 1 receiving */
+#ifdef UNION_ROOM
+    u8 head[108];                        /* the first 108 bytes (9 chunks): a whole struct Pokemon */
+#else
     u8 head[64];                         /* the first 64 bytes of the block */
+#endif
 } rb;
 static u8 child_player[64];              /* the game's LinkPlayerBlock (magic, LinkPlayer, magic) */
 static u8 game_data[64];                 /* the start of the game's MysteryGiftLinkGameData */
@@ -517,6 +526,19 @@ static void build_card(void)
     our_card[0x38] = 3;                                    /* version: Emerald */
 }
 
+/* The trade (pret:pokeemerald/src/union_room.c:1477 Task_StartUnionRoomTrade, then
+ * pret:pokeemerald/src/trade.c:4650 CB2_WaitTradeComplete): our Pokemon for the game's, the mail,
+ * and once the game says its animation is done (0xABCD), the leader's go-ahead (0xDCBA). Our
+ * Pokemon is the one the PC loaded (100 bytes, the party form) into the gift buffer. */
+#define UR_TRADE_MON  10
+#define UR_TRADE_MAIL 11
+#define UR_TRADE_SCENE 12
+#define UR_TRADE_DONE 13
+#define ACT_TRADE (0x40 | 3)
+static u8 game_mon[100];
+static const u8 confirm_block[2] = { 0xBA, 0xDC };        /* LINKCMD_CONFIRM_FINISH_TRADE */
+#define MAIL_SIZE (6 * 36 + 4)                            /* sizeof(struct Mail) * PARTY_SIZE + 4 */
+
 static void mg_frame(void)
 {
     if (bs.active)
@@ -537,14 +559,48 @@ static void mg_frame(void)
             trace(EV_UR_STEP, 0, 2 << 16 | game_data[0x0E] | game_data[0x0F] << 8);
         }
         break;
+    case UR_TRADE_MON:                       /* the game's Pokemon in; ours out */
+        if (rb.done != mg_got) {
+            mg_got = rb.done;
+            memcpy(game_mon, rb.head, sizeof game_mon);
+            bs_start((const u8 *)gift_words, 100, 100);
+            mg_step = UR_TRADE_MAIL;
+            trace(EV_UR_STEP, 0, UR_TRADE_MAIL << 16 | game_mon[0] | game_mon[1] << 8);
+        }
+        break;
+    case UR_TRADE_MAIL:                      /* the game's mail in; ours (none) out */
+        if (rb.done != mg_got) {
+            mg_got = rb.done;
+            bs_start(our_card, 0, MAIL_SIZE);              /* (no bytes from the source: all zero) */
+            mg_step = UR_TRADE_SCENE;
+            trace(EV_UR_STEP, 0, UR_TRADE_SCENE << 16);
+        }
+        break;
+    case UR_TRADE_SCENE:                     /* the game: "my animation is done"; we: go ahead */
+        if (rb.done != mg_got) {
+            mg_got = rb.done;
+            if (rb.head[0] == 0xCD && rb.head[1] == 0xAB) {
+                bs_start(confirm_block, 2, 20);
+                mg_step = UR_TRADE_DONE;
+                trace(EV_UR_STEP, 0, UR_TRADE_DONE << 16);
+            }
+        }
+        break;
+    case UR_TRADE_DONE:
+        break;
     default:                                 /* pret:pokeemerald/src/union_room.c:4289 PollPartnerYesNoResponse */
         if (ur_packet) {
             mg_resp = ur_packet;
-            ur_answer = ur_packet == ACT_CARD ? ACT_ACCEPT : ACT_DECLINE;
+            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)
+                      ? ACT_ACCEPT : ACT_DECLINE;
             ur_packet = 0;
             ur_reply = 3;                                  /* (the game reads it on any frame) */
-            mg_step++;
+            mg_step = mg_step < 9 ? mg_step + 1 : 9;
             trace(EV_UR_STEP, 0, mg_step << 16 | mg_resp << 8 | ur_answer);
+            if (mg_resp == ACT_TRADE && ur_answer == ACT_ACCEPT) {
+                mg_got = rb.done;
+                mg_step = UR_TRADE_MON;
+            }
         }
         if (ur_reply) {
             ur_reply--;
@@ -1546,6 +1602,11 @@ static int pc_service(api_t *api)
                  | game_data[4 * (i & 15) + 2] << 16 | (u32)game_data[4 * (i & 15) + 3] << 24 : 0; break;
     case 24: v = child_player[4 * (i & 15)] | child_player[4 * (i & 15) + 1] << 8
                  | child_player[4 * (i & 15) + 2] << 16 | (u32)child_player[4 * (i & 15) + 3] << 24; break;
+#endif
+#ifdef UNION_ROOM
+    case 29: ur_offer = idx; build_host(); v = ur_offer; break;          /* the trading board's offer */
+    case 30: v = (i & 31) < 25 ? game_mon[4 * (i & 31)] | game_mon[4 * (i & 31) + 1] << 8
+                 | game_mon[4 * (i & 31) + 2] << 16 | (u32)game_mon[4 * (i & 31) + 3] << 24 : 0; break;
 #endif
     default: v = 0xFFFFFFFF; break;
     }

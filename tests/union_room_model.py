@@ -60,13 +60,22 @@ def find_union_room_player(game, compat=RFU.EN_EMERALD, polls=150):
     raise LinkError("nobody in the Union Room")
 
 
+READY_FINISH_TRADE = 0xABCD            # pret:pokeemerald/include/link.h:72 LINKCMD_READY_FINISH_TRADE
+CONFIRM_FINISH_TRADE = 0xDCBA          # pret:pokeemerald/include/link.h:78 LINKCMD_CONFIRM_FINISH_TRADE
+MAIL_SIZE = 6 * 36 + 4                 # sizeof(struct Mail) * PARTY_SIZE + 4
+
+
 class URoomChild:
     """union_room.c's states for the player who walked up to a partner and pressed A, from
-    UR_STATE_TRY_COMMUNICATING to reading the card (the partner is player 0, the game player 1)."""
+    UR_STATE_TRY_COMMUNICATING to reading the card - or, from the trading board, to a trade (the
+    partner is player 0, the game player 1)."""
 
-    def __init__(self, child, card, activity=ACTIVITY_CARD):
-        self.c, self.card, self.activity = child, card, activity
+    def __init__(self, child, card, activity=ACTIVITY_CARD, offer=None, anim_frames=120):
+        """offer: for a trade, the game's own Pokemon (100 bytes, party form) and its species and
+        level, sent with the request (pret:pokeemerald/src/union_room.c:2766 UR_STATE_SEND_TRADE_REQUST)."""
+        self.c, self.card, self.activity, self.offer = child, card, activity, offer
         self.state, self.cards, self.answer, self.result = "communicating", {}, None, None
+        self.received_mon, self.timer, self.anim_frames = None, 0, anim_frames
 
     def frame(self):
         c = self.c
@@ -83,7 +92,8 @@ class URoomChild:
                 self.state = "choose"
         elif self.state == "choose":                     # pret:pokeemerald/src/union_room.c:2707 UR_STATE_HANDLE_DO_SOMETHING_PROMPT_INPUT
             if c.send_cmd[0] == 0 and c.callback is None:   # Rfu_SendPacket
-                c.send_cmd[:7] = [CMD_PACKET, IN_UNION_ROOM | self.activity, 0, 0, 0, 0, 0]
+                extra = [self.offer["species"], self.offer["level"]] if self.offer else [0, 0]
+                c.send_cmd[:7] = [CMD_PACKET, IN_UNION_ROOM | self.activity, *extra, 0, 0, 0]
                 self.state = "waiting"
         elif self.state == "waiting":                    # pret:pokeemerald/src/union_room.c:2773 UR_STATE_WAIT_FOR_RESPONSE_TO_REQUEST
             r = c.recv_cmds[0][1] if (c.recv_cmds[0][0] & 0xFF00) == CMD_PACKET else 0
@@ -92,12 +102,67 @@ class URoomChild:
                 if self.activity == ACTIVITY_CARD:
                     c.set_standby()                      # pret:pokeemerald/src/union_room.c:2808 UR_STATE_PRINT_CARD_INFO
                     self.state = "reading card"
+                elif self.activity == ACTIVITY_TRADE:
+                    c.set_standby()                      # pret:pokeemerald/src/union_room.c:3010 UR_STATE_START_ACTIVITY_LINK
+                    self.state = "starting trade"
                 else:
                     self.state, self.result = "done", "accepted"
             elif r == IN_UNION_ROOM | ACTIVITY_DECLINE:
                 self.answer = "decline"
                 c.close_task = True                      # UR_STATE_REQUEST_DECLINED: SetCloseLinkCallback
                 self.state, self.result = "done", "declined"
+        elif self.state == "starting trade":             # then pret:pokeemerald/src/union_room.c:1477 Task_StartUnionRoomTrade
+            if c.callback is None and c.all_ready_num:
+                if c.init_block_send(self.offer["mon"], 100):
+                    self.state = "trading mons"
+        elif self.state == "trading mons":
+            if c.block_status() == 3:
+                self.received_mon = bytes(c.block_recv_buffer[0][:100])
+                for i in range(2):
+                    c.reset_block_received(i)
+                self.state = "mail"
+        elif self.state == "mail":
+            if c.init_block_send(bytes(MAIL_SIZE), MAIL_SIZE):
+                self.state = "trading mail"
+        elif self.state == "trading mail":
+            if c.block_status() == 3:
+                for i in range(2):
+                    c.reset_block_received(i)
+                self.state, self.timer = "animation", 0  # pret:pokeemerald/src/trade.c:2827 CB2_LinkTrade
+        elif self.state == "animation":                  # pret:pokeemerald/src/trade.c:4627 CB2_UpdateLinkTrade
+            st = c.block_status()
+            if st & 1 and c.block_recv_buffer[0][0] | c.block_recv_buffer[0][1] << 8 == CONFIRM_FINISH_TRADE:
+                self.result = "the go-ahead came before the animation ended (TradeMons skipped)"
+                self.state = "done"
+                return True
+            self.timer += 1
+            if self.timer >= self.anim_frames:           # DoTradeAnim done: TradeMons, then "ready"
+                block = READY_FINISH_TRADE.to_bytes(2, "little") + bytes(18)
+                if c.init_block_send(block, 20):
+                    self.traded = True
+                    self.state = "waiting for go-ahead"
+        elif self.state == "waiting for go-ahead":       # pret:pokeemerald/src/trade.c:4650 CB2_WaitTradeComplete
+            st = c.block_status()
+            if st & 2:
+                c.reset_block_received(1)                # (our own "ready", echoed)
+            if st & 1:
+                ok = c.block_recv_buffer[0][0] | c.block_recv_buffer[0][1] << 8 == CONFIRM_FINISH_TRADE
+                c.reset_block_received(0)
+                if ok:
+                    self.state, self.timer = "saving", 0  # pret:pokeemerald/src/trade.c:4676 CB2_SaveAndEndTrade
+                    self.standbys = 0
+        elif self.state == "saving":                     # standbys before, after and around the save, then close
+            # (CB2_SaveAndEndTrade states 1, 41 and 5: a standby each, with the save and pauses between)
+            if c.callback is None:
+                self.timer += 1
+                if self.timer > 60:
+                    if self.standbys < 3:
+                        c.set_standby()
+                        self.standbys += 1
+                        self.timer = 0
+                    else:
+                        c.close_task = True
+                        self.state, self.result = "done", "traded"
         elif self.state == "reading card":
             if c.callback is None and c.all_ready_num:   # the standby is over
                 c.close_task = True                      # (the player chooses EXIT)
@@ -129,7 +194,7 @@ def union_room_session(game, child, ur, max_frames=3000):
     raise LinkError(f"Union Room not finished (state {ur.state}, exchange {child.exchange_state})")
 
 
-def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=None):
+def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=None, offer=None):
     """The whole of milestone 1: find the DUO in the room, walk up, press A, connect, exchange
     link players and cards, ask for `activity` and see the answer."""
     found = yield from find_union_room_player(game, compat=compat)
@@ -137,6 +202,6 @@ def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=No
     yield from RFU.send_child_name(game, RFU.child_name_bytes())
     yield from RFU.wait_join_status(game)
     child = RFU.ChildLink()
-    ur = URoomChild(child, card or trainer_card(), activity)
-    yield from union_room_session(game, child, ur)
+    ur = URoomChild(child, card or trainer_card(), activity, offer=offer)
+    yield from union_room_session(game, child, ur, max_frames=6000)
     return found, child, ur

@@ -1122,7 +1122,8 @@ def adapter_symbol(name, program="adapter"):
 
 def adapter_session(script, seconds=20, attach=True, program="adapter", lag_bits=0, first_bit=False,
                     flick_window=None, wonder_card=None, check_search=False,
-                    sweep_serial=False, serial=None, wonder_news=None, stop_on_game=True, keep_going=False):
+                    sweep_serial=False, serial=None, wonder_news=None, stop_on_game=True, keep_going=False,
+                    union_pk3=None, union_want="normal"):
     hw, duo = run42()
     game = RFU.Game()
     if attach:
@@ -1131,7 +1132,8 @@ def adapter_session(script, seconds=20, attach=True, program="adapter", lag_bits
     r = quiet(W.adapter_trace, duo, types.SimpleNamespace(adapter_trace=seconds, adapter_probe=seconds,
                                                           wonder_card=wonder_card, check_search=check_search,
                                                           sweep_serial=sweep_serial, serial=serial,
-                                                          wonder_news=wonder_news, keep_going=keep_going),
+                                                          wonder_news=wonder_news, keep_going=keep_going,
+                                                          union_pk3=union_pk3, union_want=union_want),
               poll_s=0.2,
               stop_when=(lambda: hw.lg_done) if attach and stop_on_game else None, program=program)
     entries, st, counters = r[0][:3]
@@ -3163,7 +3165,7 @@ def _():
     assert game.retries == 0, game.retries
 
 
-@test("Union Room (milestone 1): asked for something not built yet (a trade), the DUO declines politely and the game closes the link")
+@test("Union Room (milestone 1): asked for a trade with nothing on its trading board, the DUO declines politely and the game closes the link")
 def _():
     import union_room_model as UR
     hw, game, trace, st, counters = adapter_session(lambda g: UR.talk_to_partner(g, activity=UR.ACTIVITY_TRADE),
@@ -3171,6 +3173,28 @@ def _():
     assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
     found, child, ur = hw.lg_result
     assert ur.result == "declined", (ur.state, ur.answer)
+
+
+@test("Union Room (milestone 2): the DUO's Pokemon on the trading board; the game offers one of the wanted type, the DUO accepts, the two Pokemon cross, the game finishes its animation, gets the go-ahead, saves and closes; the PC keeps what came")
+def _():
+    import union_room_model as UR
+    duo_raw = test_pk3(species=25, pid=0x0BADF00D, otid=0x0000_4E44, ot="DUO")          # (internal 25: Pikachu)
+    duo_path = event_file(duo_raw, "025 - PIKACHU - TEST.pk3")
+    game_mon = W.pk3_party_form(test_pk3(species=19, pid=0x00C0FFEE, otid=0x0000_D4C1, ot="FRED"))   # Rattata
+    offer = dict(mon=game_mon, species=19, level=game_mon[84])
+    hw, game, trace, st, counters = adapter_session(
+        lambda g: UR.talk_to_partner(g, activity=UR.ACTIVITY_TRADE, offer=offer), first_bit=True, seconds=180,
+        program="union", union_pk3=duo_path, union_want="normal")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    g = found["gname"]
+    assert g["trade_species"] == 25 and g["trade_type"] == 0, g                    # what the board shows
+    assert ur.result == "traded", (ur.state, ur.answer, ur.result)
+    assert ur.received_mon == W.pk3_party_form(duo_raw), ur.received_mon.hex()
+    assert W.adapter_trace.last_received == game_mon, W.adapter_trace.last_received.hex()
+    assert "Traded in the Union Room." in hw.text and "Kept on this PC" in hw.text, hw.text[-800:]
+    names = [t for t, _ in trace]
+    assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
 
 
 @test("distributor: link players exchanged, then Mystery Gift delivers the Wonder Card and RAM script; the link closes")

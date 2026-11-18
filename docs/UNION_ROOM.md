@@ -5,14 +5,15 @@ readable, then trades (and later battles and chat), all over the Mystery Gift ca
 Game Boy Color cable: a GBA link cable won't do, see WIRELESS.md). No Wireless Adapter: the DUO
 plays the adapter *and* the player behind it, as it already does for Mystery Gift.
 
-**Status (18 November):** milestone 1 works in the simulator - `python duo_events.py union`, the
+**Status (18 November):** milestones 1 and 2 work in the simulator - `python duo_events.py union`, the
 `union` program (adapter.c built with `-DUNION_ROOM`, 10.4 KB). Nothing on hardware yet - it needs
 the cable swapped.
 
 **Try it (when the MGB-010 or another Game Boy Color cable is in):** `python duo_events.py union`,
 then in Emerald, FireRed or LeafGreen go to the Union Room, walk up to the trainer called DUO, press
 A and choose GREETINGS. The trace lists each step: the connection, the link players, the cards, the
-game's request and the DUO's answer. Anything else it declines for now.
+game's request and the DUO's answer. With `--pk3 FILE --want TYPE` the DUO also puts that Pokemon on
+the trading board: check the board, pick its offer and choose one of yours of that type.
 
 ## What is already there
 
@@ -69,14 +70,30 @@ The DUO hosts (multiplayer id 0); the game, walking up and pressing A, connects 
    (`0x6600`, already answered). Anything not yet built is declined politely.
 7. **Leaving:** the game closes (`0x5F00`, already answered) or disconnects.
 
-## Milestone 2: a trade
+## Milestone 2: a trade from the trading board (simulator: done 18 November)
 
-After accepting `IN_UNION_ROOM | ACTIVITY_TRADE` the game starts the trade
-(pret:pokeemerald/src/union_room.c:3006 UR_STATE_PRINT_START_ACTIVITY_MSG onwards,
-pret:pokeemerald/src/union_room.c:1477 Task_StartUnionRoomTrade). The trade screen's own protocol is
-the cable trade's (`trade.c`), carried in link_rfu_2's commands instead of link.c's. The DUO's trade
-logic is in `trade.c` today; how much of it can be shared with a wireless program, within a
-program's 11.7 KB, is the design question for this milestone.
+The Union Room's own trades go through its **trading board**, not the talk menu (whose choices are
+Greetings, Battle, Chat and Exit: pret:pokeemerald/src/data/union_room.h:795
+sInviteToActivityMenuItems). A player puts a Pokemon on the board and names the type they want;
+another picks that offer, chooses one of their own of that type, and asks.
+
+- **The DUO's offer** rides in its broadcast: `RfuGameData`'s `tradeSpecies`, `tradeType` (the type
+  it wants) and `tradeLevel`. `python duo_events.py union --pk3 FILE --want TYPE` loads the Pokemon
+  (its party form, 100 bytes) and sets the offer.
+- **The request** (pret:pokeemerald/src/union_room.c:2766 UR_STATE_SEND_TRADE_REQUST): after the
+  cards, the game sends `0x2F00`, `IN_UNION_ROOM | ACTIVITY_TRADE`, its species, its level. The DUO
+  accepts if it has something on the board.
+- **The swap** (pret:pokeemerald/src/union_room.c:1477 Task_StartUnionRoomTrade): a standby, then
+  each sends its Pokemon (one 100-byte block), then its mail (220 bytes; the DUO's is empty).
+- **The animation and the save** (pret:pokeemerald/src/trade.c:4627 CB2_UpdateLinkTrade,
+  4650 CB2_WaitTradeComplete, 4676 CB2_SaveAndEndTrade): when its animation ends the game trades the
+  Pokemon and says so (`0xABCD`, LINKCMD_READY_FINISH_TRADE); the leader - the DUO - then sends the
+  go-ahead (`0xDCBA`). It must not come sooner: received during the animation it skips the trade
+  itself (a planted bug checks this). Then three standbys around the save, and the close.
+- **The PC** keeps the game's Pokemon as a `.pk3` in `received\`, as a cable trade does.
+
+The full trade screen (choosing from the whole party) is the Direct Corner's wireless Trade Center:
+a group link-up, then the Cable Club trade over wireless. That's a later milestone.
 
 ## Later
 

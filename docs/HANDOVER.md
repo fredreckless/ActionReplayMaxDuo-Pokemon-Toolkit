@@ -72,8 +72,9 @@ multiplayer feature of the five games (ROADMAP Stage 12).
 
 The DUO as a Union Room trainer over the Mystery Gift cable: docs/UNION_ROOM.md. Milestone 1 (the
 game finds "DUO", links, exchanges cards, asks Greetings and reads the card) works in the simulator:
-`python duo_events.py union`, program `union` = adapter.c built with `-DUNION_ROOM`. Next:
-milestone 2, a Union Room trade. Hardware needs the MGB-010 (or any Game Boy Color cable) in place
+`python duo_events.py union`, program `union` = adapter.c built with `-DUNION_ROOM`. Milestone 2
+(a trade from the trading board: `union --pk3 FILE --want TYPE`) too. Next: battles, or the Direct
+Corner's wireless Trade Center. Hardware needs the MGB-010 (or any Game Boy Color cable) in place
 of the link cable.
 
 ## The four-player experiment, 14 November evening (step C)

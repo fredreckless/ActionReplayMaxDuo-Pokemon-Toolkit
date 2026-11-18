@@ -218,7 +218,10 @@ def parse_candidates(ack):
                           uname=uname, gname=dict(language=compat & 0xF, hasNews=compat >> 4 & 1,
                                                   hasCard=compat >> 5 & 1, version=compat >> 10 & 0xF,
                                                   trainer=gname[2] | gname[3] << 8, activity=gname[10] & 0x7F,
-                                                  started=gname[10] >> 7)))
+                                                  started=gname[10] >> 7,
+                                                  # the trading board (RfuGameData's tradeSpecies, tradeType, tradeLevel)
+                                                  trade_species=(gname[8] | gname[9] << 8) & 0x3FF,
+                                                  trade_type=gname[9] >> 2, trade_level=gname[11] >> 1)))
     return hosts
 
 

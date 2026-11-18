@@ -16,8 +16,11 @@ FW42_MUTANTS = {
 }
 PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a copy of the tool
     "union room: broadcasts the distributor's serial, not the game's": ("        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */", "        dist_serial = SERIAL_DECOMP;", "Union Room (milestone 1): the game finds"),
-    "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD ? ACT_ACCEPT : ACT_DECLINE;", "            ur_answer = ACT_DECLINE;", "Union Room (milestone 1): the game finds"),
-    "union room: accepts what it can't do (a trade)": ("            ur_answer = ur_packet == ACT_CARD ? ACT_ACCEPT : ACT_DECLINE;", "            ur_answer = ACT_ACCEPT;", "Union Room (milestone 1): asked for"),
+    "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "Union Room (milestone 1): the game finds"),
+    "union room: accepts a trade with nothing on the board": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE)", "Union Room (milestone 1): asked for"),
+    "union room: the go-ahead before the game's animation is done (no trade)": ("        if (rb.done != mg_got) {\n            mg_got = rb.done;\n            if (rb.head[0] == 0xCD && rb.head[1] == 0xAB) {", "        {\n            {", "Union Room (milestone 2)"),
+    "union room: the board shows no species": ("    b[10] = ur_offer; b[11] = ur_offer >> 8;", "    b[10] = 0; b[11] = ur_offer >> 8;", "Union Room (milestone 2)"),
+    "union room: keeps the game's mail, not its Pokemon": ("            memcpy(game_mon, rb.head, sizeof game_mon);\n            bs_start((const u8 *)gift_words, 100, 100);", "            bs_start((const u8 *)gift_words, 100, 100);", "Union Room (milestone 2)"),
     "adapter skips the ready handshake": ("    if (!wait_si(1, HANDSHAKE_LINES)) {\n#ifndef PROBE\n        judge_flick(0);", "    if (0) {\n#ifndef PROBE\n        judge_flick(0);", "wireless adapter"),
     "adapter acknowledges without the 0x80": ("((cmd + 0x80) & 0xFF)", "(cmd & 0xFF)", "wireless adapter: Emerald"),
     "adapter never takes its turn after a wait": ("frames * LINES_PER_FRAME)\n            break;", "frames * LINES_PER_FRAME * 100000)\n            break;", "wireless adapter: Emerald"),
