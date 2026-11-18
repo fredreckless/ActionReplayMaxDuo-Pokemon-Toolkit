@@ -3196,6 +3196,17 @@ def _():
     assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
 
 
+@test("Union Room chat with FireRed: the same 40-byte messages (pret:pokefirered union_room_chat.c), so the same chat")
+def _():
+    import union_room_model as UR
+    hw, game, trace, st, counters = adapter_session(
+        lambda g: UR.talk_to_partner(g, compat=RFU.EN_FIRERED, activity=UR.ACTIVITY_CHAT), first_bit=True, seconds=150,
+        program="union")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, ur = hw.lg_result
+    assert ur.result == "chatted" and W.adapter_trace.chat == ["GHI: Hi DUO!"], (ur.state, W.adapter_trace.chat)
+
+
 @test("Union Room trade, with every 7th packet lost on the way: both Pokemon still cross intact, the go-ahead still waits for the game's animation")
 def _():
     import union_room_model as UR

@@ -17,7 +17,10 @@ wireless plumbing as both host and child. This is the plan for joining them up. 
    (stages H1 and H2b of docs/WIRELESS_HOST.md).
 2. **The start** (pret:pokeemerald/src/union_room.c:1643 Task_StartActivity): for `ACTIVITY_TRADE`,
    a trainer card into the block buffer and a warp to the Trade Center (`USING_TRADE_CENTER`); the
-   Colosseum and the Record Corner the same way, to their own rooms.
+   Colosseum and the Record Corner the same way, to their own rooms. On the way
+   (pret:pokeemerald/src/union_room.c:1611 CB2_TransitionToCableClub) the cards are exchanged with
+   `Task_ExchangeCards` - the Union Room's own exchange, which the `union` build already leads - and
+   only then does the room load (`CB2_ReturnToFieldCableClub`).
 3. **The room over wireless.** The overworld's link callback is the cable one
    (pret:pokeemerald/src/overworld.c:2239 CB1_OverworldLink), but its keys travel as
    `RFUCMD_SEND_HELD_KEYS` in link_rfu_2's command table (pret:pokeemerald/src/link_rfu_2.c:1029

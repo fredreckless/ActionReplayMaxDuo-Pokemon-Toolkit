@@ -68,16 +68,26 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
 
-## The Union Room (from 18 November, overnight)
+## Wireless, the DUO over the Mystery Gift cable (18 November)
 
-The DUO as a Union Room trainer over the Mystery Gift cable: docs/UNION_ROOM.md. Milestone 1 (the
-game finds "DUO", links, exchanges cards, asks Greetings and reads the card) works in the simulator:
-`python duo_events.py union`, program `union` = adapter.c built with `-DUNION_ROOM`. Milestone 2
-(a trade from the trading board: `union --pk3 FILE --want TYPE`) too. Next: battles, or the Direct
-Corner's wireless Trade Center. The other way round - the game as host, the DUO joining (Mystery Gift
-"Send" to a friend, so the PC can keep a card; the Direct Corner when the game leads) - is planned
-from the source in docs/WIRELESS_HOST.md. Hardware needs the MGB-010 (or any Game Boy Color cable) in place
-of the link cable.
+All simulator-only so far; hardware needs the MGB-010 (or any Game Boy Color cable) in place of the
+link cable, then docs/HARDWARE_QUEUE.md items 16-19.
+
+- **The Union Room** (docs/UNION_ROOM.md; `python duo_events.py union`, program `union`): the DUO as a
+  trainer in the room - its card (Greetings), a trade from the trading board (`--pk3 FILE --want
+  TYPE`), and chat (it joins, says hello, repeats back what you type; the PC prints it). Battles it
+  still declines. The trade request's activity was wrong until the afternoon of 18 November (3, a
+  multi battle, for `ACTIVITY_TRADE` 4): on hardware every trade would have been refused.
+- **The game as host, the DUO joining** (docs/WIRELESS_HOST.md; program `join`): stages H1 to H3 -
+  the DUO joins the game's group as player 1, and Mystery Gift with a friend ("Send") works: `python
+  duo_events.py friend` keeps the game's Wonder Card and RAM script (or news) as a `.wc3` in
+  `received\`. FireRed's game-data check passes too.
+- **Next, planned from the source:** the Direct Corner (docs/DIRECT_CORNER.md) - Cable Club rooms
+  over wireless, starting with the Trade Center with the DUO as leader; it opens the way to the
+  wireless Colosseum, Record Corner and Berry Crush as well.
+- **A check that catches copied-wrong constants:** `tests/source_anchors.py` now also compares the
+  number on a cited `#define` or enum item with the number the citing line gives it, and reads
+  citations in `firmware/programs/` too. Cite constants that the program and the model share.
 
 ## The four-player experiment, 14 November evening (step C)
 

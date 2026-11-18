@@ -113,7 +113,10 @@ the rest). The DUO is the leader, player 0:
 - when the player leaves (LEAVE), the DUO ends the chat with DROP, as a leader left on its own does
   (`Task_ReceiveChatMessage`, then `Chat_Exit`); the game then closes the link as usual.
 
-The model is `URoomChild.chat_frame` in `tests/union_room_model.py`.
+FireRed and LeafGreen use the same messages (pret:pokefirered/src/union_room_chat.c:72, a
+`sendMessageBuffer` of 0x28 bytes, the same kinds and layout); a test runs the chat with FireRed too.
+Both the chat and the trade have a test with every seventh packet lost on the way. The model is
+`URoomChild.chat_frame` in `tests/union_room_model.py`.
 
 ## Later
 
