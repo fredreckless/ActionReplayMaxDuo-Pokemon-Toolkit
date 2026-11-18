@@ -149,7 +149,7 @@ static int swap_after;                 /* the game hands us the clock after this
 #define SERIAL_JP_EMERALD 0x7F7F
 #define SERIAL_DECOMP     0x7F7D
 static u32 dist_serial = SERIAL_JP_EMERALD, pc_serial, host_lang = 1;
-static u32 host_cfg[6], host_on = 1, n_hosts = 1, connect_polls, child_connected;
+__attribute__((unused)) static u32 host_cfg[6], host_on = 1, n_hosts = 1, connect_polls, child_connected;
 /* --sweep-serial: the Japanese Emerald doesn't contain 0x7F7D (session 18), so offer every serial
  * number in turn, three per answer, each host's ID being its serial. Each block of serials is shown
  * twice, each time in less than the 240 frames Emerald then spends looking for the host it
@@ -181,6 +181,7 @@ static u32 ur_offer;                     /* the trading board: species | type <<
 #endif
 static void build_host(void)
 {
+#ifndef GAME_HOSTS
     u8 b[24];
 #ifdef UNION_ROOM
     /* A player in the Union Room (docs/UNION_ROOM.md): pret:pokeemerald/src/link_rfu_2.c:2066
@@ -212,6 +213,7 @@ static void build_host(void)
     b[15] = ~sum;
     for (int i = 0; i < 6; i++)
         host_cfg[i] = b[4 * i] | b[4 * i + 1] << 8 | b[4 * i + 2] << 16 | (u32)b[4 * i + 3] << 24;
+#endif
 }
 
 /* ------------------------------------------------------------------ the host's link layer (librfu NI)
@@ -421,7 +423,7 @@ static u8 child_uni[16];
 static u32 child_uni_new, link_state, link_timer, n_child_cmds, n_uni, n_resent, uni_acked;
 static u16 rx_cmd[7], tx_cmd[7];
 
-#ifndef UNION_ROOM
+#if !defined(UNION_ROOM) || defined(GAME_HOSTS)
 static u16 crc16(const u8 *p, u32 n, u16 crc)    /* util.c CalcCRC16WithTable, before its final ~ */
 {
     while (n--) {
@@ -485,7 +487,9 @@ static int bs_step(void)                 /* fills tx_cmd; returns 1 while the bl
 /* The game's incoming blocks (row 1). */
 static struct {
     u32 state, count, flags, done;       /* state: 0 ready, 1 receiving */
-#ifdef UNION_ROOM
+#ifdef GAME_HOSTS
+    u8 head[252];                        /* a whole Mystery Gift link block (stage H3) */
+#elif defined(UNION_ROOM)
     u8 head[108];                        /* the first 108 bytes (9 chunks): a whole struct Pokemon */
 #else
     u8 head[64];                         /* the first 64 bytes of the block */
@@ -516,7 +520,7 @@ static void rb_chunk(u32 n)
 /* The Union Room partner (docs/UNION_ROOM.md), after the link players: cards, then the game's
  * requests. mg_step: 0 ask for cards, 1 waiting for the game's, 2 waiting for a request (and
  * answering it), on and on. Steps and answers go to the trace as EV_MG_STEP (step << 16 | value). */
-static u32 mg_step, mg_sub, mg_errors, mg_got, mg_resp, ur_packet, ur_reply, ur_answer;
+__attribute__((unused)) static u32 mg_step, mg_sub, mg_errors, mg_got, mg_resp, ur_packet, ur_reply, ur_answer;
 #define ACT_CARD   (0x40 | 8)            /* IN_UNION_ROOM | ACTIVITY_CARD ("Greetings") */
 #define ACT_ACCEPT (0x40 | 17)
 #define ACT_DECLINE (0x40 | 18)
@@ -966,22 +970,183 @@ static const u8 our_name[26] = {
  * number from SEND_PLAYER_IDS, answer BLOCK_REQ with our link player, read the game's. */
 static u8 parent_uni[UNI_BYTES];
 static u32 parent_uni_new, child_seq, my_id, n_players, join_linked, n_tables;
-static struct { u32 state, count, next, echo, wait; } cs;     /* our block: 1 announcing, 2 chunks, 3 checking, 4 done */
+static struct { u32 state, count, next, echo, wait, len; const u8 *src; } cs;   /* our block: 1 announcing, 2 chunks, 3 checking, 4 done */
 static const u8 block_req_size[5] = { 200, 200, 100, 220, 40 };   /* link_rfu_2.c sBlockRequests */
 #define EV_BLOCK_SENT 0x7D              /* the game has every chunk of our link player */
+#define CS_INITS 3                      /* announce a block at least this often (repeats are harmless) */
+
+static void cs_begin(const u8 *src, u32 len, u32 size)
+{
+    cs.src = src; cs.len = len;
+    cs.count = (size + 11) / 12;
+    cs.state = cs.count ? 1 : 0;
+    cs.next = cs.echo = cs.wait = 0;
+}
 
 static void cs_chunk(u32 n)
 {
     tx_cmd[0] = CMD_BLOCK | n;
     for (u32 j = 0; j < 6; j++) {
         u32 at = n * 12 + 2 * j;
-        tx_cmd[1 + j] = (at < sizeof player_block ? player_block[at] : 0)
-                      | (at + 1 < sizeof player_block ? player_block[at + 1] : 0) << 8;
+        tx_cmd[1 + j] = (at < cs.len ? cs.src[at] : 0) | (at + 1 < cs.len ? cs.src[at + 1] : 0) << 8;
     }
+}
+
+/* Stage H3 (docs/WIRELESS_HOST.md): Mystery Gift with a friend, "Send". The game runs its Mystery
+ * Gift server (pret:pokeemerald/src/mystery_gift_server.c) and we are its client
+ * (pret:pokeemerald/src/mystery_gift_client.c): we run the client scripts it sends, give it our
+ * game data, keep the card (or news) and RAM script it sends for the PC. Both directions use
+ * pret:pokeemerald/src/mystery_gift_link.c's framing: a 6-byte header block (ident, CRC-16,
+ * size; size 0 means 1024), then the data in blocks of up to 252 bytes. */
+enum { CLI_NONE, CLI_RETURN, CLI_RECV, CLI_SEND_LOADED, CLI_COPY_RECV, CLI_LOAD_GAME_DATA = 8, CLI_SAVE_NEWS,
+       CLI_SAVE_CARD, CLI_COPY_MSG = 12, CLI_ASK_TOSS, CLI_LOAD_TOSS_RESPONSE, CLI_SAVE_RAM_SCRIPT = 17,
+       CLI_SEND_READY_END = 20 };                                   /* pret:pokeemerald/include/mystery_gift_client.h:18 */
+enum { MG_CLIENT_SCRIPT = 16, MG_GAME_DATA, MG_RESPONSE = 19, MG_READY_END, MG_DYNAMIC_MSG, MG_CARD, MG_NEWS,
+       MG_RAM_SCRIPT = 25 };                                        /* pret:pokeemerald/include/mystery_gift_link.h:9 */
+#define EV_MG_GOT  0x7C                 /* the game's server sent us something (data: ident << 16 | size) */
+#define EV_MG_DONE 0x7B                 /* our client script returned (data: its message, CLI_MSG_*) */
+#define CLI_DONE 3
+#define MS_GAP 10                       /* tables between our blocks, so the game has read the last one */
+static u8 cli_script[128], recv_script[128], game_data_out[100], response[4], ms_head[6];
+static u32 cli_pc, cli_mode, cli_result, cli_errors, cli_got;       /* mode: 0 run, 1 receiving, 2 sending, 3 done */
+static u32 mr_state, mr_want, mr_size, mr_at, mr_crc, mr_cap, mr_run;
+static u8 *mr_dst;
+static const u8 *ms_src;
+static u32 ms_state, ms_len, ms_size, ms_at, standby_due, standby_timer, standby_ok, close_due;
+#define GIFT_W ((u8 *)gift_words)
+
+static void mg_trace_error(u32 what)
+{
+    cli_errors++;
+    trace(EV_MG_ERROR, 0, what);
+}
+
+static void mr_block(void)              /* a whole block from the game (row 0), after the link players */
+{
+    if (mr_state == 0) {                                            /* MysteryGiftLink_Recv: the header */
+        u32 ident = rb.head[0] | rb.head[1] << 8;
+        mr_crc = rb.head[2] | rb.head[3] << 8;
+        mr_size = rb.head[4] | rb.head[5] << 8;
+        if (cli_mode != 1 || ident != mr_want || mr_size > 0x400) {
+            mg_trace_error(0x10000 | ident);
+            return;
+        }
+        mr_dst = ident == MG_CLIENT_SCRIPT ? recv_script : ident == MG_RAM_SCRIPT ? GIFT_W + 4 + 0x14C
+               : ident == MG_CARD || ident == MG_NEWS ? GIFT_W + 4 : 0;
+        mr_cap = ident == MG_CLIENT_SCRIPT ? sizeof recv_script : ident == MG_RAM_SCRIPT ? 1000
+               : ident == MG_CARD ? 0x14C : ident == MG_NEWS ? 0x1BC : 0;
+        if (mr_dst == recv_script)
+            memset(recv_script, 0, sizeof recv_script);
+        mr_state = 1; mr_at = 0; mr_run = 0x1121;
+        return;
+    }
+    u32 n = mr_size - mr_at < 252 ? mr_size - mr_at : 252;
+    mr_run = crc16(rb.head, n, mr_run);
+    for (u32 i = 0; i < n; i++)
+        if (mr_at + i < mr_cap)
+            mr_dst[mr_at + i] = rb.head[i];
+    mr_at += n;
+    if (mr_at < mr_size)
+        return;
+    mr_state = 0;
+    if ((u16)~mr_run != mr_crc) {                                   /* the game would call LinkRfu_FatalError */
+        mg_trace_error(0x20000 | mr_want);
+        cli_mode = CLI_DONE; cli_result = 0xFF;
+        return;
+    }
+    cli_got = mr_size;
+    trace(EV_MG_GOT, 0, mr_want << 16 | mr_size);
+    cli_mode = 0;
+}
+
+static void ms_load(u32 ident, const u8 *src, u32 len, u32 size)   /* MysteryGiftLink_InitSend */
+{
+    static const u8 zero = 0;
+    u16 crc = crc16(src, len, 0x1121);
+    for (u32 i = len; i < size; i++)
+        crc = crc16(&zero, 1, crc);
+    crc = ~crc;
+    ms_head[0] = ident; ms_head[1] = ident >> 8; ms_head[2] = crc; ms_head[3] = crc >> 8;
+    ms_head[4] = size; ms_head[5] = size >> 8;
+    ms_src = src; ms_len = len; ms_size = size;
+}
+
+static void ms_step(void)               /* MysteryGiftLink_Send: the next of our blocks, when it's time */
+{
+    if (!ms_state)
+        return;
+    if (ms_state == 1) {
+        cs_begin(ms_head, 6, 6);
+        ms_state = 2; ms_at = 0;
+    } else if (ms_state == 2) {
+        u32 n = ms_size - ms_at < 252 ? ms_size - ms_at : 252;
+        cs_begin(ms_src + ms_at, ms_len > ms_at ? ms_len - ms_at : 0, n);
+        ms_at += n;
+        if (ms_at >= ms_size) ms_state = 3;
+    }
+}
+
+static void build_game_data(void)       /* struct MysteryGiftLinkGameData (pret:pokeemerald/src/mystery_gift.c:346) */
+{
+    memset(game_data_out, 0, sizeof game_data_out);
+    game_data_out[0x00] = 0x01; game_data_out[0x01] = 0x01;        /* validationVar: GAME_DATA_VALID_VAR */
+    game_data_out[0x04] = 1;                                        /* validationFlag1 */
+    game_data_out[0x08] = 1;                                        /* validationFlag2 */
+    game_data_out[0x0C] = 4 | 1;                                    /* validationGiftType1 (the news form passes for cards too) */
+    game_data_out[0x10] = 1; game_data_out[0x11] = 0x02;            /* validationGiftType2: 0x201 */
+    /* flagId (0x14) = 0: no Wonder Card, so the game sends its card straight away */
+    game_data_out[0x43] = 0xBE; game_data_out[0x44] = 0xCF; game_data_out[0x45] = 0xC9;   /* playerName "DUO" */
+    memset(game_data_out + 0x46, 0xFF, 5);
+    game_data_out[0x4B] = HOST_TRAINER & 0xFF; game_data_out[0x4C] = HOST_TRAINER >> 8;
+    memcpy(game_data_out + 0x5C, "BPEE", 4);                        /* romHeaderGameCode */
+}
+
+static void cli_run(void)               /* MysteryGiftClient's script, a few steps per table */
+{
+    for (u32 guard = 0; guard < 8 && cli_mode == 0; guard++) {
+        if (cli_pc >= sizeof cli_script / 8) {
+            cli_mode = CLI_DONE; cli_result = 0xFE;
+            break;
+        }
+        const u8 *c = cli_script + 8 * cli_pc++;
+        u32 instr = c[0] | c[1] << 8, param = c[4] | c[5] << 8;
+        switch (instr) {
+        case CLI_NONE: case CLI_COPY_MSG: case CLI_ASK_TOSS: break;
+        case CLI_RETURN:
+            cli_mode = CLI_DONE; cli_result = param;
+            trace(EV_MG_DONE, 0, param);
+            break;
+        case CLI_RECV:  mr_want = param; mr_state = 0; cli_mode = 1; break;
+        case CLI_SEND_LOADED: ms_state = 1; cli_mode = 2; break;
+        case CLI_COPY_RECV: memcpy(cli_script, recv_script, sizeof cli_script); cli_pc = 0; break;
+        case CLI_LOAD_GAME_DATA: build_game_data(); ms_load(MG_GAME_DATA, game_data_out, 100, 100); break;
+        case CLI_SAVE_CARD: gift_words[0] = cli_got; break;
+        case CLI_SAVE_RAM_SCRIPT: gift_ready = 1; break;
+        case CLI_SAVE_NEWS:                                         /* saved, so "not the same": 0 */
+            gift_words[0] = cli_got | 1 << 16; gift_ready = 1;
+            response[0] = 0; ms_load(MG_RESPONSE, response, 4, 4);
+            break;
+        case CLI_LOAD_TOSS_RESPONSE: response[0] = 0; ms_load(MG_RESPONSE, response, 4, 4); break;
+        case CLI_SEND_READY_END: ms_load(MG_READY_END, game_data_out, sizeof game_data_out, 0x400);
+                                 ms_state = 1; cli_mode = 2; break;
+        default: mg_trace_error(0x30000 | instr); cli_mode = CLI_DONE; cli_result = 0xFD; break;
+        }
+    }
+}
+
+static void cli_start(void)             /* MysteryGiftClient_Create: gMysteryGiftClientScript_Init */
+{
+    memset(cli_script, 0, sizeof cli_script);
+    cli_script[0] = CLI_RECV; cli_script[4] = MG_CLIENT_SCRIPT;
+    cli_script[8] = CLI_COPY_RECV;
+    cli_pc = cli_mode = cli_result = cli_errors = 0;
+    mr_state = ms_state = 0;
+    gift_words[0] = 0; gift_ready = 0;
 }
 
 static void join_link(void)             /* one table from the game: pret RfuHandleReceiveCommand, as child */
 {
+    u32 done_before = rb.done;
     memset(tx_cmd, 0, sizeof tx_cmd);
     n_tables++;
     for (u32 j = 0; j < 7; j++)                                      /* row 0: the game's command */
@@ -996,45 +1161,74 @@ static void join_link(void)             /* one table from the game: pret RfuHand
     case CMD_BLOCK_REQ:
         if (!cs.state && my_id) {
             build_player_block();
-            cs.count = ((rx_cmd[1] < 5 ? block_req_size[rx_cmd[1]] : 0) + 11) / 12;
-            cs.state = cs.count ? 1 : 0;
-            cs.next = cs.echo = 0;
+            cs_begin(player_block, sizeof player_block, rx_cmd[1] < 5 ? block_req_size[rx_cmd[1]] : 0);
         }
         break;
+    case CMD_READY_EXIT: if (rx_cmd[1] == 0) standby_ok = 1; break;  /* the leader's, after ours */
+    case CMD_READY_CLOSE: close_due = 2; break;                      /* Rfu_SetCloseLinkCallback: agree */
     }
-    if (rb.done && !join_linked) {                                   /* the game's link player */
-        join_linked = 1;
-        memcpy(child_player, rb.head, sizeof child_player);
-        trace(EV_LINK_PLAYERS, 0, child_player[20] | child_player[21] << 8 | child_player[22] << 16
-              | (u32)child_player[23] << 24);
+    if (rb.done != done_before) {
+        if (!join_linked) {                                          /* the game's link player */
+            join_linked = 1;
+            memcpy(child_player, rb.head, sizeof child_player);
+            trace(EV_LINK_PLAYERS, 0, child_player[20] | child_player[21] << 8 | child_player[22] << 16
+                  | (u32)child_player[23] << 24);
+            cli_start();
+            standby_due = 1;                                         /* Rfu_SetLinkStandbyCallback (child) */
+        } else {
+            mr_block();
+        }
     }
     if (my_id && my_id < 5) {                                        /* our row: what the game got from us */
         u32 e = parent_uni[14 * my_id] | parent_uni[14 * my_id + 1] << 8;
-        if ((e & 0xFF00) == CMD_BLOCK_INIT && cs.state == 1)
+        if ((e & 0xFF00) == CMD_BLOCK_INIT && cs.state == 1 && cs.wait >= CS_INITS)
             cs.state = 2;
         if ((e & 0xFF00) == CMD_BLOCK && (e & 0x1F) < 24)
             cs.echo |= 1u << (e & 0x1F);
     }
-    switch (cs.state) {
-    case 1:
-        tx_cmd[0] = CMD_BLOCK_INIT; tx_cmd[1] = cs.count; tx_cmd[2] = my_id + 0x80;
-        break;
-    case 2:
-        cs_chunk(cs.next++);
-        if (cs.next >= cs.count) { cs.state = 3; cs.wait = 0; }
-        break;
-    case 3:
-        if (cs.echo == (1u << cs.count) - 1) {
-            cs.state = 4;
+    if (cs.state == 3 && cs.echo == (1u << cs.count) - 1) {
+        cs.state = 4; cs.wait = 0;
+        if (cs.src == player_block)
             trace(EV_BLOCK_SENT, 0, cs.count);
-        } else if (++cs.wait > 2) {                                  /* a chunk the game missed: again */
-            for (u32 k = 0; k < cs.count; k++) {
-                u32 n = cs.next + k;
-                if (n >= cs.count) n -= cs.count;
-                if (!(cs.echo >> n & 1)) { cs_chunk(n); cs.next = n + 1; break; }
-            }
+    }
+    if (ms_state == 3 && cs.state == 4) {                            /* our last block is in */
+        ms_state = 0;
+        cli_mode = 0;
+    }
+    if (join_linked && cli_mode == 0)
+        cli_run();
+    if (cs.state == 0 || (cs.state == 4 && ++cs.wait > MS_GAP)) {   /* free to say something else */
+        if (close_due) {
+            close_due--;
+            tx_cmd[0] = CMD_READY_CLOSE;
+            trace(EV_CLOSE, 0, cli_result);
+        } else if (standby_due && !standby_ok && (standby_timer++ == 0 || standby_timer > 60)) {
+            tx_cmd[0] = CMD_READY_EXIT;                              /* allReadyNum 0 (SendReadyExitStandbyUntilAllReady) */
+            standby_timer = 1;
+        } else {
+            ms_step();
         }
-        break;
+    }
+    if (!tx_cmd[0]) {
+        switch (cs.state) {
+        case 1:
+            tx_cmd[0] = CMD_BLOCK_INIT; tx_cmd[1] = cs.count; tx_cmd[2] = my_id + 0x80;
+            cs.wait++;
+            break;
+        case 2:
+            cs_chunk(cs.next++);
+            if (cs.next >= cs.count) { cs.state = 3; cs.wait = 0; }
+            break;
+        case 3:
+            if (++cs.wait > 2) {                                     /* a chunk the game missed: again */
+                for (u32 k = 0; k < cs.count; k++) {
+                    u32 n = cs.next + k;
+                    if (n >= cs.count) n -= cs.count;
+                    if (!(cs.echo >> n & 1)) { cs_chunk(n); cs.next = n + 1; break; }
+                }
+            }
+            break;
+        }
     }
     if (tx_cmd[0]) {
         tx_cmd[0] |= child_seq << 5;
@@ -1170,6 +1364,8 @@ static void respond(void)
                 nis_start(our_name, sizeof our_name, 1, 14);           /* data type 1: our name */
                 memset(&cs, 0, sizeof cs); memset(&rb, 0, sizeof rb);
                 my_id = n_players = child_seq = join_linked = parent_uni_new = 0;
+                standby_due = standby_timer = standby_ok = close_due = 0;
+                cli_mode = CLI_DONE;
                 hf_len = 0;
                 trace(EV_CONNECTED, 0, CHILD_ID);
             }
@@ -1181,6 +1377,7 @@ static void respond(void)
 #ifndef GAME_HOSTS
     case 0x1B: adapter_state = ST_HOST_CLOSED; break;
 #endif
+#ifndef GAME_HOSTS                                                     /* (the DUO only joins) */
     case 0x1C: adapter_state = ST_SEARCHING; break;
     case 0x1D: case 0x1E:                                              /* who is in range */
         if (host_on && (adapter_state == ST_SEARCHING || cmd == 0x1E)) {
@@ -1222,6 +1419,7 @@ static void respond(void)
         }
         ack_len = 1;
         break;
+#endif
 #ifdef GAME_HOSTS
     case 0x24: if (child_connected) join_receive(); break;
     case 0x25: if (child_connected) join_receive(); swap_after = 1; break;
@@ -1822,6 +2020,11 @@ static int pc_service(api_t *api)
                  | game_data[4 * (i & 15) + 2] << 16 | (u32)game_data[4 * (i & 15) + 3] << 24 : 0; break;
     case 24: v = child_player[4 * (i & 15)] | child_player[4 * (i & 15) + 1] << 8
                  | child_player[4 * (i & 15) + 2] << 16 | (u32)child_player[4 * (i & 15) + 3] << 24; break;
+#endif
+#ifdef GAME_HOSTS
+    case 31: v = idx < sizeof gift_words / 4 ? gift_words[idx] : 0; break;          /* what the game sent us */
+    case 32: v = cli_result | cli_mode << 8 | gift_ready << 10 | join_linked << 11 | (cli_errors & 0xF) << 12
+               | (n_tables & 0xFFFF) << 16; break;
 #endif
 #ifdef UNION_ROOM
     case 29: ur_offer = idx; build_host(); v = ur_offer; break;          /* the trading board's offer */

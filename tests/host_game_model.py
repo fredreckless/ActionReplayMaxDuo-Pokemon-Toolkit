@@ -666,7 +666,7 @@ class MGServer:
         return self.func == "done"
 
 
-def lead_and_share(game, card=None, ram_script=b"", news=None, compat=RFU.EN_EMERALD, wait_frames=121, max_frames=4000):
+def lead_and_share(game, card=None, ram_script=b"", news=None, compat=RFU.EN_EMERALD, wait_frames=121, max_frames=1500):
     """Stage H3, all of "Send" as the game does it (pret:pokeemerald/src/mystery_gift_menu.c:1522
     MG_STATE_SEND onwards): host, accept, link players, the server - while the leader's standby
     (Task_SendMysteryGift state 16) runs - then Rfu_SetCloseLinkCallback and, once the DUO is ready

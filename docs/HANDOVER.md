@@ -171,7 +171,7 @@ Tower failures on 14 November (rerun `run_matrix.sh` to confirm).
 |---|---|
 | Mystery Gift | Japanese Emerald, English LeafGreen on hardware; others waiting for the cable to come out |
 | Union Room (`union`) | the DUO as a trainer: Greetings and its card, a trading-board trade - simulator only (18 November) |
-| The game as host (`join`) | the DUO joins and names itself, the game says yes, link players exchanged with the DUO as player 1 - simulator only, stages H1 to H2b of docs/WIRELESS_HOST.md |
+| The game as host (`join`, `duo_events.py friend`) | Mystery Gift with a friend, "Send": the DUO joins the game's group as player 1, the game's server sends its Wonder Card and RAM script (or news), the PC keeps a `.wc3` - simulator only, stages H1 to H3 of docs/WIRELESS_HOST.md; hardware queue item 18 |
 | e-Reader route (Ruby/Sapphire) | Eon Ticket, berries, Battle-e trainers on hardware |
 | Trades | Ruby, Emerald, LeafGreen on hardware; up to six a sitting |
 | Record Mixing (Ruby) | Everything in a record, on hardware (6-7 November); the user considers it done for now |

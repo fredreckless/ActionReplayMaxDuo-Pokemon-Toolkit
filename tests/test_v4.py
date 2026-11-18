@@ -3230,6 +3230,46 @@ def _():
     assert game.retries == 0, game.retries
 
 
+@test("the game as wireless host (stage H3): Mystery Gift with a friend, Send - the game's server checks the DUO's game data and sends its card and RAM script; the DUO's client keeps them, the link closes, the PC writes a .wc3 the tool can read back")
+def _():
+    import host_game_model as HG
+    path, card, script = test_wc3("English")
+    W.RECEIVED_DIR = os.path.join(tempfile.mkdtemp(), "received")      # (never the repo's own folder)
+    hw, game, trace, st, counters = adapter_session(lambda g: HG.lead_and_share(g, card, script), first_bit=True,
+                                                    seconds=150, program="join")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    parent, server = hw.lg_result
+    assert server.result == HG.SVR_MSG_CARD_SENT and ("has", HG.HAS_NO_CARD) in server.history, server.history
+    assert parent.disconnect and not any(parent.child_recv_errors), parent.child_recv_errors
+    gift = W.adapter_trace.last_gift
+    assert gift["result"] == HG.CLI_MSG_CARD_RECEIVED and gift["ready"] and not gift["errors"], gift
+    sent = bytearray(card)
+    sent[8] = sent[8] & 0x3F                                        # DisableWonderCardSending: sendType 1 -> 0
+    assert gift["card"] == bytes(sent) and gift["script"] == script, (gift["card"][:16].hex(), gift["script"][:8].hex())
+    language, card2, script2 = W.parse_wc3(open(gift["path"], "rb").read())
+    assert card2 == bytes(sent) and script2 == script and not W.check_wc3(open(gift["path"], "rb").read())
+    names = [t for t, _ in trace]
+    assert "Mystery Gift with a friend: our client finished: the Wonder Card arrived" in names, names[-10:]
+    assert any(n.startswith("the game is ready to close the link") for n in names), names[-10:]
+    assert "Kept on this PC" in hw.text and game.retries == 0, (hw.text[-400:], game.retries)
+
+
+@test("the game as wireless host (stage H3, news): Send for Wonder News - the DUO keeps the news and answers that it was saved; the PC writes a news file the tool can read back")
+def _():
+    import host_game_model as HG
+    news = (0x0042).to_bytes(2, "little") + bytes([0, 1]) + bytes((i * 11 + 3) & 0xFF for i in range(440))
+    W.RECEIVED_DIR = os.path.join(tempfile.mkdtemp(), "received")
+    hw, game, trace, st, counters = adapter_session(lambda g: HG.lead_and_share(g, news=news), first_bit=True,
+                                                    seconds=150, program="join")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    parent, server = hw.lg_result
+    assert server.result == HG.SVR_MSG_NEWS_SENT, server.history
+    gift = W.adapter_trace.last_gift
+    assert gift["result"] == HG.CLI_MSG_NEWS_RECEIVED and gift["news"] == news, gift
+    language, news2, problems = W.parse_wonder_news(open(gift["path"], "rb").read())
+    assert news2 == news and not problems and language == "English/European", (language, problems)
+
+
 @test("distributor: link players exchanged, then Mystery Gift delivers the Wonder Card and RAM script; the link closes")
 def _():
     path, card, script = test_wc3()

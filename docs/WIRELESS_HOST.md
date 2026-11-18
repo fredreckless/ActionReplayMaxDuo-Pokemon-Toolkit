@@ -21,8 +21,14 @@ over NI in the parent's 3-byte-headed sub-frames of 8, reaches the DUO and is ac
 chunk. Stage H2b too (18 November, afternoon): with the slots finalized, link_rfu_2 runs with the
 game as parent and the DUO as player 1 - the game's 70-byte command table each frame, the DUO's
 14-byte answers with sequence numbers the game accepts, player IDs, then both link players exchanged
-as 200-byte blocks (the `join` build is 9.6 KB). Next: H3.
-No command-line use yet: nothing useful happens on hardware until H3.
+as 200-byte blocks. And stage H3, the same afternoon: Mystery Gift with a friend, "Send" - the game's
+Mystery Gift server checks the DUO's game data and sends its Wonder Card and RAM script (or its Wonder
+News); the DUO runs the client scripts it is sent, keeps what arrives, agrees to close the link, and the
+PC writes a `.wc3` (or a news file) into the `received` folder. The `join` build is now 11.4 KB (it
+leaves out the distributor's host answers, which it never gives, to make room).
+
+**On the command line:** `python duo_events.py friend [--out FILE]`, with the MGB-010 cable. Not yet
+run on hardware: the first real run is item 18 of docs/HARDWARE_QUEUE.md.
 
 ## What the game does as host (librfu 1026, Emerald and FireRed/LeafGreen)
 
@@ -105,3 +111,30 @@ roles.
   either). Trace events: 0x0A (the game's link player, with its trainer ID), 0x7D (every chunk of
   ours echoed).
 - Model: `ParentLink`, `null_frames`, `lead_link` and `lead_and_link` in `tests/host_game_model.py`.
+
+## How H3 works (built, simulator)
+
+- The game's side (pret:pokeemerald/src/mystery_gift_menu.c:1522 MG_STATE_SEND onwards): once the link
+  players are in, the leader's standby (`Task_SendMysteryGift` state 16) and the Mystery Gift server
+  (pret:pokeemerald/src/mystery_gift_server.c, scripts `gMysteryGiftServerScript_SendWonderCard` and
+  `_SendWonderNews` in pret:pokeemerald/src/mystery_gift_scripts.c:193) start together; the server's
+  first send waits for the standby to finish, which needs the DUO's `READY_EXIT_STANDBY`. When the
+  server returns, `Rfu_SetCloseLinkCallback`; once the DUO is ready to close too, the game disconnects
+  (`0x30`).
+- What the server checks: the client's game data (pret:pokeemerald/src/mystery_gift.c:390
+  MysteryGift_ValidateLinkGameData: `0x101` at 0, odd words at 4 and 8, gift-type bits at 0xC and
+  0x10) and its Wonder Card flag (0x14: 0 means no card, so the card goes straight out). The DUO sends
+  the news form of the gift-type bits, which passes for cards too.
+- Two quirks kept: the server sends its card with `sendType` "allowed" turned to "disallowed"
+  (`DisableWonderCardSending`), so the copy can't be shared on; and it sends the RAM script as 1024
+  bytes, because `SVR_COPY_SAVED_RAM_SCRIPT` sets the pointer but not the size and a size of 0 means
+  the whole link buffer. The DUO keeps the first 1000 (the script) and checks the CRC over all 1024.
+  The client's "ready to end" is 1024 bytes for the same reason.
+- The DUO's client (`cli_run`, `mr_block`, `ms_load`/`ms_step` in `adapter.c`): the client
+  instructions those scripts use; blocks in both directions with `mystery_gift_link.c`'s header (ident,
+  CRC-16, size). Our blocks wait ten tables after the last one is echoed, so the game has read the one
+  before (it holds a child's finished block for four frames, then the server takes it). Trace events:
+  0x7C (a block from the server, with its ident and size), 0x7B (the client's result), 0x0D (closing).
+- The PC reads the buffer (polls 31 and 32) and writes a `.wc3` in the layout `parse_wc3` reads: the
+  game sends no metadata, so those 0x50 bytes are empty.
+- Model: `MGServer` and `lead_and_share` in `tests/host_game_model.py`.
