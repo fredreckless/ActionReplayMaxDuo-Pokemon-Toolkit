@@ -54,3 +54,27 @@ wireless plumbing as both host and child. This is the plan for joining them up. 
 2. The room: the DUO's keys over `SEND_HELD_KEYS`, walking to its seat; the game's watchdog quiet.
 3. The trade menu over link_rfu_2: the cable trade program's logic, moved across.
 4. Then the Colosseum (the battle partner) and the Record Corner the same way.
+
+## Notes for the room (step 2), from the source
+
+- **Arriving** (pret:pokeemerald/src/field_screen_effect.c:192 Task_ReturnToFieldWirelessLink): a
+  standby first (the DUO, as leader, already answers it), then `StartSendingKeysToLink`, which over
+  wireless is `StartSendingKeysToRfu` (pret:pokeemerald/src/link.c:714).
+- **Keys out** (pret:pokeemerald/src/link_rfu_2.c:1029 SendKeysToRfu): once the link players are in,
+  every frame the game has a key code to send, it sends `RFUCMD_SEND_HELD_KEYS` (0xBE00,
+  pret:pokeemerald/include/link_rfu.h:19) with the code in the low byte of word 1 and a counter in its
+  high byte.
+- **Keys in**: link_rfu_2 puts each player's word 1 in `gLinkPartnersHeldKeys`; the overworld reads
+  only its low byte (pret:pokeemerald/src/overworld.c:2429 UpdateAllLinkPlayers), and only on frames
+  when a command came in or the game isn't sending keys (pret:pokeemerald/src/overworld.c:2239
+  CB1_OverworldLink). So the DUO's key codes go out as 0xBE00 rows, one a frame, like the game's.
+- **The watchdog**: while the game waits in certain key callbacks (`KeyInterCB_Idle`, `_Ready`
+  before its own READY is back, `_ExitingSeat`, `_WaitForPlayersToExit`), each call counts towards
+  60 (pret:pokeemerald/src/overworld.c:2283 CheckRfuKeepAliveTimer); a change of callback resets it.
+  The change comes from the game's *own* key coming back through the link
+  (pret:pokeemerald/src/overworld.c:2319 HandleLinkPlayerKeyInput: its IDLE, READY or EXIT_ROOM, read
+  from its own row). As leader the DUO echoes every row in its table each frame, so the game's keys
+  do come back; what the DUO must not do is let the table stall for a second.
+- The cable room is modelled from pokeruby (`tests/pret_cable_club.py` LinkRoom); Emerald's
+  overworld link (the functions above, and the key intercept callbacks around
+  pret:pokeemerald/src/overworld.c:2516 KeyInterCB_SelfIdle) wants porting for the wireless room.
