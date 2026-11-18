@@ -84,7 +84,8 @@ link cable, then docs/HARDWARE_QUEUE.md items 16-19.
   `received\`. FireRed's game-data check passes too.
 - **Next, planned from the source:** the Direct Corner (docs/DIRECT_CORNER.md) - Cable Club rooms
   over wireless, starting with the Trade Center with the DUO as leader; it opens the way to the
-  wireless Colosseum, Record Corner and Berry Crush as well.
+  wireless Colosseum, Record Corner and Berry Crush as well. Step 1 (the group, link players, the
+  cards on the way to the room) works in the simulator; step 2 is the room's keys over link_rfu_2.
 - **A check that catches copied-wrong constants:** `tests/source_anchors.py` now also compares the
   number on a cited `#define` or enum item with the number the citing line gives it, and reads
   citations in `firmware/programs/` too. Cite constants that the program and the model share.

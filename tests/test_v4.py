@@ -1123,7 +1123,7 @@ def adapter_symbol(name, program="adapter"):
 def adapter_session(script, seconds=20, attach=True, program="adapter", lag_bits=0, first_bit=False,
                     flick_window=None, wonder_card=None, check_search=False,
                     sweep_serial=False, serial=None, wonder_news=None, stop_on_game=True, keep_going=False,
-                    union_pk3=None, union_want="normal"):
+                    union_pk3=None, union_want="normal", union_corner=0):
     hw, duo = run42()
     game = RFU.Game()
     if attach:
@@ -1133,7 +1133,8 @@ def adapter_session(script, seconds=20, attach=True, program="adapter", lag_bits
                                                           wonder_card=wonder_card, check_search=check_search,
                                                           sweep_serial=sweep_serial, serial=serial,
                                                           wonder_news=wonder_news, keep_going=keep_going,
-                                                          union_pk3=union_pk3, union_want=union_want),
+                                                          union_pk3=union_pk3, union_want=union_want,
+                                                          union_corner=union_corner),
               poll_s=0.2,
               stop_when=(lambda: hw.lg_done) if attach and stop_on_game else None, program=program)
     entries, st, counters = r[0][:3]
@@ -3194,6 +3195,21 @@ def _():
     names = [t for t, _ in trace]
     assert any("the game asked for a chat; the DUO said yes" in n for n in names), names[-8:]
     assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
+
+
+@test("Direct Corner, step 1: the DUO leads a Trade Center group; the game finds it, joins, links, and after the standby the two trainer cards cross on the way to the room")
+def _():
+    import union_room_model as UR
+    hw, game, trace, st, counters = adapter_session(lambda g: UR.join_trade_center(g), first_bit=True, seconds=120,
+                                                    program="union", union_corner=UR.ACTIVITY_TRADE)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    found, child, cc = hw.lg_result
+    assert found["gname"]["activity"] == UR.ACTIVITY_TRADE and not found["gname"]["started"], found
+    assert child.player_count == 2 and child.multiplayer_id == 1, (child.player_count, child.multiplayer_id)
+    assert cc.result == "in the Trade Center" and cc.cards[0][0x30:0x33] == bytes([0xBE, 0xCF, 0xC9]), cc.cards
+    names = [t for t, _ in trace]
+    assert any("Direct Corner: the group has started (activity 4)" in n for n in names), names[-8:]
+    assert any("the game's trainer card arrived (trainer ID 54465)" in n for n in names), names[-8:]   # (0xD4C1)
 
 
 @test("Union Room chat with FireRed: the same 40-byte messages (pret:pokefirered union_room_chat.c), so the same chat")

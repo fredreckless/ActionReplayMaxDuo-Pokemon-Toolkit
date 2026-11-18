@@ -178,6 +178,7 @@ static u32 gift_words[(GIFT_MAX + 3) / 4];               /* (defined with the My
 
 #ifdef UNION_ROOM
 static u32 ur_offer;                     /* the trading board: species | type << 10 | level << 16 (0: none) */
+static u32 corner;                       /* the Direct Corner (docs/DIRECT_CORNER.md): the group's activity, 0 for the Union Room */
 #endif
 static void build_host(void)
 {
@@ -202,7 +203,7 @@ static void build_host(void)
     b[4] = HOST_TRAINER & 0xFF; b[5] = HOST_TRAINER >> 8;   /* .playerTrainerId */
 #ifdef UNION_ROOM
     b[10] = ur_offer; b[11] = ur_offer >> 8;   /* .tradeSpecies (10 bits), .tradeType (6): the board */
-    b[12] = 0x40;                        /* .activity = IN_UNION_ROOM | ACTIVITY_NONE, not started */
+    b[12] = corner ? corner : 0x40;      /* .activity = IN_UNION_ROOM | ACTIVITY_NONE (or a group's), not started */
     b[13] = ur_offer >> 16 << 1;         /* .playerGender 0, .tradeLevel */
 #else
     b[12] = 21 + GIFT_IS_NEWS;           /* .activity = ACTIVITY_WONDER_CARD (or _NEWS), not started */
@@ -564,6 +565,13 @@ static u8 game_mon[100];
 #define ACT_CHAT (0x40 | 5)             /* pret:pokeemerald/include/constants/union_room.h:25 ACTIVITY_CHAT */
 #define UR_CHAT 14
 #define UR_CHAT_DONE 15
+/* The Direct Corner, step 1 (docs/DIRECT_CORNER.md): we lead a group (a Trade Center: activity 4);
+ * the game joins, the link players are exchanged, then - after the standby before
+ * pret:pokeemerald/src/union_room.c:1643 Task_StartActivity - the cards, as
+ * pret:pokeemerald/src/union_room.c:1611 CB2_TransitionToCableClub does on the way to the room. */
+#define UR_CORNER_WAIT 16
+#define UR_CORNER_ROOM 17
+static u32 standbys, corner_wait;
 static u8 chat_out[40], chat_last[40];
 static u32 chat_due, chat_count;
 static const u8 chat_hello[] = { 0xC2, 0xBF, 0xC6, 0xC6, 0xC9, 0xAB, 0x00, 0xC3, 0xB4, 0xC7, 0x00, 0xCE, 0xC2, 0xBF, 0x00,
@@ -597,7 +605,7 @@ static void mg_frame(void)
         if (rb.done != mg_got) {
             mg_got = rb.done;
             memcpy(game_data, rb.head, sizeof game_data);
-            mg_step = 2;
+            mg_step = corner ? UR_CORNER_ROOM : 2;
             trace(EV_UR_STEP, 0, 2 << 16 | game_data[0x0E] | game_data[0x0F] << 8);
         }
         break;
@@ -630,6 +638,14 @@ static void mg_frame(void)
         break;
     case UR_TRADE_DONE:
     case UR_CHAT_DONE:
+        break;
+    case UR_CORNER_WAIT:                     /* the standby first, so the game's card is in its buffer */
+        if (standbys && ++corner_wait > 10) {
+            mg_step = 0;
+            trace(EV_UR_STEP, 0, UR_CORNER_WAIT << 16 | corner);
+        }
+        break;
+    case UR_CORNER_ROOM:                     /* in the room: the link goes on (the room itself is step 2) */
         break;
     case UR_CHAT:
         if (chat_due) {                                    /* after our JOIN: hello */
@@ -880,6 +896,9 @@ static void link_frame(void)
     }
     if (standby_reply) {                                         /* Rfu_LinkStandby, as the leader */
         standby_reply = 0;
+#ifdef UNION_ROOM
+        standbys++;
+#endif
         tx_cmd[0] = CMD_READY_EXIT; tx_cmd[1] = standby_num;
         return;
     }
@@ -1466,6 +1485,10 @@ static void respond(void)
             link_state = LS_OFF; hf_len = 0; child_uni_new = 0; uni_acked = 0;
             memset(&bs, 0, sizeof bs); memset(&rb, 0, sizeof rb);
             mg_step = mg_sub = mg_got = 0;
+#ifdef UNION_ROOM
+            if (corner) mg_step = UR_CORNER_WAIT;
+            standbys = corner_wait = 0;
+#endif
             if (cmd == 0x21) trace(EV_CONNECTED, 0, CHILD_ID);
         } else {
             ack[0] = connect_polls ? 0x01000000 : 0x04000000;          /* trying / failed */
@@ -2082,6 +2105,7 @@ static int pc_service(api_t *api)
 #endif
 #ifdef UNION_ROOM
     case 29: ur_offer = idx; build_host(); v = ur_offer; break;          /* the trading board's offer */
+    case 34: corner = idx & 0x3F; build_host(); v = corner; break;      /* lead a Direct Corner group */
     case 33: v = idx < 10 ? chat_last[4 * idx] | chat_last[4 * idx + 1] << 8 | chat_last[4 * idx + 2] << 16
                  | (u32)chat_last[4 * idx + 3] << 24 : chat_count; break;   /* the player's last chat message */
     case 30: v = (i & 31) < 25 ? game_mon[4 * (i & 31)] | game_mon[4 * (i & 31) + 1] << 8

@@ -5,7 +5,10 @@ built. The Direct Corner (Emerald, FireRed/LeafGreen: the Pokemon Center's wirel
 the full Trade Center - the whole party on the trade screen, several trades in a sitting - and the
 Colosseum, Record Corner, Berry Crush and the minigames, all as groups over the wireless link. The
 DUO already does the cable versions of the Trade Center, Record Mixing and the Colosseum, and the
-wireless plumbing as both host and child. This is the plan for joining them up. Nothing is built.
+wireless plumbing as both host and child. This is the plan for joining them up. Step 1 is built in the simulator (18 November, evening): the DUO leads a Trade Center group, the game
+finds and joins it, the link players are exchanged and, after the standby, the trainer cards cross
+on the way to the room (`union` program, PC poll 34; `union_room_model.join_trade_center`). Not on the
+command line yet: without step 2 the game would arrive in a room where the DUO doesn't move.
 
 ## What happens in the game (pret:pokeemerald, cited)
 
@@ -50,7 +53,7 @@ wireless plumbing as both host and child. This is the plan for joining them up. 
 
 ## Order
 
-1. The group as leader (DUO hosts "TRADE CENTER", the game joins and the activity starts): the smallest step, on code that already works on hardware.
+1. The group as leader (DUO hosts "TRADE CENTER", the game joins and the activity starts): **done in the simulator**, 18 November.
 2. The room: the DUO's keys over `SEND_HELD_KEYS`, walking to its seat; the game's watchdog quiet.
 3. The trade menu over link_rfu_2: the cable trade program's logic, moved across.
 4. Then the Colosseum (the battle partner) and the Record Corner the same way.

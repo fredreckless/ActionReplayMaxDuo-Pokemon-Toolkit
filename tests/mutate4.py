@@ -30,6 +30,8 @@ PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a c
     "union room: broadcasts the distributor's serial, not the game's": ("        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */", "        dist_serial = SERIAL_DECOMP;", "Union Room (milestone 1): the game finds"),
     "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD || ur_packet == ACT_CHAT ||", "            ur_answer = ur_packet == ACT_CHAT ||", "Union Room (milestone 1): the game finds"),
     "union room: accepts a trade with nothing on the board": ("(ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "(ur_packet == ACT_TRADE)", "Union Room (milestone 1): asked for"),
+    "corner: leads the group with the Union Room's activity": ("    b[12] = corner ? corner : 0x40;", "    b[12] = 0x40;", "Direct Corner, step 1"),
+    "corner: asks for the cards before the standby": ("        if (standbys && ++corner_wait > 10) {", "        if (++corner_wait > 0) {", "Direct Corner, step 1"),
     "union room: declines a chat": ("            ur_answer = ur_packet == ACT_CARD || ur_packet == ACT_CHAT ||", "            ur_answer = ur_packet == ACT_CARD ||", "Union Room chat"),
     "union room: says back the wrong part of the player's message": ("                chat_block(1, rb.head + 9, 31);", "                chat_block(1, rb.head + 1, 31);", "Union Room chat"),
     "union room: the trade request's activity as it was before 18 November (3)": ("#define ACT_TRADE (0x40 | 4)", "#define ACT_TRADE (0x40 | 3)", "Union Room (milestone 2)"),

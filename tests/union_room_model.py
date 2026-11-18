@@ -276,3 +276,95 @@ def talk_to_partner(game, compat=RFU.EN_EMERALD, activity=ACTIVITY_CARD, card=No
     ur = URoomChild(child, card or trainer_card(), activity, offer=offer)
     yield from union_room_session(game, child, ur, max_frames=6000, drop_every=drop_every)
     return found, child, ur
+
+
+# -- the Direct Corner, step 1 (docs/DIRECT_CORNER.md): the game joins a group the DUO leads -------
+ACCEPTED_TRADE_GROUP = (ACTIVITY_TRADE,)  # pret:pokeemerald/src/data/union_room.h:1023 sAcceptedActivityIds_Trade
+
+
+def find_group_leader(game, activity=ACTIVITY_TRADE, compat=RFU.EN_EMERALD, polls=150):
+    """pret:pokeemerald/src/union_room.c:984 Task_TryJoinLinkGroup: the game broadcasts the activity it
+    wants (SetHostRfuGameData, not started) and lists leaders of that activity whose group hasn't
+    started (the list's own check, startedActivity), Japanese ones only for a Japanese game."""
+    yield ("until_ready",)
+    if (yield from game.check_id()) != 0x8001:
+        raise LinkError("adapter not found")
+    yield from game.command(0x10)
+    yield from game.command(0x17, [0x003C0420])
+    yield from game.command(0x16, [RFU_SERIAL_GAME | compat << 16, 0, 0, activity, 0, 0xFFFFFFFF])
+    yield from game.command(0x1C)
+    my_language = compat & 0xF
+    for _ in range(polls):
+        ack = yield from game.command(0x1D)
+        for h in RFU.parse_candidates(ack):
+            g = h["gname"]
+            if not h["checksum_ok"] or h["serial"] != RFU_SERIAL_GAME:
+                continue
+            if g["activity"] not in ACCEPTED_TRADE_GROUP or g["started"]:
+                continue
+            if (g["language"] == LANGUAGE_JAPANESE) != (my_language == LANGUAGE_JAPANESE):
+                continue
+            yield from game.command(0x1E)
+            return h
+        yield ("delay", 16 * RFU.MS)
+    raise LinkError("no Trade Center group to join")
+
+
+class CornerChild:
+    """After joining: the link players, then the script, a fade and a standby
+    (pret:pokeemerald/src/union_room.c:1750 Task_RunScriptAndFadeToActivity), Task_StartActivity (the card into
+    the block buffer, the warp) and, on the way, Task_ExchangeCards (the leader asks; both cards
+    cross). Step 1 ends there, with the game on its way into the Trade Center."""
+
+    def __init__(self, child, card, fade_frames=40):
+        self.c, self.card, self.fade_frames = child, card, fade_frames
+        self.state, self.timer, self.cards, self.result = "linking", 0, {}, None
+
+    def frame(self):
+        c = self.c
+        if self.state == "linking":
+            if c.received_remote_link_players:
+                self.state, self.timer = "fade", 0
+        elif self.state == "fade":
+            self.timer += 1
+            if self.timer >= self.fade_frames:
+                c.set_standby()
+                self.state = "standby"
+        elif self.state == "standby":
+            if c.callback is None and c.all_ready_num:
+                c.block_send_buffer[:len(self.card)] = self.card   # CreateTrainerCardInBuffer
+                self.state = "cards"
+        elif self.state == "cards":                                 # Task_ExchangeCards (not the leader)
+            if c.block_status() == (1 << c.player_count) - 1:
+                for i in range(c.player_count):
+                    self.cards[i] = bytes(c.block_recv_buffer[i][:100])
+                    c.reset_block_received(i)
+                self.state, self.result = "done", "in the Trade Center"
+        return self.state == "done"
+
+
+def join_trade_center(game, compat=RFU.EN_EMERALD, card=None, max_frames=3000):
+    """Step 1 of the Direct Corner: find the DUO's Trade Center group, join, link, exchange cards."""
+    found = yield from find_group_leader(game, compat=compat)
+    yield from RFU.connect_to(game, found["id"])
+    yield from RFU.send_child_name(game, RFU.child_name_bytes())
+    yield from RFU.wait_join_status(game)
+    child = RFU.ChildLink()
+    cc = CornerChild(child, card or trainer_card())
+    done_at = None
+    for frame in range(max_frames):
+        ack = yield from game.command(0x26)
+        child.msc(ack)
+        child.main()
+        if done_at is None and cc.frame():
+            done_at = frame
+        if done_at is not None and frame - done_at >= 30:          # (the link goes on into the room)
+            return found, child, cc
+        child.tasks()
+        if child.errors:
+            raise LinkError("; ".join(child.errors))
+        cmd, words = child.packet()
+        ready = yield from game.change(cmd, words)
+        if ready != 0x99660028:
+            raise LinkError(f"expected 'data ready', got {ready:#010x}")
+    raise LinkError(f"cards not exchanged (state {cc.state})")
