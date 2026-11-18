@@ -13,7 +13,11 @@ leads and the DUO joins as its child.
 
 Plan: docs/WIRELESS_HOST.md.
 
-**Status (18 November):** planned from the source. Nothing built yet.
+**Status (18 November):** stage H1 works in the simulator: the `join` build of `adapter.c`
+(`-DGAME_HOSTS`, 8.4 KB) is listed as the game's child after a few polls and sends its name over NI
+in a child's 2-byte-headed frames; `tests/host_game_model.py`, the game as leader (cited), reads it
+and accepts its serial. H2 (the join answer, then link_rfu_2 with the DUO as player 1) is next.
+No command-line use yet: nothing useful happens on hardware until H3.
 
 ## What the game does as host (librfu 1026, Emerald and FireRed/LeafGreen)
 

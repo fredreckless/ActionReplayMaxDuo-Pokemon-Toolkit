@@ -15,6 +15,8 @@ FW42_MUTANTS = {
     "run accepts an entry point outside the code": ("    cmp  r1, r4\n    bhs  run_bad\n", "", "refused"),
 }
 PROG_MUTANTS = {      # firmware/programs/adapter.c: rebuilt and embedded in a copy of the tool
+    "join: names itself with a serial the game doesn't accept": ("    0x02, 0x00,                          /* serialNo: RFU_SERIAL_GAME */", "    0x77, 0x77,", "the game as wireless host (stage H1)"),
+    "join: phase and sequence swapped in its name's headers": ("    h = (nis.state & 0xF) << 10 | nis.phase << 5 | nis.n[nis.phase] << 7 | size;", "    h = (nis.state & 0xF) << 10 | nis.phase << 7 | nis.n[nis.phase] << 5 | size;", "the game as wireless host (stage H1)"),
     "union room: broadcasts the distributor's serial, not the game's": ("        dist_serial = 0x0002;                                          /* RFU_SERIAL_GAME */", "        dist_serial = SERIAL_DECOMP;", "Union Room (milestone 1): the game finds"),
     "union room: declines even Greetings": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "Union Room (milestone 1): the game finds"),
     "union room: accepts a trade with nothing on the board": ("            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE && ur_offer && put_at >= 25)", "            ur_answer = ur_packet == ACT_CARD || (ur_packet == ACT_TRADE)", "Union Room (milestone 1): asked for"),
@@ -197,7 +199,7 @@ def run(kind, name):
         in_walk = good_src.count(old) == 0 and open(walk_path).read().count(old) == 1   # (the shared walk)
         assert in_walk or good_src.count(old) == 1, name
         # the everyday and the lab build share adapter.c
-        builds = {"prog": ("adapter", "adapter_lab", "union"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
+        builds = {"prog": ("adapter", "adapter_lab", "union", "join"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
                   "colosseum": ("colosseum",), "tower": ("tower",), "blender": ("blender",),
                   "contest": ("contest",), "lab4p": ("lab4p",)}[kind]
         with BUILD_LOCK:

@@ -317,7 +317,11 @@ static const u8 join_group_ok = 5;                /* RFU_STATUS_JOIN_GROUP_OK */
 static void nis_start(const u8 *src, u32 size, u32 type, u32 sub_frame)
 {
     memset(&nis, 0, sizeof nis);
+#ifdef GAME_HOSTS
+    nis.payload = sub_frame - 2;                  /* a child's 2-byte header (librfu llsf_struct[MODE_CHILD]) */
+#else
     nis.payload = sub_frame - 3;
+#endif
     nis.size = size;
     nis.src = src;
     nis.ctrl[0] = type;
@@ -339,6 +343,15 @@ static u32 nis_frame(u8 *out)
         size = len - nis.now[nis.phase] < nis.payload ? len - nis.now[nis.phase] : nis.payload;
     else
         size = nis.remain >= (int)nis.payload ? nis.payload : nis.remain > 0 ? (u32)nis.remain : 0;
+#ifdef GAME_HOSTS
+    h = (nis.state & 0xF) << 10 | nis.phase << 5 | nis.n[nis.phase] << 7 | size;
+    out[0] = h; out[1] = h >> 8;
+    for (u32 i = 0; i < size; i++)
+        out[2 + i] = buf[nis.now[nis.phase] + i];
+    if (nis.state == NI_SENDING)
+        nis.phase = (nis.phase + 1) & 3;
+    return 2 + size;
+#else
     h = (nis.state & 0xF) << 14 | nis.phase << 9 | nis.n[nis.phase] << 11 | size | 1u << 18;
     out[0] = h; out[1] = h >> 8; out[2] = h >> 16;
     for (u32 i = 0; i < size; i++)
@@ -346,6 +359,7 @@ static u32 nis_frame(u8 *out)
     if (nis.state == NI_SENDING)
         nis.phase = (nis.phase + 1) & 3;
     return 3 + size;
+#endif
 }
 
 static void nis_ack(u32 st, u32 phase, u32 n)
@@ -843,6 +857,9 @@ static void link_frame(void)
 
 /* A data command from the connected game: librfu's child packet, header word first
  * (bytes << 8 for slot 0), then 2-byte-headed sub-frames. */
+#ifdef GAME_HOSTS
+__attribute__((unused))
+#endif
 static void host_receive(void)
 {
     u32 bytes = (req[0] >> 8) & 0x1F, at = 0;
@@ -877,6 +894,9 @@ static void host_receive(void)
  * one-byte "null" frame. Returns the answer length. */
 static u32 hf[32], hf_len, hf_uni;               /* the host's packet for the next 0x26 (0: none) */
 
+#ifdef GAME_HOSTS
+__attribute__((unused))
+#endif
 static u32 host_frame(void)
 {
     u8 *out = (u8 *)&hf[1];
@@ -917,6 +937,75 @@ static u32 host_frame(void)
     hf[0] = total;                                                   /* bytes from the host */
     return 1 + bytes / 4;
 }
+
+#ifdef GAME_HOSTS
+/* ------------------------------------------------------------------ the game hosts, the DUO joins
+ * (docs/WIRELESS_HOST.md, stage H1). The game polls for children (0x1A); after a few polls the DUO's
+ * child is listed (ID, slot 0) and connected at once (librfu 1026: rfu_STC_readChildList). The child
+ * must then send its name over NI, data type 1, in 14-byte sub-frames
+ * (AgbRfu_LinkManager.c rfu_LMAN_PARENT_checkRecvChildName). The game's frames to us carry the
+ * parent's 3-byte headers; ours to it the child's 2-byte ones. */
+#define EV_NAME_SENT 0x0F                /* the game has acknowledged our name */
+#define EV_JOIN_ANSWER 0x7E              /* the game's answer: RFU_STATUS_JOIN_GROUP_OK (5) or _NO */
+static u32 join_polls, join_named, join_answered;
+static const u8 our_name[26] = {
+    0x02, 0x00,                          /* serialNo: RFU_SERIAL_GAME */
+    0x02 | 1 << 7, 0x0F,                 /* gname.compatibility: English, canLinkNationally, version */
+    HOST_TRAINER & 0xFF, HOST_TRAINER >> 8,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,            /* the rest of the game name (9), 2 bytes padding */
+    0xBE, 0xCF, 0xC9, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00   /* uname: "DUO" */
+};
+
+static void join_receive(void)          /* the game's 0x24/0x25: total bytes, then parent sub-frames */
+{
+    u32 bytes = req[0] & 0x7F, at = 0;
+    const u8 *d = (const u8 *)&req[1];
+    child_frames++;
+    while (bytes - at >= 3 && at < 4 * 31) {
+        u32 h = d[at] | d[at + 1] << 8 | d[at + 2] << 16, len = h & 0x7F;
+        u32 st = h >> 14 & 0xF, ph = h >> 9 & 3, n = h >> 11 & 3;
+        if (!(h >> 22 & 3) && (h >> 18 & 1) && st != LCOM_UNI) {
+            if (h >> 13 & 1) {
+                if (nis.state & NI_BUSY)
+                    nis_ack(st, ph, n);                              /* the game acknowledging our name */
+            } else {
+                ni_receive(st, ph, n, len, d + at + 3);              /* its answer to us */
+            }
+        }
+        at += 3 + len;
+    }
+    if (ni.state == NI_RECV_LAST && !join_answered) {
+        ni.state = NI_RECV_OK;
+        join_answered = 1;
+        trace(EV_JOIN_ANSWER, 0, child_name[0]);
+    }
+}
+
+static u32 join_frame(void)             /* our frame for the game's next 0x26: bytes << 8, then ours */
+{
+    u8 *out = (u8 *)&hf[1];
+    u32 bytes = 0;
+    if (ni.state & NI_BUSY) {                                        /* acknowledging its answer */
+        u32 f = (ni.state & 0xF) << 10 | 1u << 9 | ni.phase << 5 | ni.n[ni.phase] << 7;
+        out[0] = f; out[1] = f >> 8;
+        bytes = 2;
+    }
+    if (nis.state & NI_BUSY) {
+        u32 was_null = nis.state == NI_SEND_NULL;
+        bytes += nis_frame(out + bytes);
+        if (was_null) {
+            nis.state = NI_SEND_OK;
+            join_named = 1;
+            trace(EV_NAME_SENT, 0, 0);
+        }
+    }
+    u32 total = bytes;
+    while (bytes & 3)
+        out[bytes++] = 0;
+    hf[0] = total << 8;                                              /* slot 0's byte count */
+    return 1 + bytes / 4;
+}
+#endif
 
 /* What the game sends us once connected: the first few data commands, word for word. This is
  * librfu's own framing of the child's first messages (its game name over the NI channel) - the
@@ -968,8 +1057,26 @@ static void respond(void)
     }
     case 0x17: system_config = req[0]; break;                          /* setup */
     case 0x19: adapter_state = ST_HOST_OPEN; break;
+#ifdef GAME_HOSTS
+    case 0x1A: case 0x1B:                                              /* our child joins */
+        if (++join_polls > 3) {
+            ack[0] = CHILD_ID;                                         /* its ID, slot 0 */
+            ack_len = 1;
+            if (!child_connected) {
+                child_connected = 1;
+                ni_reset();
+                nis_start(our_name, sizeof our_name, 1, 14);           /* data type 1: our name */
+                hf_len = 0;
+                trace(EV_CONNECTED, 0, CHILD_ID);
+            }
+        }
+        break;
+#else
     case 0x1A: break;                                                  /* nobody joined */
+#endif
+#ifndef GAME_HOSTS
     case 0x1B: adapter_state = ST_HOST_CLOSED; break;
+#endif
     case 0x1C: adapter_state = ST_SEARCHING; break;
     case 0x1D: case 0x1E:                                              /* who is in range */
         if (host_on && (adapter_state == ST_SEARCHING || cmd == 0x1E)) {
@@ -1011,8 +1118,13 @@ static void respond(void)
         }
         ack_len = 1;
         break;
+#ifdef GAME_HOSTS
+    case 0x24: if (child_connected) join_receive(); break;
+    case 0x25: if (child_connected) join_receive(); swap_after = 1; break;
+#else
     case 0x24: capture(); if (child_connected) host_receive(); break;
     case 0x25: capture(); if (child_connected) host_receive(); swap_after = 1; break;
+#endif
     case 0x26: memcpy(ack, hf, hf_len * 4); ack_len = hf_len; break;  /* the host's packet (again, if retried) */
     case 0x27: swap_after = 1; break;
     case 0x30: child_connected = 0; adapter_state = ST_IDLE; break;
@@ -1360,10 +1472,14 @@ static void clock_master_turn(api_t *api)
         /* Once the link is up, the game answers every packet it gets with a UNI sub-frame. No
          * answer means the packet went astray (a failed transfer): send the same one again rather
          * than move on, because link_rfu_2 never resends the parent's blocks. Repeats are harmless. */
+#ifdef GAME_HOSTS
+        hf_len = join_frame();
+#else
         if (hf_uni && !uni_acked && n_resent < 0xFFFF)
             n_resent++;
         else
             hf_len = host_frame();
+#endif
         uni_acked = 0;
     }
     if (!master_word(cmd, &got)) goto failed;

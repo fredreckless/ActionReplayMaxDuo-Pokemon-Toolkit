@@ -1159,6 +1159,7 @@ def _():
     assert programs.build("adapter") == W.PROGRAMS["adapter"]
     assert programs.build("adapter_probe") == W.PROGRAMS["adapter_probe"]
     assert programs.build("union") == W.PROGRAMS["union"]
+    assert programs.build("join") == W.PROGRAMS["join"]
 
 
 @test("wireless adapter: Emerald's Mystery Gift search, command by command, answered as a real adapter would")
@@ -3195,6 +3196,18 @@ def _():
     assert "Traded in the Union Room." in hw.text and "Kept on this PC" in hw.text, hw.text[-800:]
     names = [t for t, _ in trace]
     assert any(n.startswith("the game is ready to close the link") for n in names), names[-8:]
+
+
+@test("the game as wireless host (stage H1): it searches for children, the DUO's child is listed and connected, and sends its name over NI; the game accepts the serial and reads the name")
+def _():
+    import host_game_model as HG
+    hw, game, trace, st, counters = adapter_session(lambda g: HG.lead_and_accept(g), first_bit=True, seconds=60,
+                                                    program="join")
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.errors, [t for t, _ in trace][-10:])
+    child, name = hw.lg_result
+    assert child["slot"] == 0, child
+    assert name["serial"] == 0x0002 and name["uname"][:3] == bytes([0xBE, 0xCF, 0xC9]), name
+    assert game.retries == 0, game.retries
 
 
 @test("distributor: link players exchanged, then Mystery Gift delivers the Wonder Card and RAM script; the link closes")
