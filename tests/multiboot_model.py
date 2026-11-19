@@ -66,6 +66,7 @@ class MultibootSlave:
         self.cc = self.rng.randrange(256)
         self.rr = self.rng.randrange(256)
         self.cc_sent = False
+        self.others = {}                          # slot -> (cc, rr) of the other slaves (a slave hears every slot)
         self.result = dict(header=None, program=None, crc_ok=None, game_code=None, booted=False,
                            handshake_done=False, pp=None, hh=None, hh_ok=None, log=[])
 
@@ -98,7 +99,7 @@ class MultibootSlave:
                     self.cc_sent = True
                 elif hi == 0x64:                  # 64hh: 73rr, the random byte for the encryption
                     r["hh"] = w & 0xFF
-                    r["hh_ok"] = r["hh"] == (0x11 + self.cc + 0xFF + 0xFF) & 0xFF
+                    r["hh_ok"] = r["hh"] == (0x11 + sum(self._ccs())) & 0xFF
                     reply, phase = 0x7300 | self.rr, "length"
                 else:
                     reply = 0x7200 | self.bit
@@ -148,11 +149,20 @@ class MultibootSlave:
                 else:
                     reply = w
 
+    def _ccs(self):
+        slot = self.bit.bit_length() - 1
+        return [self.cc if k == slot else self.others.get(k, (0xFF, 0xFF))[0] for k in (1, 2, 3)]
+
+    def _rrs(self):
+        slot = self.bit.bit_length() - 1
+        return [self.rr if k == slot else self.others.get(k, (0xFF, 0xFF))[1] for k in (1, 2, 3)]
+
     def _decode(self, halves, length):
         """The slave's side of GBATEK's pseudo-code: the program as it lands at 0x020000C0, and its CRC."""
         r = self.result
-        m = r["pp"] | self.cc << 8 | 0xFF << 16 | 0xFF << 24
-        f = r["hh"] | self.rr << 8 | 0xFF << 16 | 0xFF << 24
+        cc, rr = self._ccs(), self._rrs()
+        m = r["pp"] | cc[0] << 8 | cc[1] << 16 | cc[2] << 24
+        f = r["hh"] | rr[0] << 8 | rr[1] << 16 | rr[2] << 24
         c, out = C_INIT, bytearray()
         for i in range(0, len(halves) - 1, 2):
             ptr = 0xC0 + 2 * i
@@ -163,3 +173,26 @@ class MultibootSlave:
             out += data.to_bytes(4, "little")
         c = crc_step(c, f)
         return bytes(out), c & 0xFFFF
+
+
+class MultibootSlaves:
+    """Two or three GBAs waiting in their BIOS behind the DUO (a four-player cable): each answers in
+    its own slot, and each knows the others' random bytes, as it hears every slot."""
+    def __init__(self, count, seed=1, **kw):
+        self.slaves = [MultibootSlave(seed=seed + k, slot=k + 1, **kw) for k in range(count)]
+        for s in self.slaves:
+            s.others = {o.bit.bit_length() - 1: (o.cc, o.rr) for o in self.slaves if o is not s}
+
+    @property
+    def results(self):
+        return [s.result for s in self.slaves]
+
+    def run(self):
+        gens = [s.run() for s in self.slaves]
+        ops = [next(g) for g in gens]
+        while True:
+            replies = [op[1] for op in ops] + [0xFFFF] * (3 - len(ops))
+            words = yield ("mp_slave", tuple(replies), 10 ** 9)
+            if words is None:
+                continue
+            ops = [g.send(words) for g in gens]

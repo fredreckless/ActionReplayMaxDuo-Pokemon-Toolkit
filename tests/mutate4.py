@@ -95,6 +95,7 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 PC_MUTANTS = {
     "multiboot: the program's file not padded to whole words": ("    put_blob(duo, blob.ljust((len(blob) + 3) & ~3, b\"\\0\"), \"program\")", "    put_blob(duo, blob, \"program\")", "isn't a multiple of 16"),
     "multiboot: sent without --send": ("    if not getattr(args, \"send\", False):\n        print(\"  Not sent", "    if False:\n        print(\"  Not sent", "isn't a multiple of 16"),
+    "multiboot: the GBAs that answered counted from the wrong bits": ("                    n = bin(st >> 16 & 0x0E).count(\"1\")", "                    n = bin(st >> 8 & 0x0E).count(\"1\")", "Multiboot to three GBAs"),
     "multiboot: a file without the logo taken": ("    if zlib.crc32(data[4:4 + 156]) != NINTENDO_LOGO_CRC:", "    if False:", "isn't a multiple of 16"),
     "mix: Emerald's own extras not handed back (the PC leaves their bits out)": ("    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS_EM if layout == \"emerald\" else MIX_PARTS)", "    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS)", "Record Mixing in Emerald's own layout"),
     "tower: Celebi let into the Battle Frontier": ("FRONTIER_BANNED_SPECIES = (151, 150, 250, 249, 251, 404,", "FRONTIER_BANNED_SPECIES = (151, 150, 250, 249, 404,", "Battle Frontier's own rules"),

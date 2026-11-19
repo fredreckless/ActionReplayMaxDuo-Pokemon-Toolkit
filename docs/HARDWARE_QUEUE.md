@@ -48,7 +48,7 @@ When a test has been done, move it to "Done" with the date and what was seen (or
 | Test | Command | What to look for |
 |---|---|---|
 | Record Mixing, Japanese Emerald, in Emerald's own layout | `python duo_events.py mix --base FILE.sb3 --layout emerald` | The tool says "Emerald mixes in its own layout"; 26 rounds; the base appears in the game afterwards |
-| Multiboot: the Berry Fix to a GBA with no cartridge (the DUO's GBA on the purple plug) | `python duo_events.py multiboot --from-rom EMERALD.gba --send` | The other GBA shows the Nintendo logo, then the Berry Fix program's screens; the tool says "sent". It asks you to put a Ruby or Sapphire cartridge in - only do that with a backed-up save, as the program writes it. To send without letting it write anything, simply switch the other GBA off once the tool says "sent" |
+| Multiboot: the Berry Fix to a GBA with no cartridge (the DUO's GBA on the purple plug; with an AGB-005 hub, up to three GBAs at once: the tool says how many answered) | `python duo_events.py multiboot --from-rom EMERALD.gba --send` | The other GBA shows the Nintendo logo, then the Berry Fix program's screens; the tool says "sent". It asks you to put a Ruby or Sapphire cartridge in - only do that with a backed-up save, as the program writes it. To send without letting it write anything, simply switch the other GBA off once the tool says "sent" |
 
 ## With the link cable as fitted
 

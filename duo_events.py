@@ -4341,7 +4341,11 @@ def multiboot_session(duo, args, poll_s=0.3, stop_when=None):
             st = program_poll(duo, 0)
             state, probe = st & 0xFF, st >> 8 & 0xFF
             if state != last:
-                print(f"  [{time.time() - t0:6.1f} s] {MB_STATES[state] if state < len(MB_STATES) else state}")
+                line = MB_STATES[state] if state < len(MB_STATES) else str(state)
+                if state in (3, 4):                   # (client_bit: bits 1-3, one for each GBA behind the DUO)
+                    n = bin(st >> 16 & 0x0E).count("1")
+                    line += f" ({n} GBA{'s' if n != 1 else ''} answered)"
+                print(f"  [{time.time() - t0:6.1f} s] {line}")
                 last = state
             if not warned_slave and time.time() - t0 > 20 and state <= 1 and not program_poll(duo, 2):
                 warned_slave = True

@@ -5048,6 +5048,25 @@ def _():
         assert line in hw.text, (line, hw.text[-1500:])
 
 
+@test("Multiboot to three GBAs at once (a four-player cable, 19 November): the library probes all three, sends each the header in its slot, and the BIOS's one transfer boots them all - the way to four real link chips on the cable (docs/FOUR_PLAYERS.md, approach 2)")
+def _():
+    image = mb_image()
+    slaves = MBM.MultibootSlaves(3)
+    hw, duo = run42()
+    hw.mb_bios = True
+    hw.attach_mp_game(slaves.run(), game_master=False)
+    path = os.path.join(tempfile.mkdtemp(), "program.mb"); open(path, "wb").write(image)
+    r, text = quiet(W.multiboot_session, duo, types.SimpleNamespace(file=path, seconds=120, send=True), poll_s=0.2,
+                    stop_when=lambda: all(x["handshake_done"] for x in slaves.results))
+    assert duo.hello() == 0x104
+    hw.stop(); clean(hw)
+    for k, res in enumerate(slaves.results):
+        assert res["header"] == image[:0xC0] and res["crc_ok"] and res["handshake_done"] and res["hh_ok"], (k, res["crc_ok"], res["hh_ok"])
+        assert res["program"][:0x400] == image[0xC0:], k
+    assert hw.mb_calls[-1]["client_bit"] == 0x0E and r["sent"], (hw.mb_calls, text[-800:])
+    assert "(3 GBAs answered)" in text, text[-800:]
+
+
 @test("Multiboot: a program whose length isn't a multiple of 16 goes padded with zeros, as the library rounds it (MultiBootStartMaster); a file with no cartridge header is refused before anything is sent")
 def _():
     image = mb_image(body_len=0x123)

@@ -613,34 +613,41 @@ class Hw:
         call = dict(mode=r1, client_bit=client, palette=pp, handshake=hh, client_data=cc, src=src, length=end - src, ok=False)
         self.mb_calls = getattr(self, "mb_calls", []) + [call]
 
-        def xfer(word):                                         # one transfer: the slave's word, as loaded before it
+        present = [k for k in (1, 2, 3) if client & (1 << k)]
+
+        def xfer(word):                                         # one transfer: the slaves' words, as loaded before it
             op = self.mp_op
             seen = op[1] if op is not None and op[0] == "mp_slave" else 0xFFFF
-            self.mp_words.append((word & 0xFFFF, seen))
+            seen = list(seen) if isinstance(seen, (tuple, list)) else [seen, 0xFFFF, 0xFFFF]
+            self.mp_words.append((word & 0xFFFF, seen[0]))
             self.blocks += self.mp_x + 20                       # (and the BIOS's wait for the slave, ~36 us)
-            self.mp_resume([word & 0xFFFF, seen, 0xFFFF, 0xFFFF])
+            self.mp_resume([word & 0xFFFF] + seen)
             return seen
 
+        def all_say(seen, test):
+            return all(test(seen[k - 1]) for k in present)
+
         length = end - src
-        if r1 != 1 or not client & 0x0E or length % 16 or not 0x100 <= length <= 0x3FF40:
+        if r1 != 1 or not present or length % 16 or not 0x100 <= length <= 0x3FF40:
             mu.reg_write(UC_ARM_REG_R0, 1)
             return
         self.blocks += self.mp_frame_blocks * 60 // 16          # wait 1/16 second
-        rr = xfer(length // 4 - 0x34)
-        if rr >> 8 != 0x73:
+        seen = xfer(length // 4 - 0x34)
+        if not all_say(seen, lambda w: w >> 8 == 0x73):
             mu.reg_write(UC_ARM_REG_R0, 1)
             return
-        halves, crc = MB.encode(bytes(mu.mem_read(src, length)), pp, cc, hh, [rr & 0xFF, 0xFF, 0xFF])
+        rr = [seen[k - 1] & 0xFF if k in present else 0xFF for k in (1, 2, 3)]
+        halves, crc = MB.encode(bytes(mu.mem_read(src, length)), pp, cc, hh, rr)
         for h in halves:
             xfer(h)
         for _ in range(64):
-            if xfer(0x0065) == 0x0075:
+            if all_say(xfer(0x0065), lambda w: w == 0x0075):
                 break
         else:
             mu.reg_write(UC_ARM_REG_R0, 1)
             return
         xfer(0x0066)
-        call["ok"] = xfer(crc) == crc
+        call["ok"] = all_say(xfer(crc), lambda w: w == crc)
         mu.reg_write(UC_ARM_REG_R0, 0 if call["ok"] else 1)
 
     def power_on(self):
@@ -910,8 +917,11 @@ class Hw:
     def mp_transfer(self, game_word):
         """One transfer: returns the four words as everyone sees them."""
         duo_word = struct.unpack("<H", self.mu.mem_read(0x0400012A, 2))[0] if self.mp_duo_ready() else 0xFFFF
-        words = [game_word, duo_word] if self.mp_master else [duo_word, game_word]
-        words += [0xFFFF, 0xFFFF]
+        if isinstance(game_word, (tuple, list)):         # (19 November: up to three children behind the DUO)
+            words = [duo_word] + list(game_word)
+        else:
+            words = [game_word, duo_word] if self.mp_master else [duo_word, game_word]
+            words += [0xFFFF, 0xFFFF]
         self.mp_words.append(tuple(words[:2]))
         if self.mp_duo_ready():
             self.mu.mem_write(0x04000120, struct.pack("<4H", *words))

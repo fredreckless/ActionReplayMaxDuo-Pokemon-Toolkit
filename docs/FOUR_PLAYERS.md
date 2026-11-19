@@ -35,7 +35,25 @@ how likely it is to work.
 3. **Helper GBAs (2)** for Ruby/Sapphire's four-player link Contest, once multiboot (docs/MULTIBOOT.md
    path A) works - if Fred has two spare GBAs and cables. **Step one done (19 November, simulator):**
    the DUO now sends a multiboot program exactly as Emerald's Berry Fix screen does, and Nintendo's
-   library sends to up to three GBAs at once (`client_bit` bits 1-3). Next: test that on hardware with
-   one GBA, then write the helper itself (a partner program built for 0x02000000, which joins the link
+   library sends to up to three GBAs at once (`client_bit` bits 1-3) - shown in the simulator too
+   (check-in 2: three receiving GBAs behind the DUO, each booted from one transfer; the tool says how
+   many answered). Next: test that on hardware, then write the helper itself (a partner program built for 0x02000000, which joins the link
    as player 2 or 3 and takes its team and role from its own data) and model three GBAs in hwsim.
 4. (4) and (5) only if 2 and 3 leave a gap.
+
+## The helper program, as designed (19 November, check-in 2)
+
+What a helper GBA would run, so the work can be judged before it's started:
+
+- **Built like the DUO's programs, linked for 0x02000000** with a multiboot header of our own (our own
+  title and game code, no Nintendo bytes in the repository: the logo is copied from the sending
+  file's header at send time, which comes from the user's ROM). Entry at 0x020000C0.
+- **No PC behind it:** its part (link player, team, record, choices) travels in the program image,
+  filled in by the PC just before sending, so each of the three helpers can carry a different player.
+- **The link layer from `link_core.h`/`link_tail.h`** (the same code the DUO's routines use, checked
+  against pret's link.c), as a child: its own link hardware sends its slot, so the game sees a real
+  GBA in slots 2 and 3 - the one thing the hand-sent words never achieved.
+- **First routine: the Record Corner with four players**, because mixing is passive (records in,
+  records out) and the DUO already plays it; then Ruby/Sapphire's four-player link Contest.
+- **Simulator first:** hwsim now carries three children behind the DUO, so a game model with four
+  players (pret's link.c already counts them in DoHandshake) can test the helpers before any hardware.
