@@ -189,7 +189,9 @@ hand. **Waiting:** the user's cable stays fitted for the e-Reader route for now.
    machines such as PCNY's, GameCube discs), 167 never distributed, 17 unknown.
 2. **Decided (31 October): the trade route for all.** Authentic for the Mystery Mew; for the
    rest, labelled as the nearest route that leaves the game in charge. Never-distributed
-   Pokémon are offered the same way, marked as such. No multiboot save writer.
+   Pokémon are offered the same way, marked as such. No multiboot save writer of our own; since 19 November
+   the DUO can send a multiboot program from the user's own file or ROM, exactly as the games do
+   (docs/MULTIBOOT.md), behind `--send`.
 3. **The trade distributor: working on hardware with English Ruby (lab session 29)**, both cable
    roles in the simulator (docs/TRADE.md). `duo_events.py trade --pk3 FILE`. Leaving the room
    fixed afterwards in the simulator.
@@ -211,7 +213,7 @@ back to the PC. `python duo_events.py mix --base FILE.sb3 ...`. Details: docs/RE
 - Step 3: hardware. The black screen of lab session 31 (the fade-in's "ready" barrier) was fixed;
   on 6-7 November English Ruby mixed bases, an old man, a trend, TV shows and news, and a whole
   record made in the Record Workshop, and the game's own record came back. The user considers Secret
-  Bases and Record Mixing done for now. Emerald (its own layout) is next when wanted.
+  Bases and Record Mixing done for now. Emerald's own layout built 19 November (`mix --layout emerald`, simulator; for Japanese Emerald).
 - 7 November (hardware): the DUO paced along the left wall when the player stood in its way. The
   cause was the route planner reading leftover bytes beside the room; fixed on 8 November, with a
   walk that waits, then goes round, and never crosses another seat.
@@ -264,7 +266,7 @@ own link traffic): step W below.
 | Feature | Games | Link | Players | The DUO's part | Where we are |
 |---|---|---|---|---|---|
 | **Trade Center** | all five | cable; wireless (E, FRLG) | 2 | trade partner: Pokémon in, Pokémon out | **Working on hardware** (Ruby, Japanese Emerald, LeafGreen); wireless after step W |
-| **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; **Emerald in Ruby's layout (the DUO a Ruby player) built 8 November, simulator**; Emerald's own layout later; 3-4 players only over wireless |
+| **Record Corner** (Record Mixing) | R, S, E | cable; wireless (E with E only) | 2-4 | a whole record (docs/RECORD_FORMATS.md) | **Working on hardware with Ruby** (bases); the rest of the record in the simulator; **Emerald in Ruby's layout (the DUO a Ruby player) built 8 November, simulator**; **Emerald's own layout built 19 November (simulator)**; 3-4 players only over wireless, or with multibooted helper GBAs (docs/FOUR_PLAYERS.md) |
 | **Colosseum: single and double battles** | all five | cable; wireless (E, FRLG) | 2 | the battle partner (docs/BATTLE.md) | The battle link worked on hardware (7 November); the PC choosing, singles and doubles, four levels (8 November): hardware next. Emerald and FRLG next |
 | Colosseum: multi battle | all five | cable; wireless (E, FRLG) | 4 | three of the four trainers | Needs step C (cable) or step W (wireless), and doubles in the battle model |
 | **Battle Tower link multi battle** | E | cable; wireless | 2 | the player's Tower partner (two Pokémon each) | **Built 8 November (`duo_events.py tower`, the DUO as player 1); 11 November the DUO as player 0 too (the game's own trainers sent back, the game still running the battles): simulator, hardware next.** |
