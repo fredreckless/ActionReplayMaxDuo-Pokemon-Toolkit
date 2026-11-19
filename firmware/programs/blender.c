@@ -72,7 +72,7 @@ static u32 log_len, log_full, log_seq, log_lost;
 static u8 scratch[64];
 enum { K_GAME, K_OURS, K_EVENT };
 enum { E_SESSION = 1, E_CLOSE, E_READY, E_BERRY, E_START, E_HIT, E_GAME_HIT, E_END, E_ANSWER, E_VERDICT,
-       E_TRUNCATED };
+       E_TRUNCATED, E_REASK };
 
 static u8 *log_room(u32 len)
 {
@@ -121,6 +121,13 @@ static s32 speed, progress, shown_progress;
 static u32 hits[2][3];                    /* this blend's hits: [player][best, good, miss] */
 static u32 max_speed, time_rpm, max_rpm;
 static u32 lead_timer, card_asked, barriers_to_go, berries_asked_at, game_resp;
+/* As leader, the berries again if the game hasn't started a blend 15 s after they crossed: on
+ * hardware (18 November, Japanese Emerald, the second blend) the game sat at the berry screen with
+ * both berry blocks sent - as it would if ours came before its CB2_StartBlenderLink state 9
+ * (pret:pokeemerald/src/berry_blender.c:1361: ResetBlockReceivedFlags, then the leader's request).
+ * Asking again is what a leader's request is for: the game sends its berry, we send ours. */
+#define COUNTDOWN_PATIENCE 900
+static u32 countdown_wait, reasks;
 
 /* ------------------------------------------------------------------ the link layer */
 static u32 send_idx, recv_idx, checksum, checksum_ready, nonzero;
@@ -183,6 +190,10 @@ static void lead(void)                    /* as player 0, once a cycle: the lead
     if (berries_asked_at && ++berries_asked_at > 16) {       /* CB2_StartBlenderLink 9: after the barrier */
         queue(0xCCCC, 4, 0); berries_asked_at = 0;
     }
+    if (state == ST_COUNTDOWN && ++countdown_wait > COUNTDOWN_PATIENCE && reasks < 3) {
+        queue(0xCCCC, 4, 0); countdown_wait = 0; reasks++;
+        log_event(E_REASK, reasks);
+    }
 }
 
 static void next_command(void)
@@ -236,7 +247,7 @@ static void start_blend(void)
     arrow = ARROW_START; speed = MIN_SPEED; timer = 0; progress = shown_progress = 0;
     pass = in_window = pressed = ended = press = frames = 0;
     zero(hits, sizeof hits);
-    max_speed = MIN_SPEED; max_rpm = 0; game_resp = 0;
+    max_speed = MIN_SPEED; max_rpm = 0; game_resp = 0; reasks = 0;
     log_event(E_START, blends + 1);
 }
 
@@ -299,6 +310,7 @@ static void berry_block(const u8 *b)      /* the game's berry: ours, not the sam
     send_block(small, 40);
     berry_wanted = 0;
     state = ST_COUNTDOWN;
+    countdown_wait = 0;
     log_event(E_BERRY, game_item | our_item << 8);
 }
 
@@ -410,6 +422,7 @@ static void process_command(void)
         barriers++;
         log_event(E_READY, barriers);
         if (state == ST_LINKUP) state = ST_CHOOSING;
+        countdown_wait = 0;
         if (is_master && barriers_to_go && --barriers_to_go == 0) berries_asked_at = 1;
         break;
     case 0x5FFF:

@@ -53,7 +53,7 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
 | Routine (program) | Games | Source | Model | Status |
 |---|---|---|---|---|
 | Trade (`trade`) | R/S, E, FR/LG | `trade.c`, `cable_club.c`, `overworld.c` | `trade_game_model.py` | from source |
-| Record Mixing (`mix`) | R/S, E | `record_mixing.c`, `secret_base.c`, `tv.c` | `mix_game_model.py` | from source |
+| Record Mixing (`mix`) | R/S, E | `record_mixing.c`, `secret_base.c`, `tv.c`; Emerald's own layout (`--layout emerald`): `cable_club.c` Task_ValidateMixingGameLanguage, `save.c` Task_LinkFullSave | `mix_game_model.py` (both layouts) | from source |
 | Colosseum battles (`colosseum`) | R/S, E, FR/LG | `battle_main.c`, `battle_controllers.c`, `battle_controller_link_*.c` | `battle_game_model.py` | from source |
 | Battle Tower link multi (`tower`) | E | `battle_tower.c`, `cable_club.c` | `tower_game_model.py` | from source |
 | Berry Blender (`blender`) | R/S, E | `berry_blender.c` | `blender_game_model.py` | from source |
@@ -61,6 +61,7 @@ re-checked. **Hardware** means not in any game source; GBATEK and our runs.
 | e-Reader route, Mystery Event (`ereader`) | R/S | `mystery_event_menu.c`, `mystery_event_script.c` | `link_game_model.py`, `mevent_model.py` | from source |
 | e-Reader Trainer Hill/Tower | E, FR/LG (Japanese) | `ereader_helpers.c`, `cereader_tool.c` | `link_game_model.py` | from source |
 | Wireless Adapter (`adapter*`) | E, FR/LG | `librfu_intr.c`, `librfu_stwi.c`, `librfu_sio32id.c`, `mystery_gift_*.c` | `rfu_game_model.py`, `sio32id_model.py` | from source (librfu: a port, file-level citations) |
+| Multiboot sender (`mbsend`, `multiboot`) | to any GBA (the Berry Fix: R/S) | `multiboot.c` (Nintendo's library, ported function by function), `berry_fix_program.c` (how it's driven), libagbsyscall `MultiBoot` (SWI 25h, r1 = 1); the BIOS's own transfer from GBATEK | `multiboot_model.py` (the receiving BIOS from GBATEK; hwsim's SWI 25h stand-in) | from source; hardware next |
 | Four players on a two-player cable (`lab4p`) | R/S | `link.c` (above) | `gp_link_model.py` | **parked** (17 November: the game read the DUO's hand-sent slots as garbage on all 12 settings, 2353 tries); serial layer ported |
 | Union Room, milestone 1: listed, Greetings, the card (`union`) | E, FR/LG | `union_room.c` (Task_ExchangeCards, the activity packets), `link_rfu_2.c` (Rfu_SendPacket, SetHostRfuGameData) | `union_room_model.py` on `rfu_game_model.py` | **from source**, cited; simulator done 18 November (milestone 2, the trading-board trade, too: `trade.c`), hardware needs the MGB-010 |
 | Union Room trade (trading board) and chat (`union`) | E, FR/LG | `union_room.c` (Task_StartUnionRoomTrade, the trade request), `trade.c` (CB2_LinkTrade, the finish handshake), `union_room_chat.c` (the 40-byte messages, Task_ReceiveChatMessage, Chat_Exit), `constants/union_room.h` (activities, cited with values) | `union_room_model.py` | **from source**, cited; simulator, 18 November (the trade request's activity fixed: 4, not 3). Battles not yet |

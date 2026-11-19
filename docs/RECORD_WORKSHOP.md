@@ -24,8 +24,10 @@ are in docs/RECORD_FORMATS.md.
   export a whole `.rm3` straight from what every tab currently holds (one button, "Save the whole
   record"), so a record needn't be put together from many part files; saving each part on its own
   stays as an option. To do next on the page.
-- Still to come: Emerald (its own layout, and the Lilycove lady, apprentices and Ranking Hall:
-  step 7, once the DUO can mix as an Emerald), Sapphire revisions 1-2 and non-English games' lines.
+- **19 November: Emerald's own layout.** The DUO can now mix as an Emerald (`mix --layout emerald`),
+  and the whole-record tab has a Layout choice: it opens and saves 0x1444-byte records, keeping an
+  opened record's Lilycove lady, apprentices and hall records as they came. Still to come: tabs that
+  make those three (and Emerald's Battle Tower trainer), Sapphire revisions 1-2 and non-English games' lines.
 
 The Secret Base Workshop (`secret_base_workshop.html`) grows into a **Record Workshop**: one page,
 still a single file that works offline and on GitHub Pages, with a tab for each part of a record,

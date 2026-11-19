@@ -594,8 +594,54 @@ class Hw:
                 return self.fail('HardReset: the BIOS logo check reads the masked header and stops at "GAME BOY"')
             self.restarts += 1
             self.boot(mu)
+        elif num == 0x25 and getattr(self, "mp", None) is not None and getattr(self, "mb_bios", False):
+            self.multiboot_swi(mu)                              # MultiBoot (tests/multiboot_model.py)
         else:
             self.fail(f"unexpected BIOS call SWI {num:#x}")
+
+    def multiboot_swi(self, mu):
+        """SWI 25h, MultiBoot, the master's side, as GBATEK's "BIOS Multi Boot" describes it (the
+        DUO's own BIOS does this on hardware): a 1/16 s pause, the length (llll = length/4 - 34h),
+        the main block encrypted in 16-bit halves, 0065 until every slave says 0075, 0066, then the
+        CRC exchanged. r0 = 0 if the slave's CRC matched. The transfers go straight to the attached
+        multi-player game (the slave's BIOS) with their time added: the CPU is inside the BIOS."""
+        import multiboot_model as MB
+        r0, r1 = mu.reg_read(UC_ARM_REG_R0), mu.reg_read(UC_ARM_REG_R1)
+        p = bytes(mu.mem_read(r0, 0x4C))
+        hh, cc, pp, client = p[0x14], list(p[0x19:0x1C]), p[0x1C], p[0x1E]
+        src, end = struct.unpack_from("<II", p, 0x20)
+        call = dict(mode=r1, client_bit=client, palette=pp, handshake=hh, client_data=cc, src=src, length=end - src, ok=False)
+        self.mb_calls = getattr(self, "mb_calls", []) + [call]
+
+        def xfer(word):                                         # one transfer: the slave's word, as loaded before it
+            op = self.mp_op
+            seen = op[1] if op is not None and op[0] == "mp_slave" else 0xFFFF
+            self.mp_words.append((word & 0xFFFF, seen))
+            self.blocks += self.mp_x + 20                       # (and the BIOS's wait for the slave, ~36 us)
+            self.mp_resume([word & 0xFFFF, seen, 0xFFFF, 0xFFFF])
+            return seen
+
+        length = end - src
+        if r1 != 1 or not client & 0x0E or length % 16 or not 0x100 <= length <= 0x3FF40:
+            mu.reg_write(UC_ARM_REG_R0, 1)
+            return
+        self.blocks += self.mp_frame_blocks * 60 // 16          # wait 1/16 second
+        rr = xfer(length // 4 - 0x34)
+        if rr >> 8 != 0x73:
+            mu.reg_write(UC_ARM_REG_R0, 1)
+            return
+        halves, crc = MB.encode(bytes(mu.mem_read(src, length)), pp, cc, hh, [rr & 0xFF, 0xFF, 0xFF])
+        for h in halves:
+            xfer(h)
+        for _ in range(64):
+            if xfer(0x0065) == 0x0075:
+                break
+        else:
+            mu.reg_write(UC_ARM_REG_R0, 1)
+            return
+        xfer(0x0066)
+        call["ok"] = xfer(crc) == crc
+        mu.reg_write(UC_ARM_REG_R0, 0 if call["ok"] else 1)
 
     def power_on(self):
         """The person switches the GBA on: the DUO starts and checks once for a waiting hello."""

@@ -93,6 +93,13 @@ EREADER_MUTANTS = {  # firmware/programs/ereader.c: the e-Reader on the GBA link
 }
 
 PC_MUTANTS = {
+    "multiboot: the program's file not padded to whole words": ("    put_blob(duo, blob.ljust((len(blob) + 3) & ~3, b\"\\0\"), \"program\")", "    put_blob(duo, blob, \"program\")", "isn't a multiple of 16"),
+    "multiboot: sent without --send": ("    if not getattr(args, \"send\", False):\n        print(\"  Not sent", "    if False:\n        print(\"  Not sent", "isn't a multiple of 16"),
+    "multiboot: a file without the logo taken": ("    if zlib.crc32(data[4:4 + 156]) != NINTENDO_LOGO_CRC:", "    if False:", "isn't a multiple of 16"),
+    "mix: Emerald's own extras not handed back (the PC leaves their bits out)": ("    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS_EM if layout == \"emerald\" else MIX_PARTS)", "    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS)", "Record Mixing in Emerald's own layout"),
+    "tower: Celebi let into the Battle Frontier": ("FRONTIER_BANNED_SPECIES = (151, 150, 250, 249, 251, 404,", "FRONTIER_BANNED_SPECIES = (151, 150, 250, 249, 404,", "Battle Frontier's own rules"),
+    "tower: carries on as player 0 without being asked to": ("        if not getattr(args, \"as_player0\", False):\n            stop_program_quietly(duo)", "        if False:\n            stop_program_quietly(duo)", "the DUO's GBA on the master end"),
+    "tower: the LEVEL 50 challenge not checked at the link-up": ("                    if lt == LT_TOWER_50 and max_level > FRONTIER_MAX_LEVEL_50:", "                    if False:", "LEVEL 50 challenge with a DUO Pokemon"),
     "contest: the applause meter never empties": ("        self.meter = max(0, self.meter + r3)\n        if self.meter > 4:\n            self.meter = 0\n", "        self.meter = max(0, self.meter + r3)\n", "Contest, live moves"),
     "contest: the DUO always taken to appeal last": ("        mine = order[self.me]\n", "        mine = 3\n", "Contest, live moves"),
     "tower: as player 0, the PC chooses for battler 0 (the game's)": ("        self.me = 2                                    # (our battler, whichever end of the cable)\n", "        self.me = 0 if leader else 2\n", "Battle Tower, the DUO as player 0 (11 November)"),
@@ -102,7 +109,7 @@ PC_MUTANTS = {
     "blender: the Pokeblock's strength without the best RPM": ("    factor = max_rpm // 333 + 100\n", "    factor = 100\n", "Berry Blender (8 November)"),
     "blender: the DUO's berry block with the flavours shifted": ("    return struct.pack(\"<H\", item) + SB.encode_name(row[0], 2) + bytes(row[1:7]) + b\"\\0\"", "    return struct.pack(\"<H\", item) + SB.encode_name(row[0], 2) + bytes(row[2:7]) + b\"\\0\\0\"", "Berry Blender (8 November)"),
     "mix: the gift item left out of our record": ("    parts[\"gift\"] = gift\n", "    parts[\"gift\"] = 0\n", "Record Mixing, the DUO as master"),
-    "mix: a part we bring is handed back from the game instead": ("    mirror = sum(1 << k for k, name in enumerate(MIX_PARTS) if not parts.get(name))", "    mirror = 0x1F", "Record Mixing with a whole record"),
+    "mix: a part we bring is handed back from the game instead": ("                 if not parts.get(name))\n    brought", "                 if True)\n    brought", "Record Mixing with a whole record"),
     "records: the prediction keeps the lower trendiness": ("            elif pool[key][0] & 0x7F < w[0] & 0x7F:", "            elif pool[key][0] & 0x7F > w[0] & 0x7F:", "Record files: what Ruby keeps"),
     "trade: the trainer card without the trainer's name": ("    card[0x30:0x38] = name[:8]\n", "", "trade, the game as master"),
     "trade: the trainer card without a Pokedex or a new save's profile": ("    card[0x02] = 1                                                     # has a Pokedex\n", "", "trade, the game as master"),
@@ -201,13 +208,13 @@ def run(kind, name):
                            capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=paths.FIRMWARE))
         assert r.returncode == 0, r.stderr[-800:]
         env = dict(os.environ, V3_FW=os.path.join(work, "fw_mut.bin"))
-    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p"):
+    elif kind in ("prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p", "mbsend"):
         old, new, pick = KINDS[kind][name]
         sys.path.insert(0, paths.FIRMWARE)
         import programs
         src_name = {"prog": "adapter.c", "ereader": "ereader.c", "trade": "trade.c", "mix": "mix.c", "colosseum": "colosseum.c",
                     "tower": "tower.c", "blender": "blender.c", "contest": "contest.c",
-                    "lab4p": "lab4p.c"}[kind]
+                    "lab4p": "lab4p.c", "mbsend": "mbsend.c"}[kind]
         src_path = os.path.join(paths.FIRMWARE, "programs", src_name)
         good_src = open(src_path).read()
         walk_path = os.path.join(paths.FIRMWARE, "programs", "room_walk.h")
@@ -216,7 +223,7 @@ def run(kind, name):
         # the everyday and the lab build share adapter.c
         builds = {"prog": ("adapter", "adapter_lab", "union", "join"), "ereader": ("ereader",), "trade": ("trade",), "mix": ("mix",),
                   "colosseum": ("colosseum",), "tower": ("tower",), "blender": ("blender",),
-                  "contest": ("contest",), "lab4p": ("lab4p",)}[kind]
+                  "contest": ("contest",), "lab4p": ("lab4p",), "mbsend": ("mbsend",)}[kind]
         with BUILD_LOCK:
             good = {b: programs.build(b).hex() for b in builds}
         os.makedirs(os.path.join(work, "programs"))
@@ -312,7 +319,12 @@ TRADE_MUTANTS = {    # firmware/programs/trade.c: the Cable Club trade partner
 }
 
 MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
-    "mix: tells Emerald it's an Emerald player (Emerald's own layout follows)": ("    return v == 3 ? 2 : v;                                   /* (Emerald: Ruby, below) */", "    return v;", "Record Mixing with Emerald"),
+    "mix: tells Emerald it's an Emerald player unasked (Emerald's own layout follows)": ("    return v == 3 && !emerald_layout ? 2 : v;                /* (Emerald: Ruby, below, unless asked) */", "    return v;", "Record Mixing with Emerald"),
+    "mix: Emerald's layout in Ruby's 24 rounds": ("#define ROUNDS      (RECORD_SIZE / CHUNK + 1)", "#define ROUNDS      24", "Record Mixing in Emerald's own layout"),
+    "mix: Emerald's own extras not handed back (its lady, apprentices, tower, hall)": ("return MIRROR >> k & 1 && (k < 5 || emerald_layout);", "return MIRROR >> k & 1 && k < 5;", "Record Mixing in Emerald's own layout"),
+    "mix: Emerald's layout kept with a Ruby game": ("        if (game_lp_type == LT_MIX && emerald_layout && game_player[16] != 3) {", "        if (0) {", "Emerald's layout asked for but the game is a Ruby"),
+    "mix: as an Emerald player, the gender where Ruby keeps it": ("        lp[0x13] = OUR_GENDER;\n    } else {", "        lp[0x10] = OUR_GENDER;\n    } else {", "Record Mixing in Emerald's own layout"),
+    "mix: a base from Ruby given no language in Emerald's layout": ("if (RECORD[160 * i] && !RECORD[160 * i + 0x0D]) RECORD[160 * i + 0x0D] = game_lp_lang;", "if (0) RECORD[160 * i + 0x0D] = game_lp_lang;", "Japanese Emerald in Emerald's layout"),
     "mix: player 1 heads for player 0's seat": ("seat_x = is_master ? 6 : 13, seat_y", "seat_x = is_master ? 6 : 6, seat_y", "Record Mixing, the game as master"),
     "mix: asks to leave wherever it stands, not on the door (lab session 31)": ("    if (rw_on_door(me)) {", "    if (rw_on_door(me) || 1) {", "Record Mixing: back in the room, the player stands in the DUO's way"),
     "mix: never stands up (26) before walking out": ("    if (f == 90) return 26;", "    if (f == 90) return 17;", "Record Mixing, the game as master"),
@@ -322,7 +334,7 @@ MIX_MUTANTS = {      # firmware/programs/mix.c: the Record Corner partner
     "walk: crosses other seats (their scripts stop it there)": ("&& (x != rw_goal_x || y != rw_goal_y)) return 1;", "&& 0) return 1;", "the player steps up and down in the DUO's way"),
     "mix: makes for its usual seat even with the player on it": ("    if (rw[1 - me].x == seat_x && rw[1 - me].y == 6) seat_y = 4;", "", "the player sits in the DUO's seat"),
     "mix: the game's own sections not handed back": ("        if (a < b) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "        if (0) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);", "Record Mixing, the game as master"),
-    "mix: the game's Battle Tower record handed back too": ("part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124 };", "part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x11C8 };", "Record Mixing, the game as master"),
+    "mix: the game's Battle Tower record handed back too": ("part_end[PARTS] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124,", "part_end[PARTS] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x11C8,", "Record Mixing, the game as master"),
     "mix: the game's chunk kept before ours is made from that round - our parts in it lost": ("        copy_pending = 1;                                      /* into RECORD once ours has gone */\n        if (mirror_wait", "        copy_pending = 1;                                      /* into RECORD once ours has gone */\n        memcpy(RECORD + CHUNK * r, rx_buf, CHUNK);\n        if (mirror_wait", "Record Mixing with a whole record"),
     "mix: the PC's record from the wrong place in the file": ("#define RECORD      (BLOB + 48)", "#define RECORD      (BLOB + 16)", "Record Mixing with a whole record"),
     "mix: as master, asks for the next round at once": ("if (++round_timer > ROUND_GAP)", "if (++round_timer > 0)", "Record Mixing, the DUO as master"),
@@ -371,6 +383,7 @@ TOWER_MUTANTS = {          # firmware/programs/tower.c: the Battle Tower's link 
 BLENDER_MUTANTS = {        # firmware/programs/blender.c: the Berry Blender partner (8 November)
     "blender: as leader, asks for the next berries after the first save barrier": ("            if (go) barriers_to_go = 5;", "            if (go) barriers_to_go = 1;", "the DUO leading: two blends"),
     "blender: as leader, blends again though the player said no": ("            u32 go = r == PLAY_AGAIN && answered == PLAY_AGAIN;", "            u32 go = answered == PLAY_AGAIN;", "the DUO leading: the player says no"),
+    "blender: as leader, never asks for the berries again when the game waits at them": ("    if (state == ST_COUNTDOWN && ++countdown_wait > COUNTDOWN_PATIENCE && reasks < 3) {", "    if (state == ST_COUNTDOWN && ++countdown_wait > COUNTDOWN_PATIENCE && reasks < 0) {", "one barrier more round the save"),
     "blender: as leader, never asks for the cards": ("        queue(0xCCCC, 2, 0); card_asked = 1; lead_timer = 0;", "        card_asked = 1; lead_timer = 0;", "Berry Blender, the DUO leading (11 November)"),
     "blender: the arrow drifts from the game's": ("    arrow = (arrow + speed) & 0xFFFF;                        /* UpdateBlenderCenter */", "    arrow = (arrow + speed + 0x300) & 0xFFFF;", "Berry Blender (8 November)"),
     "blender: claims the best spot whatever the arrow": ("code = prox == 2 ? HIT_BEST : HIT_GOOD;", "code = HIT_BEST;", "Berry Blender (8 November)"),
@@ -425,9 +438,18 @@ LAB4P_MUTANTS = {
     "lab4p: the first transfer after the handshake taken as data": ("            send_idx = CMD_LEN; recv_idx = 0; cycles = 0;", "            send_idx = 0; recv_idx = 0; cycles = 0;", "lab4p (8 November)"),
 }
 
+MBSEND_MUTANTS = {   # firmware/programs/mbsend.c: pret's multiboot.c, as the Berry Fix screen drives it
+    "mbsend: the header's bytes in each word swapped": ("            (mp->masterp[mp->probe_count - 4 + 1] << 8)\n            | mp->masterp[mp->probe_count - 4]);", "            (mp->masterp[mp->probe_count - 4] << 8)\n            | mp->masterp[mp->probe_count - 4 + 1]);", "Multiboot (19 November)"),
+    "mbsend: the handshake data without its 11h": ("        k = 0x11;\n        for (i = MULTIBOOT_NCHILD; i != 0; i--)\n        {\n            k += mp->client_data[i - 1];", "        k = 0x00;\n        for (i = MULTIBOOT_NCHILD; i != 0; i--)\n        {\n            k += mp->client_data[i - 1];", "Multiboot (19 November)"),
+    "mbsend: the BIOS asked for Normal mode, not MultiPlay": ("    register u32 r1 asm(\"r1\") = 1;", "    register u32 r1 asm(\"r1\") = 0;", "Multiboot (19 November)"),
+    "mbsend: the game code's halves swapped in the last handshake": ("            must_data = mp->masterp[0xac] | (mp->masterp[0xad] << 8);", "            must_data = mp->masterp[0xae] | (mp->masterp[0xaf] << 8);", "Multiboot (19 November)"),
+    "mbsend: palette speed 0 instead of 1": ("IMAGE_LEN - MULTIBOOT_HEADER_SIZE), 4, 1);", "IMAGE_LEN - MULTIBOOT_HEADER_SIZE), 4, 0);", "Multiboot (19 November)"),
+    "mbsend: the length not rounded up to 16": ("    length = (length + 15) & ~15;\n", "", "isn't a multiple of 16"),
+}
+
 KINDS = {"fw": FW_MUTANTS, "fw42": FW42_MUTANTS, "prog": PROG_MUTANTS, "ereader": EREADER_MUTANTS, "trade": TRADE_MUTANTS,
          "mix": MIX_MUTANTS, "colosseum": COLOSSEUM_MUTANTS, "tower": TOWER_MUTANTS, "blender": BLENDER_MUTANTS, "contest": CONTEST_MUTANTS,
-         "lab4p": LAB4P_MUTANTS,
+         "lab4p": LAB4P_MUTANTS, "mbsend": MBSEND_MUTANTS,
          "pc": PC_MUTANTS}
 
 

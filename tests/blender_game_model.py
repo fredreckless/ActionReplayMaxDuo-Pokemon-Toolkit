@@ -52,7 +52,7 @@ def proximity(arrow, player):
 
 class BerryBlenderLink(RubyTrade):
     def __init__(self, berries=(133,), answers=None, player_plan=None, game="emerald", language=LANG_ENGLISH,
-                 choose_frames=120, master=True, **kw):
+                 choose_frames=120, master=True, extra_save_barrier=False, **kw):
         """berries: the player's berry for each blend (item numbers); answers: the player's answer to
         "blend another berry?" after each (True: yes; default yes until the last); player_plan(n):
         what the player aims for on its n-th pass (HIT_BEST, HIT_GOOD or HIT_MISS; default BEST)."""
@@ -62,6 +62,9 @@ class BerryBlenderLink(RubyTrade):
         self.answers = list(answers) if answers is not None else [True] * (len(self.berries) - 1) + [False]
         self.player_plan = player_plan or (lambda n: HIT_BEST)
         self.choose_frames = choose_frames
+        # extra_save_barrier: a robustness case, not a known game - one "ready" barrier more round the
+        # link save than Emerald's, so a leader counting Emerald's asks for the berries too soon
+        self.extra_save_barrier = extra_save_barrier
         self.result.update(blends=[], partner_berries=[], partner_answers=[], verdicts=[], partner_card=None,
                            closed=False)
 
@@ -229,6 +232,8 @@ class BerryBlenderLink(RubyTrade):
         yield from self._wait(10)
         yield from self._barrier(s)
         yield from self._barrier(s)
+        if self.extra_save_barrier:
+            yield from self._barrier(s)
         return go
 
     def _play(self, s, n):

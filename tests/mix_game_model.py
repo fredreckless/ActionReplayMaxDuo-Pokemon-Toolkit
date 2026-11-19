@@ -28,6 +28,11 @@ RECORD_SIZE = 0x1230                                  # struct PlayerRecords (po
 CHUNK, ROUNDS = 200, 24
 BASE_SIZE, BASES = 160, 20
 TV_AT, NEWS_AT, OLDMAN_AT, TRENDS_AT, MAIL_AT, BT_AT, GIFT_AT = 0xC80, 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124, 0x11C8
+# Emerald's own layout (pokeemerald record_mixing.c struct PlayerRecordEmerald), used only when no partner
+# plays Ruby/Sapphire: the same parts to the day-care mail, then these
+EM_SIZE, EM_ROUNDS = 0x1444, 0x1444 // 200 + 1
+EM_TOWER_AT, EM_GIFT_AT, LADY_AT, APPRENTICES_AT, HALL_AT = 0x1124, 0x1210, 0x1214, 0x1254, 0x12DC
+APPRENTICE, APPRENTICE_NAME = 0x44, 0x38
 ITEM_EON_TICKET = 0x113
 KEY_ITEMS = {ITEM_EON_TICKET, 0x103, 0x104, 0x105, 0x10D}     # (a few, enough for the tests)
 
@@ -514,7 +519,8 @@ def mix_tower(records, new, rng):
 class RubyRecordCorner(RubyTrade):
     def __init__(self, master=True, language=LANG_ENGLISH, bases=None, player=None, tail=None, gift=0,
                  secret_power=True, leaves_first=False, has_items=(), pace=300, frame_blocks=25 * 228, version=2,
-                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1, to_seat=None, game="ruby"):
+                 in_the_way=None, tower_records=None, seen=None, game_clear=True, seed=1, to_seat=None, game="ruby",
+                 em_extras=None, apprentices_saved=()):
         """bases: the game's own 20 Secret Bases (160 bytes each); player: its (gender, trainer ID
         bytes, name bytes); tail: the rest of its record (0x5B0 bytes: TV shows to the filler);
         gift: the Record Mixing gift it holds (it gives it only as player 0)."""
@@ -544,6 +550,20 @@ class RubyRecordCorner(RubyTrade):
         self.rng = GameRng(seed)
         self.sent = None
         self.has_items = set(has_items)
+        # an Emerald's own extras, sent only in its own layout: bytes 0x1124-0x1444 of its record (its
+        # Battle Tower record, the gift's place, the Lilycove lady, two apprentices, hall records);
+        # by default no tower record, a lady of 0x40 bytes of 0x5A, no apprentices (names EOS), no hall records
+        if em_extras is None:
+            x = bytearray(EM_SIZE - EM_TOWER_AT)
+            x[LADY_AT - EM_TOWER_AT:APPRENTICES_AT - EM_TOWER_AT] = b"\x5a" * 0x40
+            for i in range(2):
+                x[APPRENTICES_AT - EM_TOWER_AT + APPRENTICE * i + APPRENTICE_NAME] = 0xFF
+            em_extras = bytes(x)
+        assert len(em_extras) == EM_SIZE - EM_TOWER_AT
+        self.em_extras = bytes(em_extras)
+        self.lady = bytes(em_extras[LADY_AT - EM_TOWER_AT:APPRENTICES_AT - EM_TOWER_AT])
+        self.apprentices_saved = [bytes(a) for a in apprentices_saved]
+        self.em = False                               # (mixing in Emerald's own layout: settled at the table)
         self.result.update(partner_record=None, bases_before=[bytes(b) for b in self.bases], bases_after=None,
                            saved_indexes=None, gift_received=None, mixed=False, keys_while_mixing=0)
 
@@ -567,8 +587,28 @@ class RubyRecordCorner(RubyTrade):
                 self.save["tv"][i][1] = 0
         rec = bytearray(b"".join(self.bases) + self.tail)
         rec[TV_AT:TV_AT + SHOW * SHOWS] = b"".join(self.save["tv"])
-        struct.pack_into("<H", rec, GIFT_AT, self.gift if self.my_id == 0 else 0)
+        if self.em:                                   # Emerald's layout: its own extras from the tower on
+            rec = rec[:EM_TOWER_AT] + bytearray(self.em_extras)
+            struct.pack_into("<H", rec, EM_GIFT_AT, self.gift if self.my_id == 0 else 0)
+        else:
+            struct.pack_into("<H", rec, GIFT_AT, self.gift if self.my_id == 0 else 0)
         return bytes(rec)
+
+    def merge_emerald(self, partner):
+        """record_mixing.c ReceiveExchangePacket, Emerald's branch, for the parts only Emerald has: the
+        partner's Lilycove lady replaces this game's (ReceiveLilycoveLadyData), each of its apprentices
+        with a name that isn't saved yet is taken (ReceiveApprenticeData), and its tower record and hall
+        records are kept as received (the tests check what the DUO sent there)."""
+        self.lady = bytes(partner[LADY_AT:LADY_AT + 0x40])
+        added = []
+        for i in range(2):
+            a = bytes(partner[APPRENTICES_AT + APPRENTICE * i:APPRENTICES_AT + APPRENTICE * (i + 1)])
+            if a[APPRENTICE_NAME] != 0xFF and a not in self.apprentices_saved:
+                added.append(a)
+        self.apprentices_saved += added
+        self.result.update(lady_after=self.lady, apprentices_added=added,
+                           partner_tower_em=bytes(partner[EM_TOWER_AT:EM_GIFT_AT]),
+                           partner_hall=bytes(partner[HALL_AT:HALL_AT + 0x158]))
 
     def merge_rest(self, partner):
         """RecordMixing_ReceiveExchangePacket after the bases: TV, news, old man, trends, day-care
@@ -585,7 +625,7 @@ class RubyRecordCorner(RubyTrade):
         self.save["trends"] = mix_trends([[recs[p][TRENDS_AT + 8 * i:TRENDS_AT + 8 * (i + 1)] for i in range(5)] for p in (0, 1)])
         mail = mix_mail([recs[0][MAIL_AT:MAIL_AT + 120], recs[1][MAIL_AT:MAIL_AT + 120]], ids[0])
         self.save["mail"] = mail[me]
-        slot = mix_tower(self.save["tower_records"], bytearray(partner[BT_AT:BT_AT + TOWER]), self.rng)
+        slot = None if self.em else mix_tower(self.save["tower_records"], bytearray(partner[BT_AT:BT_AT + TOWER]), self.rng)
         self.result["after"] = dict(tv=[bytes(x) for x in self.save["tv"]], news=[tuple(x) for x in self.save["news"]],
                                     old_man=self.save["old_man"], trends=list(self.save["trends"]),
                                     daycare_mail=self.save["mail"][:112], tower=[bytes(r) for r in self.save["tower_records"]],
@@ -602,7 +642,17 @@ class RubyRecordCorner(RubyTrade):
         while not s.players_checked:
             yield
         lps = self.link_players
-        if self.language != LANG_JAPANESE and any(lp["language"] == LANG_JAPANESE for lp in lps.values()):
+        if self.game == "emerald" and self.language != LANG_JAPANESE:
+            # pokeemerald cable_club.c Task_ValidateMixingGameLanguage: a Japanese Ruby/Sapphire, or an
+            # English one alongside a Japanese Emerald, makes it a "foreign game" and the link closes
+            rs = [lp for lp in lps.values() if lp["version"] & 0xFF in (1, 2)]
+            em_jp = any(lp["version"] & 0xFF == 3 and lp["language"] == LANG_JAPANESE for lp in lps.values())
+            if any(lp["language"] == LANG_JAPANESE for lp in rs) or (rs and em_jp):
+                raise LinkError("a foreign game: Emerald won't mix (Task_ValidateMixingGameLanguage)")
+        elif self.game == "emerald":
+            pass                                      # (the Japanese build isn't in pret: on hardware, 18 November, it
+                                                      # mixed with the DUO as a Japanese Ruby, so nothing is refused here)
+        elif self.language != LANG_JAPANESE and any(lp["language"] == LANG_JAPANESE for lp in lps.values()):
             raise LinkError("a Japanese partner: the Record Corner refuses (sub_808353C)")
         s.stage = "Record Corner: trainer cards"
         s.send_buffer = bytes(100)
@@ -657,15 +707,16 @@ class RubyRecordCorner(RubyTrade):
             if s.cmd is not None and s.cmd[0][self.other] == 0xCAFE:
                 self.result["keys_while_mixing"] += 1
             yield
-        if self.game == "emerald" and self.link_players[self.other]["version"] & 0xFF not in (1, 2):
-            # record_mixing.c: only a Ruby/Sapphire partner (Link_AnyPartnersPlayingRubyOrSapphire) makes
-            # Emerald use Ruby's layout (struct PlayerRecordRS, 24 rounds); with Emeralds only it is
-            # struct PlayerRecordEmerald (0x1444 bytes, 26 rounds) and a link save with barriers
-            raise LinkError("an Emerald partner: Emerald would mix in its own layout (26 rounds), not Ruby's")
+        # record_mixing.c: only a Ruby/Sapphire partner (Link_AnyPartnersPlayingRubyOrSapphire) makes
+        # Emerald use Ruby's layout (struct PlayerRecordRS, 24 rounds); with Emeralds only it is
+        # struct PlayerRecordEmerald (0x1444 bytes, 26 rounds) and a link save with barriers
+        self.em = self.game == "emerald" and self.link_players[self.other]["version"] & 0xFF not in (1, 2)
+        size, rounds = (EM_SIZE, EM_ROUNDS) if self.em else (RECORD_SIZE, ROUNDS)
+        self.result["layout"] = "emerald" if self.em else "ruby"
         mine_rec = self.sent = self.own_record()
         got = {}
-        for r in range(ROUNDS):
-            s.stage = f"mixing: round {r + 1} of {ROUNDS}"
+        for r in range(rounds):
+            s.stage = f"mixing: round {r + 1} of {rounds}"
             s.send_buffer = mine_rec[CHUNK * r:CHUNK * r + CHUNK].ljust(CHUNK, b"\0")   # state 0: copy
             yield
             if self.master:
@@ -682,7 +733,7 @@ class RubyRecordCorner(RubyTrade):
             # moves to the next chunk the frame after, and state 0 copies it the frame after that
             yield
             yield
-        partner = b"".join(got[r] for r in range(ROUNDS))[:RECORD_SIZE]
+        partner = b"".join(got[r] for r in range(rounds))[:size]
         self.result["partner_record"] = partner
         # Task_RecordMixing_ReceivePacket: the bases, then the gift (the other sections are taken
         # as they come; what the DUO sends there is checked by the tests)
@@ -692,7 +743,10 @@ class RubyRecordCorner(RubyTrade):
                                                  self.secret_power)
         self.result["bases_after"] = [bytes(b) for b in self.bases]
         self.merge_rest(partner)
-        gift = struct.unpack_from("<H", (partner if self.other == 0 else self.own_record()), GIFT_AT)[0]
+        if self.em:
+            self.merge_emerald(partner)
+        gift = struct.unpack_from("<H", (partner if self.other == 0 else self.own_record()),
+                                  EM_GIFT_AT if self.em else GIFT_AT)[0]
         if self.my_id != 0 and gift:                  # ReceiveGiftItem
             if gift in KEY_ITEMS:
                 if gift not in self.has_items:
@@ -700,10 +754,22 @@ class RubyRecordCorner(RubyTrade):
             else:
                 self.result["gift_received"] = gift
         self.result["mixed"] = True
-        # sub_80BA00C: two frames, the save (by itself), ten frames, then the link closes
         s.stage = "mixing: saving"
-        for _ in range(2 + 6 + 11):
-            yield
+        if self.em:
+            # Task_DoRecordMixing state 6: Task_LinkFullSave (save.c), the save in step with the
+            # partner: "ready" before it, after the sectors, and once more; five frames; then
+            # state 4: ten frames and the link closes
+            yield from s.barrier()
+            for _ in range(8):
+                yield
+            yield from s.barrier()
+            yield from s.barrier()
+            for _ in range(6 + 11):
+                yield
+        else:
+            # sub_80BA00C: two frames, the save (by itself), ten frames, then the link closes
+            for _ in range(2 + 6 + 11):
+                yield
         self.result["saved"] = True
         s.stage = "mixing: closing"
         s.close()

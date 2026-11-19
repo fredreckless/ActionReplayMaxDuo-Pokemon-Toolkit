@@ -63,6 +63,20 @@ to the door and close that the trade already does.
 (`Link_AnyPartnersPlayingRubyOrSapphire`). So if the DUO's link player says "Ruby" (version 2), one
 record format serves Ruby, Sapphire and Emerald alike. That is my suggestion for the first version.
 
+**Emerald's own layout, as an option (19 November, after Japanese Emerald took no base).** International
+Emerald calls a Japanese Ruby/Sapphire, or an English one beside a Japanese Emerald, a "foreign game" and
+won't mix (`pret:pokeemerald/src/cable_club.c:677 if (isEnglishRSLinked && isJapaneseEmeraldLinked)`);
+the Japanese build isn't in pret, but on hardware it mixed with the DUO-as-Ruby and kept nothing. Emeralds
+mix with each other whatever the language, so `mix --layout emerald` makes the DUO an Emerald player
+(version 3, progress flags 0x11, the gender at 0x13, as `trade.c`) and sends `struct PlayerRecordEmerald`
+in 26 rounds. After the merge Emerald saves in step (`Task_LinkFullSave`: three "ready" barriers, which
+the DUO answers as always) and closes as Ruby does. Parts we don't bring - now including Emerald's Battle
+Tower record, the Lilycove lady, the apprentices and the hall records - are handed back from the game's
+own chunks, which is what a twin Emerald would send: its lady comes back to it, its apprentices are
+already saved, its hall streaks aren't beaten. A base from Ruby has no language byte (0x0D), so the DUO
+writes the game's own there. To a Ruby or Sapphire the DUO stays a Ruby player whatever was asked.
+The workshop's whole-record tab has the same choice (Layout), and opens and saves 0x1444-byte records.
+
 ### What a Ruby record holds (offsets in the record)
 
 | Offset | Field | Size |

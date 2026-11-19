@@ -1993,6 +1993,89 @@ def _():
     assert "To Emerald the DUO is a Ruby player" in hw.text, hw.text[-1500:]
 
 
+def em_bases(ours, language):
+    """Our bases as an Emerald receives them: one from Ruby says no language (byte 0x0D), so the DUO
+    puts the game's own there."""
+    out = []
+    for b in ours:
+        b = bytearray(b)
+        if b[0] and not b[0x0D]:
+            b[0x0D] = language
+        out.append(bytes(b))
+    return b"".join(out)
+
+
+@test("Record Mixing in Emerald's own layout (19 November): to an Emerald the DUO is an Emerald player - 26 rounds, the game files our bases, takes back its own lady, apprentices, tower and hall records unchanged, saves in step with the DUO, and the PC keeps its whole 0x1444-byte record")
+def _():
+    ours = [test_base(), test_base(owner="ODA", gender="boy", tid=4321, location=1)]
+    hw, game, report = mix_run(master=True, bases=ours, game="emerald", extra={"layout": "emerald"})
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["saved"] and res["left_room"], res
+    assert res["layout"] == "emerald", res["layout"]
+    lp = game.link_players[game.other]
+    assert lp["version"] & 0xFF == 3 and lp["raw"][0x13] == SB.parse_sb3(ours[0])["gender"] and lp["raw"][0x10] == 0x11, lp
+    rec = res["partner_record"]
+    assert len(rec) == MG.EM_SIZE
+    assert rec[:320] == em_bases(ours, MG.LANG_ENGLISH), "Emerald didn't receive our bases (with its language) exactly"
+    own = game.own_record()
+    assert rec[MG.TV_AT:MG.EM_GIFT_AT] == own[MG.TV_AT:MG.EM_GIFT_AT], "the TV shows to the tower weren't handed back"
+    assert rec[MG.LADY_AT:MG.HALL_AT + 0x158] == own[MG.LADY_AT:MG.HALL_AT + 0x158], "the lady, apprentices or hall weren't handed back"
+    assert res["lady_after"] == b"\x5a" * 0x40 and res["apprentices_added"] == [], res
+    assert sorted(b[0] for b in res["bases_after"] if b[0]) == sorted([222, 162, 1]), [b[0] for b in res["bases_after"]]
+    assert report["mixed"] and report["rounds"] == (26, 26, 26) and report["bad_checksums"] == 0, report
+    kept = open(report["record_file"], "rb").read()
+    assert kept == own, "the game's whole Emerald record didn't come back to the PC"
+    assert "Emerald mixes in its own layout" in hw.text, hw.text[-1500:]
+
+
+@test("Record Mixing, Emerald's layout asked for but the game is a Ruby: the DUO stays a Ruby player and the record goes in Ruby's 24 rounds")
+def _():
+    ours = [test_base()]
+    hw, game, report = mix_run(master=False, bases=ours, extra={"layout": "emerald"})   # (the DUO paces the rounds)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["saved"], res
+    assert game.link_players[game.other]["version"] & 0xFF == 2
+    assert res["partner_record"][:160] == ours[0] and report["rounds"] == (24, 24, 24), report
+
+
+@test("Record Mixing with a Japanese Emerald in Emerald's layout (19 November: it wouldn't take an English Ruby's base): the DUO is a Japanese Emerald player and the base goes in with the Japanese language")
+def _():
+    ours = [bytearray(test_base())]
+    ours[0][0x0D] = 0                                 # (as a base from Ruby: no language)
+    ours = [bytes(ours[0])]
+    hw, game, report = mix_run(master=False, bases=ours, game="emerald", language=MG.LANG_JAPANESE, extra={"layout": "emerald"})
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    res = game.result
+    assert res["mixed"] and res["saved"] and res["layout"] == "emerald", res
+    lp = game.link_players[game.other]
+    assert lp["version"] & 0xFF == 3 and lp["language"] == MG.LANG_JAPANESE, lp
+    assert res["partner_record"][:160] == em_bases(ours, MG.LANG_JAPANESE) and res["partner_record"][0x0D] == MG.LANG_JAPANESE, \
+        "the base didn't arrive with the Japanese language"
+    assert report["rounds"] == (26, 26, 26), report
+
+
+@test("records.py reads and writes Emerald's own layout (0x1444 bytes): its lady, apprentices and hall records split out and join back, an empty apprentice is written with an EOS name, and Ruby's layout refuses Emerald-only parts")
+def _():
+    import records as R
+    r = random.Random(3)
+    rec = bytes(r.getrandbits(8) for _ in range(R.EM_SIZE))
+    parts = R.split(rec)
+    assert len(parts["apprentices"]) == 2 and len(parts["lady"][0]) == 0x40 and len(parts["hall"][0]) == 0x158
+    assert parts["gift"] == struct.unpack_from("<H", rec, 0x1210)[0]
+    back = R.join(parts, "emerald")
+    filler = slice(0x1434, R.EM_SIZE)
+    assert back[:0x1212] == rec[:0x1212] and back[0x1214:0x1434] == rec[0x1214:0x1434] and back[filler] == bytes(16)
+    empty = R.join({"bases": []}, "emerald")
+    assert empty[0x1254 + 0x38] == 0xFF and empty[0x1254 + 0x44 + 0x38] == 0xFF, "an empty apprentice must have an EOS name"
+    try:
+        R.join({"lady": parts["lady"]})
+        raise AssertionError("Ruby's layout took a Lilycove lady")
+    except ValueError:
+        pass
+
+
 @test("Record Mixing, the game as master (the cable as fitted): the DUO sits down, the 24 rounds go across, the game files the two bases by its own rules and saves; its other sections come back unchanged, the Battle Tower empty; the DUO walks out")
 def _():
     ours = [test_base(), test_base(owner="ODA", gender="boy", tid=4321, location=1)]
@@ -2566,6 +2649,20 @@ def _():
             want["old_man"], want["trends"], want["gift"] = [om], dts + [bytes(8)] * 3, 0x113
             assert rm3 == R.join(want), "the workshop's .rm3 isn't records.py's"
             assert "mix --record" in pg.inner_text("#recCmd")
+            # Emerald's own layout (19 November): the same parts, records.py's bytes, and the command says so
+            pg.select_option("#recLayout", "emerald")
+            em = bytes(pg.evaluate("Array.from(joinRecord())"))
+            want_em = dict(want); want_em.pop("tower")
+            assert em == R.join(want_em, "emerald"), [i for i in range(len(em)) if em[i] != R.join(want_em, "emerald")[i]][:10]
+            assert "--layout emerald" in pg.inner_text("#recCmd"), pg.inner_text("#recCmd")
+            r = random.Random(4)
+            whole = bytearray(r.getrandbits(8) for _ in range(R.EM_SIZE)); whole[0x1434:] = bytes(16)
+            em_path = os.path.join(tmp, "an emerald record.rm3"); open(em_path, "wb").write(bytes(whole))
+            pg.set_input_files("#recFile", em_path)
+            pg.wait_for_function("REC.from === 'an emerald record'")
+            back = bytes(pg.evaluate("Array.from(joinRecord())"))
+            assert back == R.join(R.split(bytes(whole)), "emerald"), "an opened Emerald record didn't save back as records.py writes it"
+            assert "from the opened Emerald record" in pg.inner_text("#recRows")
             assert not errors, errors
         finally:
             browser.close()
@@ -4043,10 +4140,12 @@ import battle_game_model as BG
 import tower_game_model as TWG
 
 
-def tower_run(team=(409, 280), player_species=(25, 151), enemy_species=(19, 20, 21, 22), level="medium",
+def tower_run(team=(283, 280), player_species=(25, 151), enemy_species=(19, 20, 21, 22), level="medium",
               retire_after=0, seconds=600, **game_kw):
     """The DUO's tower program as the player's partner against a simulated Emerald in the Battle Tower."""
-    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}") for k, sp in enumerate(team)]
+    duo_exp = game_kw.pop("duo_exp", 1000)
+    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44, nickname=f"DUO{k}", exp=duo_exp if k == 0 else 1000)
+            for k, sp in enumerate(team)]
     party = [W.pk3_party_form(test_pk3(species=sp, pid=0x1000 + sp, otid=0x2222)) for sp in player_species]
     enemy = [W.pk3_party_form(test_pk3(species=sp, pid=0x3000 + sp, otid=0x3333)) for sp in enemy_species]
     game = TWG.EmeraldTowerMulti(party=party, enemy=enemy, **game_kw)
@@ -4055,7 +4154,8 @@ def tower_run(team=(409, 280), player_species=(25, 151), enemy_species=(19, 20, 
     paths = [event_file(d, f"{k} - TEST.pk3") for k, d in enumerate(pk3s)]
     W.BATTLES_DIR = os.path.join(tempfile.mkdtemp(), "battles")
     r = quiet(W.tower_session, duo, types.SimpleNamespace(pk3=paths, seconds=seconds, level=level, fallback=15,
-                                                          retire_after=retire_after),
+                                                          retire_after=retire_after,
+                                                          as_player0=not game_kw.get("master", True)),
               poll_s=0.2, stop_when=lambda: hw.lg_done)
     hw.text = r[1]
     assert duo.hello() == 0x104
@@ -4103,9 +4203,58 @@ def _():
 
 @test("Battle Tower link multi battle: the player chose a Pokemon of the same species as one of the DUO's - the game ends the link-up, and the tool says why")
 def _():
-    hw, game, report = tower_run(player_species=(409, 151), seconds=120)
+    hw, game, report = tower_run(player_species=(283, 151), seconds=120)
     assert "same species" in repr(hw.lg_error), repr(hw.lg_error)
     assert "didn't get as far as the Tower's trainers" in hw.text, hw.text[-800:]
+
+
+@test("Battle Tower: the Battle Frontier's own rules for the DUO's team (frontier_util.c AppendIfValid) - Celebi is banned, two holding the same item are refused, nothing is sent; above level 50 it says OPEN LEVEL only")
+def _():
+    celebi = test_pk3(species=251, pid=0x2001, otid=0x4E44)
+    torchic = test_pk3(species=280, pid=0x2002, otid=0x4E44)
+    probs, top = W.frontier_team_problems([celebi, torchic])
+    assert len(probs) == 1 and "Celebi isn't allowed" in probs[0], probs
+    hw, duo = run42()
+    paths = [event_file(celebi, "0 - TEST.pk3"), event_file(torchic, "1 - TEST.pk3")]
+    try:
+        quiet(W.tower_session, duo, types.SimpleNamespace(pk3=paths, seconds=5, level="medium", fallback=15, retire_after=0))
+        raise AssertionError("a team with Celebi was taken")
+    except ValueError as e:
+        assert "Battle Frontier wouldn't take this team" in str(e), e
+    finally:
+        hw.stop(); clean(hw)
+    def holding(sp, pid, item):
+        raw = bytearray(test_pk3(species=sp, pid=pid, otid=0x4E44))
+        struct.pack_into("<H", raw, 0x20 + 2, item)             # (PKHeX form: the growth block first, its held item)
+        struct.pack_into("<H", raw, 0x1C, sum(struct.unpack_from("<24H", raw, 0x20)) & 0xFFFF)   # (its checksum)
+        return bytes(raw)
+    probs, _ = W.frontier_team_problems([holding(283, 0x2003, 0x8B), holding(280, 0x2004, 0x8B)])
+    assert any("same item" in p for p in probs), probs
+    probs, top = W.frontier_team_problems([test_pk3(species=283, pid=0x2005, otid=0x4E44, exp=1_000_000), torchic])
+    assert not probs and top > W.FRONTIER_MAX_LEVEL_50, (probs, top)
+
+
+@test("Battle Tower: the DUO's GBA on the master end - the tool says so before the game is even on (by Emerald's rules the Pokemon would swap over) and stops, unless --as-player0")
+def _():
+    pk3s = [test_pk3(species=sp, pid=0x2000 + 7 * sp, otid=0x00004E44) for sp in (283, 280)]
+    paths = [event_file(d, f"{k} - TEST.pk3") for k, d in enumerate(pk3s)]
+    game = TWG.EmeraldTowerMulti(party=[W.pk3_party_form(test_pk3(species=25, pid=0x1019, otid=0x2222))] * 2,
+                                 enemy=[], master=False)
+    hw, duo = run42()
+    hw.attach_mp_game(game.run(), game_master=game.master)
+    try:
+        r = quiet(W.tower_session, duo, types.SimpleNamespace(pk3=paths, seconds=30, level="medium", fallback=15, retire_after=0))
+        raise AssertionError("carried on as player 0")
+    except ValueError as e:
+        assert "swap the cable's ends" in str(e), e
+    finally:
+        hw.stop(); clean(hw)
+
+
+@test("Battle Tower: the LEVEL 50 challenge with a DUO Pokemon above level 50 - a real partner couldn't bring it, so the DUO leaves at the link-up and says why")
+def _():
+    hw, game, report = tower_run(team=(283, 280), seconds=120, battles=1, duo_wins=True, duo_exp=1_000_000)
+    assert "Choose OPEN LEVEL" in hw.text and report.get("battles", 0) == 0, (hw.text[-800:], report)
 
 
 @test("Battle Tower, the DUO as player 0 (11 November): it asks for the cards, sends the game's own trainers' list and Tower party back (player 1 keeps player 0's), a header signature below Emerald's so the game runs the battles, still plays battler 2 (the game, the battle's master, is battler 0; 14 November, the real game) commanding party slots 3-5, and gives the verdict 'carry on' between battles")
@@ -4537,6 +4686,19 @@ def _():
     r = game.result
     assert len(r["blends"]) == 2 and r["partner_berries"] == [139, 139] and report["blends"] == 2, (r, report)
     assert r["partner_answers"] == [BBG.PLAY_AGAIN, BBG.SAY_NO], r
+    record = open(sorted(glob.glob(os.path.join(W.BATTLES_DIR, "*.txt")))[-1]).read()
+    assert "asks for the berries again" not in record, record[-1500:]       # (on time: no second request)
+
+
+@test("Berry Blender, the DUO leading: if its berries cross before the game's next blend has begun (a game with one barrier more round the save than Emerald's), the game waits at the berries - the DUO asks again and the second blend still happens")
+def _():
+    hw, game, report = blender_run(master=False, berries=(133, 135), blends=2, answers=[True, True],
+                                   extra_save_barrier=True)
+    assert hw.lg_error is None and hw.lg_done, (repr(hw.lg_error), game.log, hw.text[-1500:])
+    r = game.result
+    assert len(r["blends"]) == 2 and r["partner_answers"] == [BBG.PLAY_AGAIN, BBG.SAY_NO], r
+    record = open(sorted(glob.glob(os.path.join(W.BATTLES_DIR, "*.txt")))[-1]).read()
+    assert "asks for the berries again (try 1)" in record and "blend 2 begins" in record, record[-1500:]
 
 
 @test("Berry Blender, the DUO leading: the player says no after the first of two - the DUO's verdict is 'stop', naming the player and its answer")
@@ -4835,6 +4997,103 @@ def _():
     res = game.result
     assert res["outcome"] == BG.B_OUTCOME_LOST and res["left_room"] and res["partner_switches"] == [], res
     assert "lost for the game's side" in hw.text, hw.text[-1500:]
+
+
+# ---------------------------------------------------------------- multiboot (docs/MULTIBOOT.md, path A)
+import multiboot_model as MBM
+
+
+def mb_image(body_len=0x400, seed=9, title=b"TESTPROGRAM", code=b"ZTST"):
+    """A made-up multiboot program: a valid cartridge header (the logo, a title, a game code, the
+    checksum at 0xBD), then random bytes for 0x020000C0 onwards."""
+    r = random.Random(seed)
+    h = bytearray(0xC0)
+    h[0:4] = b"\x2e\x00\x00\xea"
+    h[4:4 + 156] = hwsim.LOGO
+    h[0xA0:0xAC] = title.ljust(12, b"\0")[:12]
+    h[0xAC:0xB0] = code
+    h[0xB2] = 0x96
+    h[0xBD] = -(sum(h[0xA0:0xBD]) + 0x19) & 0xFF
+    return bytes(h) + bytes(r.getrandbits(8) for _ in range(body_len))
+
+
+def mb_run(image, game_master=False, seconds=120, **slave_kw):
+    slave = MBM.MultibootSlave(**slave_kw)
+    hw, duo = run42()
+    hw.mb_bios = True
+    hw.attach_mp_game(slave.run(), game_master=game_master)
+    path = os.path.join(tempfile.mkdtemp(), "program.mb")
+    open(path, "wb").write(image)
+    r = quiet(W.multiboot_session, duo, types.SimpleNamespace(file=path, seconds=seconds, send=True), poll_s=0.2,
+              stop_when=lambda: slave.result["handshake_done"])
+    hw.text = r[1]
+    assert duo.hello() == 0x104
+    hw.stop(); clean(hw)
+    return hw, slave, r[0]
+
+
+@test("Multiboot (19 November): the DUO sends a program to a GBA with no cartridge as Emerald's Berry Fix screen does - pret's multiboot.c handshake, the header word by word, palette 4 at speed 1, the BIOS's transfer (SWI 25h), the CRC and the program's own handshake with its game code")
+def _():
+    image = mb_image()
+    hw, slave, report = mb_run(image)
+    res = slave.result
+    assert res["header"] == image[:0xC0], "the header didn't arrive word for word"
+    assert res["program"] == image[0xC0:].ljust(len(res["program"]), b"\0") and len(res["program"]) == 0x400, len(res["program"] or b"")
+    assert res["crc_ok"] and res["booted"] and res["handshake_done"] and res["game_code"] == b"ZTST", res
+    assert res["pp"] == 0xC1 and res["hh_ok"], (res["pp"], res["hh"])     # MultiBootStartMaster(..., 4, 1)
+    calls = hw.mb_calls
+    assert len(calls) == 1 and calls[0]["ok"] and calls[0]["mode"] == 1 and calls[0]["length"] == 0x400, calls
+    assert report["sent"] and report["code"] == "ZTST", report
+    for line in ("waiting for the other GBA", "sending the program", "sent: the other GBA runs it now", "Done: the program went across"):
+        assert line in hw.text, (line, hw.text[-1500:])
+
+
+@test("Multiboot: a program whose length isn't a multiple of 16 goes padded with zeros, as the library rounds it (MultiBootStartMaster); a file with no cartridge header is refused before anything is sent")
+def _():
+    image = mb_image(body_len=0x123)
+    hw, slave, report = mb_run(image)
+    res = slave.result
+    assert res["crc_ok"] and res["handshake_done"] and len(res["program"]) == 0x130, res
+    assert res["program"] == image[0xC0:] + bytes(0x130 - 0x123)
+    path = os.path.join(tempfile.mkdtemp(), "ok.mb"); open(path, "wb").write(image)
+    r, text = quiet(W.multiboot_session, None, types.SimpleNamespace(file=path, seconds=5))
+    assert r["refused"] and "--send" in text, text                  # (without --send: checked, not sent)
+    bad = bytearray(image); bad[10] ^= 1
+    path = os.path.join(tempfile.mkdtemp(), "bad.mb"); open(path, "wb").write(bytes(bad))
+    try:
+        W.multiboot_image(path)
+        raise AssertionError("took a file without the logo")
+    except W.DuoError as e:
+        assert "no cartridge header" in str(e), e
+
+
+@test("Multiboot: the Berry Fix taken from an Emerald ROM - the second of the three programs pokeemerald's ld_script puts together, exactly pret's 0x3BF4 bytes, or nothing")
+def _():
+    def rom_with(sizes):
+        rom = bytearray(mb_image(0x40, title=b"POKEMON EMER", code=b"BPEE")[:0xC0]) + bytes(0x1000)
+        progs = [mb_image(n - 0xC0, seed=k, title=b"PROG%d" % k, code=b"ZZZ%d" % k) for k, n in enumerate(sizes)]
+        for pr in progs:
+            rom += pr
+        return bytes(rom + bytes(0x100)), progs
+    rom, progs = rom_with([0x2000, W.BERRY_FIX_SIZE, 0x800])
+    tmp = tempfile.mkdtemp()
+    path = os.path.join(tmp, "emerald.gba"); open(path, "wb").write(rom)
+    out = W.berry_fix_from_rom(path, tmp)
+    assert open(out, "rb").read() == progs[1], "not the second program, whole"
+    rom, _ = rom_with([0x2000, W.BERRY_FIX_SIZE + 0x10, 0x800])
+    open(path, "wb").write(rom)
+    try:
+        W.berry_fix_from_rom(path, tmp)
+        raise AssertionError("took a program of the wrong size")
+    except W.DuoError as e:
+        assert "nothing taken" in str(e), e
+
+
+@test("Multiboot: the DUO's GBA on the cable's other end - the library sees it isn't the master and sends nothing, and the tool says to swap the ends")
+def _():
+    hw, slave, report = mb_run(mb_image(), game_master=True, seconds=26)
+    assert not report["sent"] and slave.result["header"] is None, report
+    assert "swap the ends" in hw.text, hw.text[-1000:]
 
 
 if __name__ == "__main__":

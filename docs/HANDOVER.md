@@ -68,6 +68,20 @@ multiplayer feature of the five games (ROADMAP Stage 12).
   its spot, results kept safely, the workshop's "Put it in the record" for bases, an impossible
   battle level, and **all aspects of link battling, doubles included** (keep going towards that).
 
+## The night of 18-19 November (scheduled work, every two hours)
+
+- **Berry Blender:** the leader asks for the berries again if no blend starts 15 s after they cross
+  (a game with one more save barrier than English Emerald stuck blend 2 on hardware).
+- **Battle Tower:** the Battle Frontier's own rules (frontier_util.c AppendIfValid) checked before the
+  link; the DUO's GBA on the master end makes it stop unless `--as-player0` (the game must then give
+  the DUO's Pokemon to the player: the swap seen on hardware).
+- **Record Mixing in Emerald's own layout** (`mix --layout emerald`; the workshop's Layout choice):
+  the DUO is an Emerald player, 26 rounds, the link save in step; for Japanese Emerald.
+- **Multiboot, path A** (`multiboot FILE --send`, `--from-rom EMERALD.gba` for the Berry Fix):
+  `mbsend.c` is pret's multiboot.c; hwsim stands in for SWI 25h, `multiboot_model.py` for the
+  receiving BIOS (docs/MULTIBOOT.md).
+- Plans: docs/MULTIBOOT.md, docs/FOUR_PLAYERS.md. Retests: docs/HARDWARE_QUEUE.md.
+
 ## Wireless, the DUO over the Mystery Gift cable (18 November)
 
 All simulator-only so far; hardware needs the MGB-010 (or any Game Boy Color cable) in place of the

@@ -69,9 +69,14 @@ typedef struct {
 #define LT_AFTER 0x3322   /* the room again after mixing (cable_club.c sub_8083664, VAR_0x8004 = 4) */
 
 #define CHUNK       200   /* record_mixing.c BUFFER_CHUNK_SIZE */
-#define ROUNDS      24    /* Ruby sends 24 chunks of its 0x1230-byte record */
-#define RECORD_SIZE 0x1230 /* struct PlayerRecords: bases, TV shows, news, old man, trends, mail,
+#define RS_SIZE     0x1230 /* struct PlayerRecords: bases, TV shows, news, old man, trends, mail,
                             * Battle Tower, gift item, filler (docs/RECORD_FORMATS.md) */
+#define EM_SIZE     0x1444 /* pret:pokeemerald/src/record_mixing.c:79 }; // 0x1444 */
+/* Ruby's layout goes in 24 rounds (0x1230 / 200 + 1); Emerald's own in 26, which an Emerald uses only
+ * when no partner plays Ruby/Sapphire (pret:pokeemerald/src/record_mixing.c:477 sRecordStructSize = sizeof(struct PlayerRecordEmerald);)
+ * - so to an Emerald the DUO is an Emerald player when the PC asks for that layout (19 November) */
+#define RECORD_SIZE (emerald_layout ? EM_SIZE : RS_SIZE)
+#define ROUNDS      (RECORD_SIZE / CHUNK + 1)
 #define START_WAIT  150   /* as master: frames after both are seated before the first round
                            * (each game waits 20 + 60 frames, then copies its first chunk) */
 #define ROUND_GAP   8     /* as master: frames between a round's end and the next request */
@@ -93,16 +98,19 @@ static u32 now(void)
  * Our whole record is too big for the program's own area, so the PC's file lives in the
  * firmware's save-transfer buffer, which nothing uses while a program runs. */
 #define BLOB_AT     0x02010030          /* build_v4.py BUFFER */
-#define BLOB_MAX    (48 + RECORD_SIZE)  /* (then the last round's filler, zeroed here) */
-static u32 put_at, blob_ready;
+#define BLOB_MAX    (48 + EM_SIZE)      /* (a Ruby-layout record padded; the last round's filler zeroed here) */
+static u32 put_at, blob_ready, emerald_layout;
 #define blob_words  ((u32 *)BLOB_AT)
 #define BLOB        ((u8 *)BLOB_AT)
 #define BASE_COUNT  BLOB[0]
 #define OUR_GENDER  BLOB[1]             /* our trainer: 0 boy, 1 girl */
 #define OUR_NAME    (BLOB + 4)          /* 8 bytes, game charset */
 #define OUR_TID     (BLOB + 12)         /* 4 bytes */
-#define MIRROR      BLOB[16]            /* bit k: hand the game's own part k back (TV shows, news,
-                                         * old man, trends, day-care mail), so it doesn't change */
+#define MIRROR      (BLOB[16] | BLOB[17] << 8)  /* bit k: hand the game's own part k back (TV shows, news,
+                                         * old man, trends, day-care mail; in Emerald's layout also its
+                                         * Battle Tower record, Lilycove lady, apprentices, hall records),
+                                         * so that part of the game doesn't change */
+#define LAYOUT      BLOB[18]            /* 1: Emerald's own layout, if the game is an Emerald */
 #define LABEL       ((const char *)BLOB + 20)   /* 28: a line for the screen */
 #define RECORD      (BLOB + 48)         /* our whole record to send; then the game's, round by round */
 
@@ -140,7 +148,7 @@ static u8 our_player[60];
 static u32 our_version(void)              /* the version in our link player and card */
 {
     u32 v = game_player[16];
-    return v == 3 ? 2 : v;                                   /* (Emerald: Ruby, below) */
+    return v == 3 && !emerald_layout ? 2 : v;                /* (Emerald: Ruby, below, unless asked) */
 }
 
 static void build_our_player(void)
@@ -158,7 +166,12 @@ static void build_our_player(void)
     memcpy(lp + 8, OUR_NAME, 8);
     memcpy(lp + 0x14, game_player + 16 + 0x14, 4);           /* link type */
     memcpy(lp + 0x1A, game_player + 16 + 0x1A, 2);           /* language */
-    lp[0x10] = OUR_GENDER;                                   /* Ruby/Sapphire keep the gender here */
+    if (our_version() == 3) {                                /* an Emerald player (as trade.c) */
+        lp[0x10] = 0x11;                                     /* progress flags: National Dex, game cleared */
+        lp[0x13] = OUR_GENDER;
+    } else {
+        lp[0x10] = OUR_GENDER;                               /* Ruby/Sapphire keep the gender here */
+    }
 }
 
 static void queue(u16 w0, u16 w1, u16 w2)
@@ -304,12 +317,18 @@ static void flush_copy(void)              /* the game's chunk, kept for the PC o
     }
 }
 
-static const u16 part_at[5] = { 0x0C80, 0x1004, 0x1044, 0x1084, 0x10AC }, part_end[5] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124 };
+/* the parts that can be handed back: TV shows, news, old man, trends, day-care mail, then in
+ * Emerald's layout (pret:pokeemerald/src/record_mixing.c:73 battleTowerRecord;) the Battle Tower record,
+ * Lilycove lady, apprentices and hall records */
+#define PARTS 9
+static const u16 part_at[PARTS] = { 0x0C80, 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124, 0x1214, 0x1254, 0x12DC },
+                 part_end[PARTS] = { 0x1004, 0x1044, 0x1084, 0x10AC, 0x1124, 0x1210, 0x1254, 0x12DC, 0x1434 };
+static u32 mirrored(u32 k) { return MIRROR >> k & 1 && (k < 5 || emerald_layout); }
 static u32 round_mirrors(u32 r)          /* does round r carry any of the game's own parts back? */
 {
     u32 lo = CHUNK * r, hi = lo + CHUNK;
-    for (u32 k = 0; k < 5; k++)
-        if (MIRROR >> k & 1 && part_at[k] < hi && part_end[k] > lo) return 1;
+    for (u32 k = 0; k < PARTS; k++)
+        if (mirrored(k) && part_at[k] < hi && part_end[k] > lo) return 1;
     return 0;
 }
 
@@ -321,8 +340,8 @@ static void send_round(u32 r)             /* our chunk r: our record, with any p
         return;
     }
     memcpy(chunk, RECORD + lo, CHUNK);
-    for (u32 k = 0; k < 5; k++) {
-        if (!(MIRROR >> k & 1)) continue;
+    for (u32 k = 0; k < PARTS; k++) {
+        if (!mirrored(k)) continue;
         u32 a = part_at[k] > lo ? part_at[k] : lo, b = part_end[k] < hi ? part_end[k] : hi;
         if (a < b) memcpy(chunk + (a - lo), rx_buf + (a - lo), b - a);
     }
@@ -352,6 +371,13 @@ static void game_block(u32 size)          /* a whole block from the game has arr
         memcpy(game_player, rx_buf, 60);
         game_lp_type = game_player[16 + 0x14] | game_player[16 + 0x15] << 8;
         game_lp_lang = game_player[16 + 0x1A];
+        if (game_lp_type == LT_MIX && emerald_layout && game_player[16] != 3) {
+            emerald_layout = 0;                                  /* (Emerald's layout only to an Emerald) */
+            zero(RECORD + RS_SIZE, EM_SIZE - RS_SIZE);
+        }
+        if (game_lp_type == LT_MIX && emerald_layout)            /* a base from Ruby says no language */
+            for (u32 i = 0; i < BASE_COUNT; i++)                 /* (pret:pokeemerald/include/global.h:565 u8 language;) */
+                if (RECORD[160 * i] && !RECORD[160 * i + 0x0D]) RECORD[160 * i + 0x0D] = game_lp_lang;
         build_our_player();
         send_block(our_player, 60, 0);
         player_pending = 0;
@@ -437,7 +463,7 @@ static void each_cycle(void)              /* once a command cycle (a frame): the
         if (++start_timer > 40) { queue(0xCCCC, 2, 0); round_timer = 1; start_timer = 0; }
         return;
     }
-    /* as master once both are seated: the 24 rounds, each when the last has fully gone */
+    /* as master once both are seated: the rounds (24, or 26 in Emerald's layout), each when the last has fully gone */
     if ((state == ST_SEATED && game_ready) || state == ST_MIXING) {
         if (rounds_asked == 0) {
             if (++start_timer > START_WAIT) { queue(0xCCCC, 1, 0); round_timer = 0; }
@@ -592,7 +618,9 @@ static int pc_service(api_t *api)
     case 20: put_at = 0; blob_ready = 0; v = BLOB_MAX; break;
     case 21: v = api->crc32(blob_words, put_at * 4);
              blob_ready = put_at * 4 >= BLOB_MAX && BASE_COUNT <= 20;
-             if (blob_ready) zero(RECORD + RECORD_SIZE, ROUNDS * CHUNK - RECORD_SIZE);
+             emerald_layout = LAYOUT == 1;                       /* (dropped below if the game isn't an Emerald) */
+             if (blob_ready) zero(RECORD + EM_SIZE, 26 * CHUNK - EM_SIZE);
+             if (blob_ready && !emerald_layout) zero(RECORD + RS_SIZE, EM_SIZE - RS_SIZE);
              break;
     case 30: v = bad_in[2 * (idx & 7)] | (u32)bad_in[2 * (idx & 7) + 1] << 16; break;   /* mismatches by state */
     default: v = 0xFFFFFFFF; break;

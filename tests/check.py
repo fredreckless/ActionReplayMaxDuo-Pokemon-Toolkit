@@ -35,8 +35,9 @@ TOWER = ["Battle Tower", "v4.2 programs"]
 BLENDER = ["Berry Blender", "v4.2 programs"]
 CONTEST = ["Contest", "v4.2 programs"]
 LAB4P = ["lab4p", "v4.2 programs"]
+MULTIBOOT = ["Multiboot", "v4.2 programs"]
 CABLE = TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P     # every routine on pret_link's Console
-EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P + ["two tools", "v4.2 run", "connect"]
+EVENTS_TOOL = MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P + MULTIBOOT + ["two tools", "v4.2 run", "connect"]
 
 # Which tests a changed file needs, first match wins. ALL for anything shared; [] for documentation.
 AREAS = [
@@ -50,9 +51,10 @@ AREAS = [
     ("firmware/programs/blender.c", BLENDER),
     ("firmware/programs/contest.c", CONTEST),
     ("firmware/programs/lab4p.c", LAB4P),
+    ("firmware/programs/mbsend.c", MULTIBOOT),
     ("firmware/programs/room_walk.h", TRADE + MIX + COLOSSEUM),
-    ("firmware/programs/*", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P),
-    ("firmware/embed_programs.py", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P),
+    ("firmware/programs/*", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P + MULTIBOOT),
+    ("firmware/embed_programs.py", MYSTERY_GIFT + EREADER + TRADE + MIX + COLOSSEUM + TOWER + BLENDER + CONTEST + LAB4P + MULTIBOOT),
     ("firmware/thumbcheck.py", MYSTERY_GIFT + EREADER + ["build:"]),
     ("duo_events.py", EVENTS_TOOL),
     ("secret_bases.py", MIX),
@@ -74,6 +76,7 @@ AREAS = [
     ("tests/pret_link.py", CABLE + EREADER), ("tests/pret_cable_club.py", CABLE),    # (17 November)
     ("tests/source_anchors.py", []), ("tools/pret.py", []),                         # (the anchors run on every tier)
     ("tests/mix_game_model.py", MIX),
+    ("tests/multiboot_model.py", MULTIBOOT),
     ("tests/ecard_fixtures.py", EREADER),
     ("tests/check.py", []), ("tests/run_each.py", []), ("tests/history/*", []),
     ("tests/mutate4.py", "BY_BUG"),   # the planted bugs whose lines changed (or one of each kind, for its machinery)
@@ -92,8 +95,9 @@ BUG_KINDS = [
     ("firmware/programs/blender.c", ["blender"]),
     ("firmware/programs/contest.c", ["contest"]),
     ("firmware/programs/lab4p.c", ["lab4p"]),
+    ("firmware/programs/mbsend.c", ["mbsend"]),
     ("firmware/programs/room_walk.h", ["trade", "mix", "colosseum"]),
-    ("firmware/programs/*", ["prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p"]),
+    ("firmware/programs/*", ["prog", "ereader", "trade", "mix", "colosseum", "tower", "blender", "contest", "lab4p", "mbsend"]),
     ("firmware/build_v42.py", ["fw42"]),
     ("firmware/build_v4.py", ["fw", "fw42"]),
     ("firmware/build_*.py", ["fw", "fw42"]),
@@ -104,6 +108,7 @@ BUG_KINDS = [
     ("tests/ecard_fixtures.py", ["pc"]),
     ("tests/trade_game_model.py", ["trade", "mix", "colosseum", "blender", "contest"]),
     ("tests/mix_game_model.py", ["mix"]),
+    ("tests/multiboot_model.py", ["mbsend"]),
     ("tests/battle_game_model.py", ["colosseum", "tower"]),
     ("tests/tower_game_model.py", ["tower"]),
     ("tests/blender_game_model.py", ["blender"]),

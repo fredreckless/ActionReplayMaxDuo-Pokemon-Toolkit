@@ -30,6 +30,27 @@ GIFT_AT = 0x11C8
 EXT_PART = {p[4]: p[0] for p in PARTS}
 PART = {p[0]: p for p in PARTS}
 
+# Emerald's own layout (pret:pokeemerald/src/record_mixing.c:79 }; // 0x1444), which an Emerald sends
+# only when no partner plays Ruby/Sapphire: the same parts up to the day-care mail, then its own
+# Battle Tower record (struct EmeraldBattleTowerRecord), the gift, and three parts of its own.
+EM_SIZE = 0x1444
+EM_PARTS = PARTS[:6] + [  # (name, offset, size, count, extension)
+    ("tower_em", 0x1124, 0xEC, 1, ".bte"),
+    ("lady", 0x1214, 0x40, 1, ".ll3"),
+    ("apprentices", 0x1254, 0x44, 2, ".ap3"),
+    ("hall", 0x12DC, 0x158, 1, ".hr3"),
+]
+EM_GIFT_AT = 0x1210
+EM_ONLY = ["tower_em", "lady", "apprentices", "hall"]
+EXT_PART.update({p[4]: p[0] for p in EM_PARTS})
+PART.update({p[0]: p for p in EM_PARTS})
+
+
+def layout(rec_or_name):
+    """(parts table, size, gift offset) of a layout: "ruby" or "emerald", or a record's own."""
+    name = rec_or_name if isinstance(rec_or_name, str) else ("emerald" if len(rec_or_name) == EM_SIZE else "ruby")
+    return (EM_PARTS, EM_SIZE, EM_GIFT_AT) if name == "emerald" else (PARTS, RS_SIZE, GIFT_AT)
+
 # In a Ruby/Sapphire save (SaveBlock 1 = sections 1-4, SaveBlock 2 = section 0)
 SB1_AT = {"tv": 0x2738, "news": 0x2ABC, "old_man": 0x2D94, "trends": 0x2DD4, "daycare": 0x2F9C}
 SB2_TOWER_AT = 0xA8
@@ -60,21 +81,32 @@ def text(raw, language=2):
 
 # ------------------------------------------------------------------- the whole record
 def split(rec):
-    """{part: [bytes, ...]} from a Ruby/Sapphire record, plus 'gift' (an item number)."""
-    if len(rec) != RS_SIZE:
-        raise ValueError(f"a Ruby/Sapphire record is {RS_SIZE} bytes, not {len(rec)}"
-                         + (" (5,188 is Emerald's own layout: not yet)" if len(rec) == 0x1444 else ""))
+    """{part: [bytes, ...]} from a record in Ruby/Sapphire's layout (0x1230 bytes) or Emerald's own
+    (0x1444), plus 'gift' (an item number)."""
+    if len(rec) not in (RS_SIZE, EM_SIZE):
+        raise ValueError(f"a record is {RS_SIZE} bytes (Ruby/Sapphire's layout) or {EM_SIZE} (Emerald's), not {len(rec)}")
+    table, _, gift_at = layout(rec)
     out = {name: [bytes(rec[at + size * i:at + size * (i + 1)]) for i in range(count)]
-           for name, at, size, count, _ in PARTS}
-    out["gift"] = struct.unpack_from("<H", rec, GIFT_AT)[0]
+           for name, at, size, count, _ in table}
+    out["gift"] = struct.unpack_from("<H", rec, gift_at)[0]
     return out
 
 
-def join(parts):
-    """A Ruby/Sapphire record from {part: [bytes, ...]} (missing parts and slots left empty) and
-    'gift'. The filler stays 0, as the game's does."""
-    rec = bytearray(RS_SIZE)
-    for name, at, size, count, _ in PARTS:
+def join(parts, layout_name="ruby"):
+    """A record from {part: [bytes, ...]} (missing parts and slots left empty) and 'gift', in
+    Ruby/Sapphire's layout or Emerald's own. The filler stays 0, as the game's does. Emerald's
+    apprentices with no name are written as the game keeps an empty one (its name EOS: record_mixing.c
+    ReceiveApprenticeData takes any whose name doesn't start with EOS)."""
+    table, size_all, gift_at = layout(layout_name)
+    if layout_name != "emerald" and any(parts.get(n) for n in EM_ONLY):
+        raise ValueError("the Battle Tower (Emerald), Lilycove lady, apprentices and hall records go only in Emerald's layout")
+    if layout_name == "emerald" and parts.get("tower"):
+        raise ValueError("a Ruby/Sapphire Battle Tower record (.bt3) doesn't fit Emerald's layout: an Emerald one (.bte) does")
+    rec = bytearray(size_all)
+    if layout_name == "emerald":
+        for i in range(2):
+            rec[0x1254 + 0x44 * i + 0x38] = 0xFF  # playerName[0] (filled in below if given)
+    for name, at, size, count, _ in table:
         items = parts.get(name) or []
         if len(items) > count:
             raise ValueError(f"at most {count} {name} in a record, not {len(items)}")
@@ -82,7 +114,7 @@ def join(parts):
             if len(b) != size:
                 raise ValueError(f"a {name} part is {size} bytes, not {len(b)}")
             rec[at + size * i:at + size * (i + 1)] = b
-    struct.pack_into("<H", rec, GIFT_AT, parts.get("gift", 0))
+    struct.pack_into("<H", rec, gift_at, parts.get("gift", 0))
     return bytes(rec)
 
 

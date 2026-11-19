@@ -227,7 +227,7 @@ C_PROGRAMS = {"adapter": ("adapter.c", []), "adapter_lab": ("adapter.c", ["-DLAB
               "union": ("adapter.c", ["-DUNION_ROOM"]),
               "join": ("adapter.c", ["-DGAME_HOSTS", "-DUNION_ROOM"]),
               "adapter_probe": ("adapter.c", ["-DPROBE"]), "ereader": ("ereader.c", []), "trade": ("trade.c", []),
-              "mix": ("mix.c", []), "colosseum": ("colosseum.c", []), "tower": ("tower.c", []), "blender": ("blender.c", []), "contest": ("contest.c", []), "lab4p": ("lab4p.c", [])}
+              "mix": ("mix.c", []), "colosseum": ("colosseum.c", []), "tower": ("tower.c", []), "blender": ("blender.c", []), "contest": ("contest.c", []), "lab4p": ("lab4p.c", []), "mbsend": ("mbsend.c", [])}
 CLANG_VERSION = "18.1"                       # the version the embedded copies were built with
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
