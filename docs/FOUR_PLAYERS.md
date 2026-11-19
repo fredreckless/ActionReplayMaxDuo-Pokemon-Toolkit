@@ -57,3 +57,19 @@ What a helper GBA would run, so the work can be judged before it's started:
   records out) and the DUO already plays it; then Ruby/Sapphire's four-player link Contest.
 - **Simulator first:** hwsim now carries three children behind the DUO, so a game model with four
   players (pret's link.c already counts them in DoHandshake) can test the helpers before any hardware.
+
+## What a four-player link asks of each GBA (19 November, check-in 4: notes for the game model)
+
+From `pret:pokeemerald/src/link.c:2181 DoHandshake`, the rule a four-player model has to follow:
+
+- Every handshake frame the game reads all four slots. Counting from slot 0, each slot must hold
+  MASTER_HANDSHAKE (slot 0) or SLAVE_HANDSHAKE (0xB9A0, low two bits free); the first 0xFFFF ends the
+  count, and **anything else sets the count to 0** - which is exactly what hand-sent words did on
+  hardware. The link opens only when the master is in slot 0 and the count is the same as the frame
+  before (`sHandshakePlayerCount`). So each helper must be a real link chip answering 0xB9A0 in its
+  own slot from the very first handshake: a multibooted GBA running link_core.h's slave code.
+- After that the game exchanges its normal command/data words in every slot each frame; a helper
+  that falls silent for a frame shows up as 0xFFFF and the game drops the link (`CheckErrorStatus`).
+- The model's plan: first Python stand-ins for the helpers in hwsim's three child slots (cheap,
+  tests the DUO side and a four-player game model built from link.c); only then a real helper image
+  run in a second emulated CPU.
