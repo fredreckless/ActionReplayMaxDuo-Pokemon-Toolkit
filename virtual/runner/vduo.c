@@ -202,10 +202,18 @@ static void _duoWaitcnt(struct GBACartBus* bus, uint16_t value) {
 
 /* ------------------------------------------------------------------ players and the link */
 
+struct Wire {                       /* normal mode's two wires (see wireWrite) */
+	struct GBASIODriver d;
+	struct Player* p;
+	struct mTimingEvent done;
+	uint32_t sent;
+};
+
 struct Player {
 	const char* name;
 	struct mCore* core;
 	struct GBASIOLockstepNode node;
+	struct Wire wire;
 	color_t* video;
 	int awake;              /* 1: may run; 0: waiting for the link */
 	unsigned waitMask;
@@ -226,7 +234,9 @@ static struct Player* duoPlayer;
 static struct Player* partnerPlayer;
 
 static uint32_t masterOf(struct Player* p) {
-	return ((struct GBA*) p->core->board)->timing.masterCycles;
+	/* (21 November: with the cycles run since the last event, so "which GBA is behind" is exact
+	 * to the instruction - normal mode's handshakes need it; masterCycles alone moves in jumps) */
+	return (uint32_t) mTimingCurrentTime(&((struct GBA*) p->core->board)->timing);
 }
 
 static void tick(struct Player* p) {             /* after running: count the cycles (wrap-safe) */
@@ -439,12 +449,126 @@ static struct mCore* newCore(struct Player* p) {
 	return core;
 }
 
+/* ------------------------------------------------------------------ normal mode (21 November 2026)
+ * mGBA 0.10.5's link cable carries normal mode one way only (its own TODO): each GBA receives the
+ * one before it, the master FFFFh, and the slave's SO never reaches the master's SI. The Wireless
+ * Adapter conversation (Mystery Gift: the DUO playing the adapter) needs the real thing, so for two
+ * GBAs normal mode is wired here instead, as GBATEK's "SIO Normal Mode" describes it:
+ *   - each GBA's SO pin (SIOCNT bit 3) is the other's SI (SIOCNT bit 2), at once;
+ *   - at 2 MHz a slave's first bit goes out at its SO level, not its word's top bit (see wireDone);
+ *   - a master's START (internal clock) clocks 8 or 32 bits at 256 kHz or 2 MHz; when they're done
+ *     the two words are exchanged if the slave was armed (both STARTs clear, each IRQ if enabled),
+ *     and if it wasn't, the master reads every bit as the slave's SO level and the slave sees nothing.
+ * Multi-player mode stays on mGBA's lockstep, unchanged. */
+static struct Player* otherOf(struct Player* p) {
+	return p == &players[0] ? &players[1] : &players[0];
+}
+
+static int wirePin(struct Player* p) {         /* SO: SIOCNT bit 3, armed or not */
+	struct GBA* gba = p->core->board;
+	return gba->sio.siocnt >> 3 & 1;
+}
+
+static void wireSiTo(struct Player* to, int pin) {
+	struct GBA* gba = to->core->board;
+	gba->sio.siocnt = (gba->sio.siocnt & ~0x0004) | (pin << 2);
+}
+
+static void wireFinish(struct Player* p, uint32_t got) {
+	struct GBA* gba = p->core->board;
+	if (gba->sio.mode == SIO_NORMAL_32) {
+		gba->memory.io[REG_SIODATA32_LO >> 1] = got;
+		gba->memory.io[REG_SIODATA32_HI >> 1] = got >> 16;
+	} else {
+		gba->memory.io[REG_SIODATA8 >> 1] = got & 0xFF;
+	}
+	gba->sio.siocnt &= ~0x0080;
+	if (gba->sio.siocnt & 0x4000) {
+		GBARaiseIRQ(gba, GBA_IRQ_SIO, 0);
+	}
+}
+
+static uint32_t wireWord(struct Player* p) {
+	struct GBA* gba = p->core->board;
+	if (gba->sio.mode == SIO_NORMAL_32) {
+		return gba->memory.io[REG_SIODATA32_LO >> 1] | (uint32_t) gba->memory.io[REG_SIODATA32_HI >> 1] << 16;
+	}
+	return gba->memory.io[REG_SIODATA8 >> 1] & 0xFF;
+}
+
+static void wireDone(struct mTiming* timing, void* context, uint32_t late) {
+	UNUSED(timing);
+	UNUSED(late);
+	struct Player* p = context;                       /* the master */
+	struct Player* o = otherOf(p);
+	struct GBA* og = o->core->board;
+	int bits = ((struct GBA*) p->core->board)->sio.mode == SIO_NORMAL_32 ? 32 : 8;
+	uint32_t got;
+	if (o->powered && (og->sio.mode == SIO_NORMAL_32 || og->sio.mode == SIO_NORMAL_8)
+	        && (og->sio.siocnt & 0x0081) == 0x0080) {
+		/* a slave's first bit goes out at its SO level, not the word's top bit (the DUO's lab
+		 * sessions: "only the first bit is late", adapter.c E_FIRSTBIT - which is why it always
+		 * loads a word with SO at its top bit, and checks the game's slave words without it) */
+		got = wireWord(o);
+		if (((struct GBA*) p->core->board)->sio.siocnt & 0x0002) {   /* (at 2 MHz: at 256 kHz it's in time) */
+			got = (got & (bits == 32 ? 0x7FFFFFFF : 0x7F)) | (uint32_t) wirePin(o) << (bits - 1);
+		}
+		wireFinish(o, p->wire.sent);
+	} else {
+		got = wirePin(o) ? (bits == 32 ? 0xFFFFFFFF : 0xFF) : 0;
+	}
+	wireFinish(p, got);
+	if (getenv("VDUO_WIRE_LOG")) {
+		FILE* f = fopen(getenv("VDUO_WIRE_LOG"), "a");
+		fprintf(f, "DONE %s got %08x  other cnt %04x clocks %lld/%lld\n", p->name, got, og->sio.siocnt,
+		        (long long) timeOf(p), (long long) timeOf(o));
+		fclose(f);
+	}
+	wireSiTo(o, wirePin(p));
+	wireSiTo(p, wirePin(o));
+}
+
+static uint16_t wireWrite(struct GBASIODriver* driver, uint32_t address, uint16_t value) {
+	struct Wire* w = (struct Wire*) driver;
+	struct Player* p = w->p;
+	struct Player* o = otherOf(p);
+	struct GBA* gba = p->core->board;
+	static FILE* dbg;
+	if (getenv("VDUO_WIRE_LOG")) {
+		if (!dbg) dbg = fopen(getenv("VDUO_WIRE_LOG"), "a");
+		fprintf(dbg, "%s f%u t%lld w%03x %04x cnt %04x data %08x mode %d\n", p->name, p->core->frameCounter(p->core),
+		        (long long) timeOf(p), address, value, gba->sio.siocnt, wireWord(p), gba->sio.mode);
+		fflush(dbg);
+	}
+	if (address == REG_SIOCNT) {
+		value = (value & ~0x0004) | (wirePin(o) << 2);     /* SI: the other's SO */
+		int starting = (value & 0x0081) == 0x0081 && (gba->sio.siocnt & 0x0081) != 0x0081;
+		gba->sio.siocnt = value;                            /* (so the pin below sees it) */
+		if (starting) {                                     /* a master's START: clock it out */
+			w->sent = wireWord(p);
+			int bits = gba->sio.mode == SIO_NORMAL_32 ? 32 : 8;
+			int32_t cycles = bits * ((value & 2) ? 8 : 64);
+			mTimingDeschedule(&gba->timing, &w->done);
+			mTimingSchedule(&gba->timing, &w->done, cycles);
+		}
+		wireSiTo(o, wirePin(p));
+	}
+	return value;
+}
+
 static void attachLink(struct Player* p) {
 	struct GBA* gba = p->core->board;
 	GBASIOLockstepNodeCreate(&p->node);
 	GBASIOLockstepAttachNode(&lockstep, &p->node);
 	GBASIOSetDriver(&gba->sio, &p->node.d, SIO_MULTI);
-	GBASIOSetDriver(&gba->sio, &p->node.d, SIO_NORMAL_32);
+	memset(&p->wire, 0, sizeof(p->wire));
+	p->wire.p = p;
+	p->wire.d.writeRegister = wireWrite;
+	p->wire.done.context = p;
+	p->wire.done.callback = wireDone;
+	p->wire.done.name = "Virtual DUO normal-mode wire";
+	p->wire.done.priority = 0x80;
+	GBASIOSetDriver(&gba->sio, &p->wire.d, SIO_NORMAL_32);
 	p->awake = 1;
 }
 
@@ -937,7 +1061,21 @@ int main(int argc, char** argv) {
 		}
 		int ran = 0;
 		if (next) {
-			next->core->runLoop(next->core);
+			/* in normal mode (the Wireless Adapter's conversation) the two GBAs answer each other
+			 * within microseconds on the SO/SI lines: run a few instructions at a time, not a slice */
+			int fine = 0;
+			for (int i = 0; i < nPlayers; ++i) {
+				int m = players[i].core ? ((struct GBA*) players[i].core->board)->sio.mode : 0;
+				if (m == SIO_NORMAL_32 || m == SIO_NORMAL_8) {
+					fine++;
+				}
+			}
+			if (fine == nPlayers && nPlayers == 2) {
+				players[0].awake = players[1].awake = 1;    /* (the lockstep doesn't hold normal mode) */
+				next->core->step(next->core);           /* one instruction at a time */
+			} else {
+				next->core->runLoop(next->core);
+			}
 			if (next->audio) {
 				drainAudio(next);
 			}

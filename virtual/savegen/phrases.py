@@ -423,6 +423,15 @@ def ruby_word_text(g, e, wid):
     return SB.decode_name(raw[:raw.index(0xFF) + 1], g.p.LANGUAGE)
 
 
+def _mark(g, text):
+    """A mark in a recording (the video follows them: video/unlock.py's mark, the same format)."""
+    rec = os.environ.get("VDUO_RECORD")
+    if rec:
+        os.makedirs(rec, exist_ok=True)
+        with open(os.path.join(rec, "terminal.jsonl"), "a") as f:
+            f.write(json.dumps(dict(n=getattr(g.v, "_rec_n", 0), mark=text)) + "\n")
+
+
 def play(rom, sav, kind=None, log=print, record=None):
     import savegen, profiles
     code, ver = header(rom)
@@ -449,6 +458,7 @@ def play(rom, sav, kind=None, log=print, record=None):
                 break
             g.tap("A", gap=10)
         g.run(60)
+        _mark(g, "boot")
         g.flag(flag, False)
         if dex:
             g.flag(dex)
@@ -460,6 +470,7 @@ def play(rom, sav, kind=None, log=print, record=None):
         g.wait(g.in_overworld, 1200, what="the overworld")
         g.wait(lambda: g.player_xy() == WHERE[fam][2:], 600, what="the player")
         g.run(90)
+        _mark(g, "talk")
         g.tap("UP", hold=2, gap=12)
         want = "Task_HandleMultichoiceInput" if fam == "ruby" else "Task_HandleYesNoInput"
         press_until(g, "A", lambda: g.has_task(want), limit=30, gap=30)
@@ -468,6 +479,7 @@ def play(rom, sav, kind=None, log=print, record=None):
         if fam == "ruby":
             g.tap("A", gap=60)                          # "Yes! Thank you!", then the profile
         g.run(60)
+        _mark(g, "profile")
         e = Entry(g, fam, info)
         texts = []
         for k, wid in enumerate(words):
@@ -477,6 +489,7 @@ def play(rom, sav, kind=None, log=print, record=None):
                 log(f"  word {k + 1}: left empty, as the phrase has it")
                 texts.append("")
                 continue
+            _mark(g, f"word{k + 1}")
             enter = enter_word_ruby if fam == "ruby" else enter_word_japanese if p.LANGUAGE == 1 else enter_word_gen3
             enter(g, e, k, wid, log)
             got = e.phrase()[k]
@@ -486,12 +499,14 @@ def play(rom, sav, kind=None, log=print, record=None):
         g.screenshot(os.path.join(record or tempfile.gettempdir(), f"{key}_{kind}_phrase.png"))
         log("  entered: " + " / ".join(t or "(empty)" for t in texts))
         # OK, then YES to "Is it okay?"
+        _mark(g, "ok")
         g.tap("DOWN", gap=12)                           # the buttons: DEL. ALL, CANCEL, OK
         if fam == "ruby":
             g.tap("RIGHT", gap=20)
         else:
             press_until(g, "RIGHT", lambda: e.b(6) == 2 and e.b(5) == 2, limit=4)
         presses(g, "A w60 A w60")
+        _mark(g, "secret")
         for _ in range(40):
             if flag_set(g, flag):
                 break
@@ -499,10 +514,15 @@ def play(rom, sav, kind=None, log=print, record=None):
         else:
             raise RuntimeError("the game didn't set the flag")
         presses(g, "w30 B w40 B w40 B w40 B w60", gap=20)
+        _mark(g, "save")
         savegen.save_game(g)
         g.run(60)
+        _mark(g, "restart")
         restart_to_title(g)
         g.run(120)
+        _mark(g, "menu")
+        g.run(150)
+        _mark(g, "end")
         shot = os.path.join(record or tempfile.gettempdir(), f"{key}_{kind}_title.png")
         g.screenshot(shot)
         log(f"  the title menu after a restart: {shot}")

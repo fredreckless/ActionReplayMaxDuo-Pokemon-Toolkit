@@ -143,6 +143,14 @@ def link(game="ruby", cable="agb005", master="either", lines=(), cmd="python duo
         sc.labels.append(Label("its split end's wide plug\nisn't used", (204, 248), (150, 214), tc + 2.0, tc + 6))
         sc.caption(tc, "Mystery Gift: a cross-wired Game Boy cable, Nintendo's MGB-010. A GBA cable won't do",
                    "Step 2")
+    elif cable == "cgb003":
+        small = parts.link_plug("gbc_grey")
+        c = Cable((G, "ext"), (R, "ext"), via, tc, tc + 1.8, GREY_LEAD, width=3, plug_a=small, plug_b=small)
+        sc.cables.append(c)
+        sc.labels.append(Label("Game Boy Color Game Link Cable\nCGB-003 (cross-wired)", (c, 0.45), (110, 296),
+                               tc + 1.0, tc + 6))
+        sc.caption(tc, "Mystery Gift: a Game Boy Color link cable (cross-wired). A GBA cable won't do",
+                   "Step 2")
     else:
         purple, grey = parts.link_plug("gba_purple"), parts.link_plug("gba_grey")
         pa, pb = (purple, grey) if master == "duo" else (grey, purple)
@@ -231,6 +239,13 @@ def games(cable="gba", focus=None):
         sc.cables.append(c)
         sc.labels.append(Label("Universal Game Link Cable\nMGB-010 (cross-wired)", (c, 0.5), (262, 280), 4.0))
         sc.caption(3.6, "Mystery Gift needs a cross-wired Game Boy cable: Nintendo's MGB-010", "Kit")
+    elif cable == "cgb":
+        small = parts.link_plug("gbc_grey")
+        c = Cable((210, 214), (318, 214), [(224, 166), (262, 190), (300, 166)], 3.6, 4.4, GREY_LEAD,
+                  width=3, plug_a=small, plug_b=small)
+        sc.cables.append(c)
+        sc.labels.append(Label("Game Boy Color Game Link\nCable CGB-003 (cross-wired)", (c, 0.5), (262, 280), 4.0))
+        sc.caption(3.6, "Mystery Gift needs a cross-wired Game Boy cable: a Game Boy Color one", "Kit")
     else:
         purple, grey = parts.link_plug("gba_purple"), parts.link_plug("gba_grey")
         c = Cable((214, 214), (314, 214), [(232, 160), (264, 190), (296, 160)], 3.6, 4.4, GREY_LEAD,

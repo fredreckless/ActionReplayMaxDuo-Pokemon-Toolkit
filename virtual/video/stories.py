@@ -291,3 +291,81 @@ def make(name, out, rec_dir, crf=20, unlock_rec=None, workshop=None, claim_rec=N
     if s.get("unlock"):
         s["unlock_rec"] = unlock_rec
     return link_story(out, rec_dir, s, crf)
+
+
+# ------------------------------------------------------------------ Mystery Gift with LeafGreen (21 November 2026)
+# The first Mystery Gift video with the transfer itself recorded: the Virtual DUO's normal-mode wire
+# (runner/vduo.c) lets the real game and the real DUO program talk as the game and its Wireless Adapter.
+
+FRLG_UNLOCK = [("boot", "Switch on the game on its own (no cable needed for this part), and CONTINUE"),
+               ("talk", "In any Poké Mart once you have the Pokédex (here Pewter City's): the questionnaire"),
+               ("profile", "Fill it out: SELECT for A-Z mode, then each word by its letter"),
+               ("word1", "Word 1: LINK, under L"),
+               ("word2", "Word 2: TOGETHER, under T"),
+               ("word3", "Word 3: WITH, under W"),
+               ("word4", "Word 4: ALL, under A"),
+               ("ok", "OK, then YES"),
+               ("secret", "MYSTERY GIFT is unlocked"),
+               ("save", "Save the game: START, then SAVE"),
+               ("restart", "Switch the game off and on again"),
+               ("menu", "The title menu now has MYSTERY GIFT")]
+FRLG_GIFT_CUES = [("ID exchange completed", "The game finds a Wireless Adapter: the DUO's GBA is playing one"),
+                  ("start searching", "The game searches for a distributor: the DUO is that too"),
+                  ("the game connected to the distributor", "Connected: the distributor starts sending"),
+                  ("Mystery Gift server step 3", "The Wonder Card goes over, then the script that comes with it"),
+                  ("disconnect", "Done: the link closes, and the tool stops by itself")]
+FRLG_CLAIM = [("title", "Afterwards: switch the game on again, and CONTINUE"),
+              ("continue", "Upstairs in any Pokémon Center: the delivery person in green has come"),
+              ("walk", "Walk over and talk to them, across the counter"),
+              ("got", "The MYSTIC TICKET, in the KEY ITEMS pocket"),
+              ("bag", "BAG, KEY ITEMS: the ticket to Navel Rock")]
+JAPANESE = re.compile(r"[\u3040-\u30ff]")
+
+
+def frlg_gift_story(out, gift_rec, unlock_rec, claim_rec, card_name, crf=20, theme=None):
+    title = "The Mystic Ticket in LeafGreen"
+    rec = Recording(gift_rec)
+    lines_of(rec)
+    rec.events = [e for e in rec.events if not JAPANESE.search(e.get("line", ""))]
+    rec.cmd = f'python duo_events.py gift --card "{card_name}"'
+    v = Video(out, title, "Pokémon LeafGreen (English)", crf=crf, theme=theme)
+    v.overview()
+    v.setup()
+    v.title_card(title, "duo_events.py gift: the DUO's GBA plays the Wireless Adapter and the\n"
+                        "distributor, over a cross-wired Game Boy Color link cable")
+    v.scene(setups.games("cgb", focus="leafgreen"))
+    u = Recording(unlock_rec)
+    play_marked(v, u, FRLG_UNLOCK, [("boot", "talk", 3), ("restart", "menu", 2)], "Unlock")
+    v.crossfade()
+    first = [e["line"] for e in rec.events if "line" in e and e["n"] == 0]
+    v.scene(setups.link("leafgreen", "cgb003", "either", first, rec.cmd, duo_screen=rec.image(40, "duo"),
+                        game_screen=rec.image(0, "partner")))
+    v.term = [("cmd", "C:\\ActionReplay> " + rec.cmd)]
+    v.print_lines(first)
+    cues, after = [(0, "On the game: MYSTERY GIFT, then A: it looks for a Wireless Adapter", "In the game")], 0
+    for text, words in FRLG_GIFT_CUES:
+        n = rec.find(text, after)
+        if n is not None:
+            cues.append((n, words, "In the game"))
+            after = n
+    end = max(e["n"] for e in rec.events if "line" in e)
+    cues.append((min(rec.n - 1, end + 20), "The game saves the card by itself: \"Save completed\"", "In the game"))
+    bar = rec.image(end, "partner").getpixel((120, 4))        # the Mystery Gift screen's title bar
+    card_at = next((i for i in range(end, rec.n) if rec.image(i, "partner").getpixel((120, 4)) != bar
+                    and max(rec.image(i, "partner").getpixel((120, 4))) > 100), rec.n - 1)
+    cues.append((card_at, "WONDER CARDS: the Mystic Ticket's Exchange Card, as the event's", "In the game"))
+    v.play(rec, 0, card_at, cues=[c for c in cues if c[0] < card_at], shown_from=len(first))
+    v.play(rec, card_at, rec.n, cues=[c for c in cues if c[0] >= card_at], idle=4.5,     # (the card: time to read it)
+           shown_from=len(rec.lines_until(card_at - 1)))
+    v.crossfade()
+    c = Recording(claim_rec)
+    v.term, v.duo = [], None
+    play_marked(v, c, FRLG_CLAIM, [], "In the game")
+    v.say("Then: Vermilion City's harbour, the Seagallop ferry, and Navel Rock", "Done")
+    v.hold(4)
+    v.crossfade()
+    v.title_card(title, "Archived distribution data, received through the game's own\n"
+                        "Mystery Gift menu. The DUO writes nothing to either cartridge.\n"
+                        "Recorded in the Virtual DUO: the real game and the DUO's real program", 6)
+    v.title_card(title, END, 4)
+    return v.close()

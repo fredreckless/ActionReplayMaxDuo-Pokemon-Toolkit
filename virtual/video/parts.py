@@ -345,6 +345,8 @@ def link_plug(style):
         return _plug(rgb("#9a9ca6"), rgb("#6e707a"), 9, 15, 5, 3)
     if style == "gbc_black":
         return _plug(BLACK, None, 9, 14, 5, 3, shroud=rgb("#c8ccd2"))
+    if style == "gbc_grey":                  # the Game Boy Color cable CGB-003's small plugs
+        return _plug(rgb("#a4a6ae"), None, 9, 14, 5, 3, shroud=rgb("#c8ccd2"))
     if style == "dmg_black":
         return _plug(BLACK, None, 11, 16, 7, 4, shroud=rgb("#c8ccd2"))
     raise ValueError(style)

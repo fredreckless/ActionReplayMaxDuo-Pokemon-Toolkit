@@ -207,6 +207,74 @@ def mystery_gift_claim(rom, sav, wc3):
         g.close()
 
 
+ITEM_MYSTIC_TICKET = 370                 # pret's include/constants/items.h
+
+
+def mystery_gift_claim_frlg(rom, sav, item=ITEM_MYSTIC_TICKET):
+    """The end of the FireRed/LeafGreen Mystery Gift video (21 November 2026): in the save the game
+    wrote after receiving the card over the (emulated) Wireless Adapter, CONTINUE upstairs in the
+    Pokemon Center, walk over to the delivery person in green (shown only while a Wonder Card waits:
+    pret's CableClub_EventScript_HideOrShowMysteryGiftMan), take the gift, and look in the bag's
+    KEY ITEMS. Passes when the bag's key items hold the item (the Mystic Ticket by default)."""
+    p = profiles.for_rom(rom)
+    g = savegen.Game(rom, p, save=sav)
+    try:
+        for _ in range(3000):
+            if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
+                break
+            g.tap("A", gap=10)
+        g.run(90)
+        mark(g, "title")
+        g.run(60)
+        g.tap("A", gap=10)
+        g.wait(g.in_overworld, 1200, what="the overworld")
+        g.run(60)
+        mark(g, "continue")
+        men = [xy for _, lid, xy in g.objects() if lid == 4]
+        if not men:
+            raise RuntimeError("no delivery person upstairs")
+        target = (men[0][0] - 7, men[0][1] - 7)
+        g.run(60)
+        mark(g, "walk")
+        # behind the counter, like the attendants: talk to them across it, from two tiles below
+        tx, ty = target[0], target[1] + 2
+        for _ in range(40):
+            x, y = g.player_xy()
+            if (x, y) == (tx, ty):
+                break
+            k = "LEFT" if x > tx else "RIGHT" if x < tx else "DOWN" if y < ty else "UP"
+            g.tap(k, hold=14, gap=6)
+            g.run(8)
+        else:
+            raise RuntimeError(f"couldn't get below {target}")
+        g.tap("UP", hold=2, gap=16)
+        g.run(20)
+        mark(g, "talk")
+        def has():
+            raw = g.read(g.sb1() + p.SB1_KEYITEMS, 30 * 4)
+            return any(struct.unpack_from("<H", raw, 4 * i)[0] == item for i in range(30))
+        if has():
+            raise RuntimeError("the key items already hold it")
+        for _ in range(40):
+            g.tap("A", gap=50)
+            if has():
+                break
+        else:
+            raise RuntimeError("the delivery person gave nothing")
+        mark(g, "got")
+        for _ in range(8):                                # the rest of the messages
+            g.tap("A", gap=50)
+        g.run(60)
+        mark(g, "bag")
+        presses(g, "w60 START w90 DOWN w40 DOWN w40 A w150 RIGHT w90", gap=20)   # START > (POKeDEX, POKeMON) BAG, then KEY ITEMS
+        g.run(240)
+        g.screenshot("/tmp/claim_bag.png")
+        mark(g, "end")
+        print(f"PASS: the delivery person handed over item {item}, now in KEY ITEMS")
+    finally:
+        g.close()
+
+
 def _texting(g):
     """A battle message waiting for A: the text printer's flag in the battle window... approximated by
     the screen's bottom box being the plain message box (no menu on its right)."""
@@ -398,7 +466,8 @@ def mystery_event(rom, sav):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim", "visit_base", "theme"))
+    ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim", "mystery_gift_claim_frlg",
+                                      "visit_base", "theme"))
     ap.add_argument("--out", help="theme: where the music goes")
     ap.add_argument("--sb3", help="visit_base: the base that was mixed in")
     ap.add_argument("--wc3", help="mystery_gift_claim: the Wonder Card (English Emerald's)")
@@ -411,6 +480,8 @@ def main():
     a.sav = copy
     if a.which == "mystery_gift_claim":
         return mystery_gift_claim(a.rom, a.sav, a.wc3)
+    if a.which == "mystery_gift_claim_frlg":
+        return mystery_gift_claim_frlg(a.rom, a.sav)
     if a.which == "visit_base":
         return visit_base(a.rom, a.sav, a.sb3)
     if a.which == "theme":
