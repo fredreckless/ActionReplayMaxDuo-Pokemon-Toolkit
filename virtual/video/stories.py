@@ -9,6 +9,7 @@ the words over the first stretch of the game; unlock, a recorded unlock (see unl
 import os, re
 
 import setups
+from PIL import Image
 from compose import Video, Recording
 
 DROP = ("The DUO's GBA was already on",)       # only ever seen because the emulated DUO starts on
@@ -322,20 +323,57 @@ FRLG_CLAIM = [("title", "Afterwards: switch the game on again, and CONTINUE"),
 JAPANESE = re.compile(r"[\u3040-\u30ff]")
 
 
-def frlg_gift_story(out, gift_rec, unlock_rec, claim_rec, card_name, crf=20, theme=None):
+NAVEL = [("vermilion", "With the Rainbow Pass, Vermilion City's harbour: show the sailor the ticket"),
+         ("sail", "NAVEL ROCK: the Seagallop sets sail"),
+         ("harbor", "Navel Rock, an island only the ticket reaches"),
+         ("exterior", "Up to the rock itself, and in"),
+         ("base", "Down through the rock to its foot (the climb skipped here)"),
+         ("lugia", "And there it is")]
+
+
+def play_full(v, rec, a, b, cues=(), speed=1.0, step=None):
+    """Recorded frames a..b with the game full width (no terminal or DUO panels: the game alone),
+    its own sound, and the band below for the words."""
+    from compose import S, BG, blank
+    from scene import draw_band
+    cues = sorted(cues)
+    caption, stp = None, step
+    pos = float(a)
+    while pos < b:
+        i = int(pos)
+        while cues and cues[0][0] <= i:
+            _, caption, stp = cues.pop(0)
+        frame = Image.new("RGB", (S, S), BG)
+        g = rec.image(i, "partner")
+        frame.paste(g.resize((S, 720), Image.NEAREST), (0, 90))
+        if caption:
+            draw_band(frame, caption, stp, S - 132)
+        snd = rec.sound(i) if speed <= 1 else None
+        if snd:
+            v.sounds.append((v.frames, rec.pcm) + snd)
+        v.emit(full=frame)
+        pos += speed
+
+
+def frlg_gift_story(out, gift_rec, unlock_rec, claim_rec, card_name, crf=20, theme=None, navel_rec=None):
     title = "The Mystic Ticket in LeafGreen"
     rec = Recording(gift_rec)
     lines_of(rec)
     rec.events = [e for e in rec.events if not JAPANESE.search(e.get("line", ""))]
     rec.cmd = f'python duo_events.py gift --card "{card_name}"'
     v = Video(out, title, "Pokémon LeafGreen (English)", crf=crf, theme=theme)
-    v.overview()
+    nav = Recording(navel_rec) if navel_rec else None
+    if nav:                                                   # the cold open: up to Lugia, the battle fading in
+        at = {e["mark"]: e["n"] for e in nav.events if "mark" in e}
+        play_full(v, nav, at["base"], at["battle"] + 20)
+        v.crossfade()
+    v.overview(secs=15)
     v.setup()
     v.title_card(title, "duo_events.py gift: the DUO's GBA plays the Wireless Adapter and the\n"
                         "distributor, over a cross-wired Game Boy Color link cable")
     v.scene(setups.games("cgb", focus="leafgreen"))
     u = Recording(unlock_rec)
-    play_marked(v, u, FRLG_UNLOCK, [("boot", "talk", 3), ("restart", "menu", 2)], "Unlock")
+    play_marked(v, u, FRLG_UNLOCK, [("boot", "talk", 3), ("word1", "ok", 5), ("restart", "menu", 2)], "Unlock")
     v.crossfade()
     first = [e["line"] for e in rec.events if "line" in e and e["n"] == 0]
     v.scene(setups.link("leafgreen", "cgb003", "either", first, rec.cmd, duo_screen=rec.image(40, "duo"),
@@ -359,13 +397,25 @@ def frlg_gift_story(out, gift_rec, unlock_rec, claim_rec, card_name, crf=20, the
            shown_from=len(rec.lines_until(card_at - 1)))
     v.crossfade()
     c = Recording(claim_rec)
+    c_end = next((e["n"] for e in c.events if e.get("mark") == "end"), None)
+    if c_end:
+        c.n = min(c.n, c_end + 30)                            # (not the save made afterwards for the trip)
     v.term, v.duo = [], None
     play_marked(v, c, FRLG_CLAIM, [], "In the game")
-    v.say("Then: Vermilion City's harbour, the Seagallop ferry, and Navel Rock", "Done")
-    v.hold(4)
     v.crossfade()
-    v.title_card(title, "Archived distribution data, received through the game's own\n"
-                        "Mystery Gift menu. The DUO writes nothing to either cartridge.\n"
-                        "Recorded in the Virtual DUO: the real game and the DUO's real program", 6)
-    v.title_card(title, END, 4)
+    v.title_card("As legit as it gets", "To the game this was a real Mystery Gift: its own menu, its own\n"
+                 "checks, its own save. The card is the event's own, byte for byte,\n"
+                 "and the ticket and the ferry's flag came from the game's own script.\n"
+                 "The DUO writes nothing to either cartridge.", 7)
+    if nav:
+        cues = [(at[m], words, "Navel Rock") for m, words in NAVEL if m in at]
+        v.crossfade()
+        play_full(v, nav, at["vermilion"], at["cave"], cues=[c for c in cues if c[0] < at["cave"]])
+        v.crossfade()
+        play_full(v, nav, at["base"], at["end"], cues=[c for c in cues if c[0] >= at["base"]])
+        v.emit(v.seconds(1.5), full=v._shown)                 # (Lugia, held: nothing sent out)
+        v.crossfade()
+    v.title_card(title, "Recorded in the Virtual DUO: the real game, the DUO's real program\n"
+                        "(the save's story set ahead for the ferry: it wants the Rainbow Pass)\n\n"
+                        + END, 7)
     return v.close()

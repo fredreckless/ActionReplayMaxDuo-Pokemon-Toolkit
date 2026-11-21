@@ -210,7 +210,7 @@ def mystery_gift_claim(rom, sav, wc3):
 ITEM_MYSTIC_TICKET = 370                 # pret's include/constants/items.h
 
 
-def mystery_gift_claim_frlg(rom, sav, item=ITEM_MYSTIC_TICKET):
+def mystery_gift_claim_frlg(rom, sav, item=ITEM_MYSTIC_TICKET, out_sav=None):
     """The end of the FireRed/LeafGreen Mystery Gift video (21 November 2026): in the save the game
     wrote after receiving the card over the (emulated) Wireless Adapter, CONTINUE upstairs in the
     Pokemon Center, walk over to the delivery person in green (shown only while a Wonder Card waits:
@@ -270,7 +270,172 @@ def mystery_gift_claim_frlg(rom, sav, item=ITEM_MYSTIC_TICKET):
         g.run(240)
         g.screenshot("/tmp/claim_bag.png")
         mark(g, "end")
+        if out_sav:                                       # the game saves (for the trip to Navel Rock)
+            presses(g, "B w60 B w60 B w60", gap=20)
+            savegen.save_game(g)
+            g.run(60)
+            g.v.save_sav("partner", os.path.abspath(out_sav))
         print(f"PASS: the delivery person handed over item {item}, now in KEY ITEMS")
+    finally:
+        g.close()
+
+
+# FireRed/LeafGreen (pret pokefirered): what the ferry and Navel Rock need, and where things are
+FRLG_SB1_VARS, FRLG_SB1_SAVED_MUSIC = 0x1000, 0x2C
+VAR_MAP_SCENE_ONE_ISLAND_PC_1F, VAR_MAP_SCENE_VERMILION_CITY = 0x4076, 0x407E
+FLAG_ENABLE_SHIP_NAVEL_ROCK = 0x800 + 0x4A
+MUS_HALL_OF_FAME = 286
+
+
+def frlg_var(g, var, value):
+    g.write(g.sb1() + FRLG_SB1_VARS + 2 * (var - 0x4000), struct.pack("<H", value))
+
+
+def hall_of_fame_theme(rom, sav, out, secs=150):
+    """OUT: the Hall of Fame's music, played by FireRed/LeafGreen itself: the save's "saved music"
+    (gSaveBlock1->savedMusic, which Overworld_PlaySpecialMapMusic prefers to a map's own) set to
+    MUS_HALL_OF_FAME before CONTINUE; 16-bit stereo at 32768 Hz, nothing pressed, sound only."""
+    p = profiles.for_rom(rom)
+    g = savegen.Game(rom, p, save=sav)
+    try:
+        for _ in range(3000):
+            if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
+                break
+            g.tap("A", gap=10)
+        g.run(40)
+        g.write(g.sb1() + FRLG_SB1_SAVED_MUSIC, struct.pack("<H", MUS_HALL_OF_FAME))
+        g.tap("A", gap=10)
+        g.wait(g.in_overworld, 1200, what="the overworld")
+        g.run(120)
+        if os.path.exists(out):
+            os.remove(out)
+        g.v.cmd(f"audio partner {g.v._path(os.path.abspath(out))}")
+        g.run(int(secs * 59.7275))
+        g.v.cmd("audio partner -")
+        print(f"PASS: {os.path.getsize(out) / 4 / 32768:.0f} s of the Hall of Fame's music in {out}")
+    finally:
+        g.close()
+
+
+def _map(g):
+    return tuple(g.read(g.sb1() + 4, 2))
+
+
+def _continue_at(g, p, warp, prepare=None):
+    """From the title menu (any state before it), CONTINUE to warp (map group, number, x, y)."""
+    for _ in range(3000):
+        if g.callback2() == p.sym["CB2_MainMenu"] & ~1:
+            break
+        g.tap("A", gap=10)
+    g.run(40)
+    if prepare:
+        prepare()
+    savegen.point_continue(g, warp)
+    g.tap("A", gap=10)
+    g.wait(g.in_overworld, 1200, what="the overworld")
+    # FireRed/LeafGreen replay the last few moments first ("Previously on your quest..."): B skips it
+    for _ in range(40):
+        if _map(g) == tuple(warp[:2]) and g.player_xy() == tuple(warp[2:]):
+            break
+        g.tap("B", gap=30)
+    else:
+        raise RuntimeError(f"didn't arrive at {warp}")
+    g.run(30)
+
+
+def _walk_to(g, tx, ty, limit=60):
+    for _ in range(limit):
+        x, y = g.player_xy()
+        if (x, y) == (tx, ty):
+            return
+        k = "UP" if y > ty else "DOWN" if y < ty else "LEFT" if x > tx else "RIGHT"
+        g.tap(k, hold=14, gap=6)
+        g.run(8)
+    raise RuntimeError(f"couldn't walk to {(tx, ty)} (at {g.player_xy()})")
+
+
+def navel_rock(rom, sav):
+    """The Mystic Ticket used (FireRed/LeafGreen, 21 November 2026): from the save with the ticket in
+    the bag, to Vermilion City's harbour (the story progress the ferry wants - the Rainbow Pass's
+    scene at One Island, Vermilion's harbour scene - set in the emulator, as the test save hasn't
+    played that far; the ticket and its flag are the game's own from Mystery Gift). Talk to the
+    sailor, sail to NAVEL ROCK, walk off the boat and up to the cave; then (the climb down skipped)
+    to the foot of Navel Rock, up to Lugia, and the battle until "A wild LUGIA appeared!", before
+    any Pokemon is sent out. Passes when the battle has Lugia (species 249) in it."""
+    p = profiles.for_rom(rom)
+    g = savegen.Game(rom, p, save=sav)
+    try:
+        def progress():
+            frlg_var(g, VAR_MAP_SCENE_VERMILION_CITY, 3)
+            frlg_var(g, VAR_MAP_SCENE_ONE_ISLAND_PC_1F, 5)
+            print("  the ferry's flag from the Mystic Ticket's script:",
+                  "set by the game" if flag_set(g, FLAG_ENABLE_SHIP_NAVEL_ROCK) else "NOT set")
+        _continue_at(g, p, (3, 5, 24, 29), progress)
+        g.run(60)
+        mark(g, "vermilion")
+        _walk_to(g, 24, 32)                               # down the pier to the sailor at the gangway
+        g.tap("DOWN", hold=2, gap=16)
+        mark(g, "sailor")
+        for _ in range(30):                               # "Oh! That's a MYSTIC TICKET!", then where to
+            if g.has_task("Task_HandleMultichoiceInput"):
+                break
+            g.tap("A", gap=50)
+        else:
+            raise RuntimeError("the sailor offered no destinations")
+        g.run(30)
+        g.tap("DOWN", gap=30)                             # (SEVII ISLANDS, NAVEL ROCK, EXIT)
+        mark(g, "sail")
+        g.tap("A", gap=30)
+        for _ in range(200):                              # the Seagallop's crossing, then the harbour
+            if _map(g) == (2, 59) and g.in_overworld():
+                break
+            g.run(20)
+            if not g.in_overworld():
+                continue
+            g.tap("A", gap=30)
+        else:
+            raise RuntimeError("the ferry never reached Navel Rock")
+        g.run(90)
+        mark(g, "harbor")
+        for _ in range(30):                               # up the pier and off the harbour map
+            g.tap("UP", hold=14, gap=6)
+            g.run(8)
+            if _map(g) != (2, 59):
+                break
+        g.wait(g.in_overworld, 600, what="Navel Rock's outside")
+        g.run(60)
+        mark(g, "exterior")
+        for _ in range(20):                               # up to the cave's mouth
+            g.tap("UP", hold=14, gap=6)
+            g.run(8)
+            if _map(g) != (2, 0):
+                break
+        g.run(90)
+        mark(g, "cave")
+        # the climb down to the foot of the rock, skipped: the game's own CONTINUE (from the save with
+        # the ticket, not saved again here), pointed there
+        restart_to_title(g)
+        _continue_at(g, p, (2, 38, 10, 19))
+        g.run(60)
+        mark(g, "base")
+        _walk_to(g, 10, 16)
+        g.tap("UP", hold=2, gap=16)
+        g.run(20)
+        mark(g, "lugia")
+        mons = p.gBattleMons
+        g.tap("A", gap=20)
+        for _ in range(120):                              # the rock shakes, its cry, the battle fades in
+            g.run(20)
+            if struct.unpack("<H", g.read(mons + 0x58, 2))[0] == 249 or \
+               struct.unpack("<H", g.read(mons, 2))[0] == 249:
+                break
+        else:
+            raise RuntimeError("no battle with Lugia")
+        mark(g, "battle")
+        g.run(330)                                        # "A wild LUGIA appeared!": no press, nothing sent out
+        g.screenshot("/tmp/navel_end.png")
+        mark(g, "end")
+        print("PASS: Lugia has appeared, and no Pokemon has been sent out")
     finally:
         g.close()
 
@@ -467,7 +632,7 @@ def mystery_event(rom, sav):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("which", choices=("mystery_event", "mystery_gift", "mystery_gift_claim", "mystery_gift_claim_frlg",
-                                      "visit_base", "theme"))
+                                      "navel_rock", "hall_of_fame", "visit_base", "theme"))
     ap.add_argument("--out", help="theme: where the music goes")
     ap.add_argument("--sb3", help="visit_base: the base that was mixed in")
     ap.add_argument("--wc3", help="mystery_gift_claim: the Wonder Card (English Emerald's)")
@@ -481,7 +646,11 @@ def main():
     if a.which == "mystery_gift_claim":
         return mystery_gift_claim(a.rom, a.sav, a.wc3)
     if a.which == "mystery_gift_claim_frlg":
-        return mystery_gift_claim_frlg(a.rom, a.sav)
+        return mystery_gift_claim_frlg(a.rom, a.sav, out_sav=a.out)
+    if a.which == "navel_rock":
+        return navel_rock(a.rom, a.sav)
+    if a.which == "hall_of_fame":
+        return hall_of_fame_theme(a.rom, a.sav, a.out)
     if a.which == "visit_base":
         return visit_base(a.rom, a.sav, a.sb3)
     if a.which == "theme":

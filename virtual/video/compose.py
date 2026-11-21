@@ -235,14 +235,16 @@ class Video:
             self.emit(full=Image.blend(Image.new("RGB", img.size, BG), img, f) if f < 1 else img)
 
     OVERVIEW = [
-        "Datel's Action Replay MAX DUO: a USB save device for GBA and DS games",
-        "New, open firmware for it (Reckless), which you build and install yourself",
-        "Back up any GBA game's save to the PC",
+        "Datel's Action Replay MAX DUO: it only ever backed up DS saves, and its drivers stopped working long ago",
+        "New, open firmware (Reckless), built from Datel's own update file and installed by you",
+        "Now it backs up any GBA game's save to the PC too, without ever writing to the cartridge",
         "Its GBA plays the other end of a link cable: trades, battles, Record Mixing, the Berry Blender, "
         "contests and the Battle Tower",
-        "It plays the e-Reader for Mystery Events, and the Wireless Adapter for Mystery Gift",
-        "Every Generation III Pokémon game: Ruby, Sapphire, Emerald, FireRed and LeafGreen",
-        "Built against simulations of the DUO's chips and of the games, then tried on the real thing",
+        "It plays the e-Reader for Mystery Events, and the Wireless Adapter and distributor for Mystery Gift",
+        "As legit as it gets: the game receives everything through its own menus and its own code, just as "
+        "from a real event or a real friend. Nothing is edited into the save",
+        "Every Generation III Pokémon game; built against simulations of the DUO and the games, then proven "
+        "on the real thing",
     ]
 
     def overview(self, secs=11.0):
