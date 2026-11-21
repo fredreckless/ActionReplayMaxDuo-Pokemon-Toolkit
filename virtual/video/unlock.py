@@ -238,15 +238,12 @@ def mystery_gift_claim_frlg(rom, sav, item=ITEM_MYSTIC_TICKET, out_sav=None):
         mark(g, "walk")
         # behind the counter, like the attendants: talk to them across it, from two tiles below
         tx, ty = target[0], target[1] + 2
-        for _ in range(40):
-            x, y = g.player_xy()
-            if (x, y) == (tx, ty):
-                break
-            k = "LEFT" if x > tx else "RIGHT" if x < tx else "DOWN" if y < ty else "UP"
-            g.tap(k, hold=14, gap=6)
-            g.run(8)
-        else:
-            raise RuntimeError(f"couldn't get below {target}")
+        x, y = g.player_xy()
+        if x != tx:
+            _hold_until(g, "LEFT" if x > tx else "RIGHT", lambda: g.player_xy()[0] == tx)
+            g.run(16)
+        if g.player_xy() != (tx, ty):
+            _walk_to(g, tx, ty)
         g.tap("UP", hold=2, gap=16)
         g.run(20)
         mark(g, "talk")
@@ -343,15 +340,35 @@ def _continue_at(g, p, warp, prepare=None):
     g.run(30)
 
 
+def _hold_until(g, key, done, limit=600):
+    """Walk with the key held down, as a person would, until done(): smooth, not a tile at a time.
+    The player's coordinates change as a step begins, so letting go then ends on that tile."""
+    g.v.keys("partner", key)
+    try:
+        for _ in range(limit // 2):
+            if done():
+                return True
+            g.run(2)
+        return done()
+    finally:
+        g.v.keys("partner")
+
+
 def _walk_to(g, tx, ty, limit=60):
-    for _ in range(limit):
+    """Vertically, then across, each in one held stretch (a tap to turn first where needed)."""
+    for _ in range(4):
         x, y = g.player_xy()
         if (x, y) == (tx, ty):
+            g.run(16)                                     # (the last step finishes)
             return
-        k = "UP" if y > ty else "DOWN" if y < ty else "LEFT" if x > tx else "RIGHT"
-        g.tap(k, hold=14, gap=6)
-        g.run(8)
-    raise RuntimeError(f"couldn't walk to {(tx, ty)} (at {g.player_xy()})")
+        if y != ty:
+            _hold_until(g, "UP" if y > ty else "DOWN", lambda: g.player_xy()[1] == ty or g.player_xy()[0] != x)
+        elif x != tx:
+            _hold_until(g, "LEFT" if x > tx else "RIGHT", lambda: g.player_xy()[0] == tx or g.player_xy()[1] != y)
+        g.run(4)
+    if g.player_xy() != (tx, ty):
+        raise RuntimeError(f"couldn't walk to {(tx, ty)} (at {g.player_xy()})")
+    g.run(16)
 
 
 def navel_rock(rom, sav):
@@ -397,19 +414,11 @@ def navel_rock(rom, sav):
             raise RuntimeError("the ferry never reached Navel Rock")
         g.run(90)
         mark(g, "harbor")
-        for _ in range(30):                               # up the pier and off the harbour map
-            g.tap("UP", hold=14, gap=6)
-            g.run(8)
-            if _map(g) != (2, 59):
-                break
+        _hold_until(g, "UP", lambda: _map(g) != (2, 59), 900)   # up the pier and off the harbour map
         g.wait(g.in_overworld, 600, what="Navel Rock's outside")
         g.run(60)
         mark(g, "exterior")
-        for _ in range(20):                               # up to the cave's mouth
-            g.tap("UP", hold=14, gap=6)
-            g.run(8)
-            if _map(g) != (2, 0):
-                break
+        _hold_until(g, "UP", lambda: _map(g) != (2, 0), 900)    # up to the cave's mouth
         g.run(90)
         mark(g, "cave")
         # the climb down to the foot of the rock, skipped: the game's own CONTINUE (from the save with
@@ -418,6 +427,9 @@ def navel_rock(rom, sav):
         _continue_at(g, p, (2, 38, 10, 19))
         g.run(60)
         mark(g, "base")
+        g.run(200)                                        # (the map's name comes and goes)
+        mark(g, "approach")
+        g.run(30)
         _walk_to(g, 10, 16)
         g.tap("UP", hold=2, gap=16)
         g.run(20)

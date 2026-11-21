@@ -365,7 +365,15 @@ def frlg_gift_story(out, gift_rec, unlock_rec, claim_rec, card_name, crf=20, the
     nav = Recording(navel_rec) if navel_rec else None
     if nav:                                                   # the cold open: up to Lugia, the battle fading in
         at = {e["mark"]: e["n"] for e in nav.events if "mark" in e}
-        play_full(v, nav, at["base"], at["battle"] + 20)
+        # up to the moment the screen has faded to black for the battle: not the battle itself
+        black = next((i for i in range(at["lugia"], at["battle"]) if max(nav.image(i, "partner").getextrema(),
+                                                                          key=lambda e: e[1])[1] < 12), at["battle"])
+        # from once the arrival's fade and the map's name have cleared (unlock.py's "approach")
+        start = next((i for i in range(at.get("approach", at["base"]), at["lugia"])
+                      if not any(x >= 200 for x in nav.image(i, "partner").convert("L").crop((60, 150, 180, 160)).get_flattened_data())
+                      and nav.image(i, "partner").convert("L").getpixel((120, 10)) < 240),
+                     at["base"])
+        play_full(v, nav, start, black + 1)
         v.crossfade()
     v.overview(secs=15)
     v.setup()
@@ -412,7 +420,7 @@ def frlg_gift_story(out, gift_rec, unlock_rec, claim_rec, card_name, crf=20, the
         v.crossfade()
         play_full(v, nav, at["vermilion"], at["cave"], cues=[c for c in cues if c[0] < at["cave"]])
         v.crossfade()
-        play_full(v, nav, at["base"], at["end"], cues=[c for c in cues if c[0] >= at["base"]])
+        play_full(v, nav, at.get("approach", at["base"]) - 40, at["end"], cues=[c for c in cues if c[0] >= at["base"]])
         v.emit(v.seconds(1.5), full=v._shown)                 # (Lugia, held: nothing sent out)
         v.crossfade()
     v.title_card(title, "Recorded in the Virtual DUO: the real game, the DUO's real program\n"
