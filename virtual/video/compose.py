@@ -107,6 +107,8 @@ class Video:
         self.f_tag = font("Silkscreen-Regular.ttf", 16)
         self._cache = {}
         self._fade, self._from, self._shown = 0, None, None
+        self._fade_len = 12
+        self.dips = []                       # (first frame, black from, black to, last frame): sound dips with them
         self.p = subprocess.Popen(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{S}x{S}",
              "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
@@ -202,7 +204,7 @@ class Video:
     def emit(self, n=1, full=None):
         frame = full if full is not None else self.panel_frame()
         if self._fade and self._from is not None:
-            frame = Image.blend(self._from, frame, 1 - self._fade / 12)
+            frame = Image.blend(self._from, frame, 1 - self._fade / self._fade_len)
             self._fade -= 1
         raw = frame.tobytes()
         for _ in range(n):
@@ -212,7 +214,24 @@ class Video:
 
     def crossfade(self):
         """The next half second blends in from whatever was last shown."""
-        self._from, self._fade = self._shown, 12
+        self._from, self._fade, self._fade_len = self._shown, 12, 12
+
+    def dip(self, out=0.6, black=0.4, back=0.6):
+        """Fade what was last shown down to black, hold, and let the next scene fade up out of black.
+        The music and the game's sound fade down and back with it (see _soundtrack)."""
+        if self._shown is None:
+            return
+        last = self._shown
+        dark = Image.new("RGB", last.size, (0, 0, 0))
+        n_out, n_black, n_back = self.seconds(out), self.seconds(black), self.seconds(back)
+        first = self.frames
+        self._fade = 0
+        for i in range(1, n_out + 1):
+            self.emit(full=Image.blend(last, dark, i / n_out))
+        b0 = self.frames
+        self.emit(n_black, full=dark)
+        self.dips.append((first, b0, self.frames, self.frames + n_back))
+        self._from, self._fade, self._fade_len = dark, n_back, n_back
 
     # -- what a story says ----------------------------------------------------------------------------
     def say(self, caption, step=None):
@@ -224,7 +243,9 @@ class Video:
     def title_card(self, title, sub, secs=4.0):
         img = Image.new("RGB", (S, S), BG)
         d = ImageDraw.Draw(img)
-        d.text((S // 2, S // 2 - 70), title, font=font("Jersey10.ttf", 96), fill=INK, anchor="mm")
+        tl = title.split("\n")
+        for k, line in enumerate(tl):
+            d.text((S // 2, S // 2 - 70 - 92 * (len(tl) - 1 - k)), line, font=font("Jersey10.ttf", 96), fill=INK, anchor="mm")
         y = S // 2 + 30
         for line in sub.split("\n"):
             d.text((S // 2, y), line, font=font("Jersey10.ttf", 42), fill=DIM, anchor="mm")
@@ -519,7 +540,12 @@ class Video:
         fade = int(1.0 * rate)
         env = np.ones(total, np.float32)
         end = int(self.frames * rate / FPS)
-        env[:fade] = np.linspace(0, 1, fade)
+        for f0, b0, b1, f1 in self.dips:                     # the fades through black: the sound with them
+            a0, a1, a2, a3 = (min(total, int(x * rate / FPS)) for x in (f0, b0, b1, f1))
+            env[a0:a1] = np.minimum(env[a0:a1], np.linspace(1, 0, a1 - a0) ** 2)
+            env[a1:a2] = 0
+            env[a2:a3] = np.minimum(env[a2:a3], np.linspace(0, 1, a3 - a2) ** 0.5)
+        env[:fade] = np.minimum(env[:fade], np.linspace(0, 1, fade))
         env[max(0, end - fade):end] = np.linspace(1, 0, end - max(0, end - fade))
         env[end:] = 0
         mix = np.clip(mix * env[:, None], -32767, 32767).astype("<i2")
